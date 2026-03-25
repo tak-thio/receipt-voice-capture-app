@@ -3,7 +3,11 @@ import { buildExportPreview } from '../services/export/build-export-preview'
 import type { CsvPreviewDocument, ExportTarget } from '../types/export'
 import type { Session } from '../types/domain'
 
-export async function exportCsv(session: Session, target: ExportTarget): Promise<CsvPreviewDocument> {
+export async function exportCsv(
+  session: Session,
+  target: ExportTarget,
+  destinationPath?: string,
+): Promise<CsvPreviewDocument> {
   const preview = buildExportPreview(session, target)
   const tauriResult = await maybeInvoke<CsvPreviewDocument>('export_csv', {
     target,
@@ -11,6 +15,7 @@ export async function exportCsv(session: Session, target: ExportTarget): Promise
     storageRoot: session.settingsSnapshot.storageRoot,
     fileName: preview.fileName,
     csvContent: preview.csvContent,
+    destinationPath,
   })
 
   if (tauriResult) {

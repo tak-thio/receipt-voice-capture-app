@@ -5,6 +5,7 @@ mod services;
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::audio::save_audio_clip,
             commands::session::create_session,

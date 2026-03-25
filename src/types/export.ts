@@ -21,4 +21,5 @@ export interface CsvPreviewDocument {
   headers: string[]
   rows: string[][]
   csvContent: string
+  savedTo?: string
 }

@@ -9,13 +9,18 @@ pub fn export_csv(
     csv_content: String,
     session_id: Option<String>,
     storage_root: Option<String>,
+    destination_path: Option<String>,
 ) -> Result<Value, String> {
-    let export_path = match session_id {
-        Some(session_id) => {
-            SessionRepository::create_directories(storage_root.as_deref(), &session_id)?;
-            SessionRepository::exports_dir(storage_root.as_deref(), &session_id).join(&file_name)
-        }
-        None => SessionRepository::base_dir(storage_root.as_deref()).join(&file_name),
+    let export_path = match destination_path {
+        Some(path) if !path.is_empty() => std::path::PathBuf::from(path),
+        _ => match session_id {
+            Some(session_id) => {
+                SessionRepository::create_directories(storage_root.as_deref(), &session_id)?;
+                SessionRepository::exports_dir(storage_root.as_deref(), &session_id)
+                    .join(&file_name)
+            }
+            None => SessionRepository::base_dir(storage_root.as_deref()).join(&file_name),
+        },
     };
 
     SessionRepository::ensure_parent(&export_path)?;

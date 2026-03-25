@@ -1,13 +1,17 @@
 import { useMemo, useState } from 'react'
+import { save } from '@tauri-apps/plugin-dialog'
 import { exportCsv } from '../api/export-api'
+import { isTauriRuntime } from '../api/tauri'
 import { buildExportPreview } from '../services/export/build-export-preview'
 import { useSessionStore } from '../store/session-store'
 import type { ExportTarget } from '../types/export'
 
 export function ExportPage() {
   const session = useSessionStore((state) => state.session)
-  const [target, setTarget] = useState<ExportTarget>('generic')
+  const settings = useSessionStore((state) => state.settings)
+  const [target, setTarget] = useState<ExportTarget>(settings.exportTargetDefault)
   const [lastExportMessage, setLastExportMessage] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
 
   const preview = useMemo(() => {
     if (!session) {
@@ -18,19 +22,53 @@ export function ExportPage() {
   }, [session, target])
 
   async function handleExport() {
-    if (!session) {
+    if (!session || isExporting) {
       return
     }
 
-    const result = await exportCsv(session, target)
-    const blob = new Blob([result.csvContent], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = result.fileName
-    anchor.click()
-    URL.revokeObjectURL(url)
-    setLastExportMessage(`${result.fileName} を生成しました。`)
+    setIsExporting(true)
+
+    try {
+      if (isTauriRuntime()) {
+        const destinationPath = await save({
+          title: 'CSVの保存先を選択',
+          defaultPath: resultFileName(session, target),
+          filters: [
+            {
+              name: 'CSV',
+              extensions: ['csv'],
+            },
+          ],
+        })
+
+        if (!destinationPath) {
+          setLastExportMessage('CSV書き出しをキャンセルしました。')
+          return
+        }
+
+        const result = await exportCsv(session, target, destinationPath)
+        setLastExportMessage(result.savedTo ? `CSVを保存しました: ${result.savedTo}` : `${result.fileName} を保存しました。`)
+        return
+      }
+
+      const result = await exportCsv(session, target)
+      const blob = new Blob([result.csvContent], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = result.fileName
+      anchor.click()
+      URL.revokeObjectURL(url)
+      setLastExportMessage(`${result.fileName} を生成しました。`)
+    } catch (error) {
+      setLastExportMessage(error instanceof Error ? error.message : 'CSV書き出しに失敗しました。')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  function resultFileName(currentSession: NonNullable<typeof session>, exportTarget: ExportTarget): string {
+    return buildExportPreview(currentSession, exportTarget).fileName
   }
 
   return (
@@ -53,11 +91,13 @@ export function ExportPage() {
               <option value="yayoi">弥生</option>
             </select>
           </label>
-          <button className="accent-button" onClick={() => void handleExport()} disabled={!session?.records.length}>
-            CSVを書き出す
+          <button className="accent-button" onClick={() => void handleExport()} disabled={!session?.records.length || isExporting}>
+            {isExporting ? '書き出し中...' : 'CSVを書き出す'}
           </button>
         </div>
-        <p className="muted small">{lastExportMessage || '保存先ダイアログは Tauri 実接続時に backend command に寄せます。'}</p>
+        <p className="muted small">
+          {lastExportMessage || 'Tauri 実行時はネイティブ保存ダイアログ、ブラウザではダウンロードで書き出します。'}
+        </p>
       </article>
 
       <article className="panel">

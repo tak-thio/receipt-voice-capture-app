@@ -3,3 +3,5 @@ dist
 tmp
 .DS_Store
 src-tauri/target
+receipt-sessions
+src-tauri/receipt-sessions
