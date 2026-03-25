@@ -8,6 +8,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::audio::save_audio_clip,
             commands::session::create_session,
+            commands::session::load_current_session,
             commands::session::load_session,
             commands::session::save_session,
             commands::settings::load_settings,

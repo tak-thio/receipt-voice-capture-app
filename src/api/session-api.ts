@@ -56,6 +56,14 @@ export async function loadSession(sessionId: string, storageRoot?: string): Prom
 }
 
 export async function loadCurrentSession(storageRoot?: string): Promise<Session | null> {
+  const tauriSession = await maybeInvoke<Session | null>('load_current_session', {
+    storageRoot,
+  })
+  if (tauriSession) {
+    rememberCurrentSession(tauriSession.id)
+    return tauriSession
+  }
+
   const currentSessionId = localStorage.getItem(CURRENT_SESSION_KEY)
   if (!currentSessionId) {
     return null

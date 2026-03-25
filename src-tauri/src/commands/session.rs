@@ -2,7 +2,10 @@ use crate::repositories::session_repository::SessionRepository;
 use serde_json::Value;
 
 #[tauri::command]
-pub fn create_session(settings_snapshot: Value, storage_root: Option<String>) -> Result<Value, String> {
+pub fn create_session(
+    settings_snapshot: Value,
+    storage_root: Option<String>,
+) -> Result<Value, String> {
     let now = chrono::Utc::now().to_rfc3339();
     let session_id = format!("session-{}", chrono::Utc::now().timestamp_millis());
     let session = serde_json::json!({
@@ -22,8 +25,16 @@ pub fn create_session(settings_snapshot: Value, storage_root: Option<String>) ->
 }
 
 #[tauri::command]
-pub fn load_session(session_id: String, storage_root: Option<String>) -> Result<Option<Value>, String> {
+pub fn load_session(
+    session_id: String,
+    storage_root: Option<String>,
+) -> Result<Option<Value>, String> {
     SessionRepository::load(storage_root.as_deref(), &session_id)
+}
+
+#[tauri::command]
+pub fn load_current_session(storage_root: Option<String>) -> Result<Option<Value>, String> {
+    SessionRepository::load_current(storage_root.as_deref())
 }
 
 #[tauri::command]
