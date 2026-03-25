@@ -14,6 +14,11 @@ pub fn transcribe_audio(
     audio_path: Option<String>,
     audio_duration_ms: Option<u64>,
     seed_text: Option<String>,
+    stt_model: Option<String>,
+    stt_device: Option<String>,
+    stt_compute_type: Option<String>,
+    stt_language: Option<String>,
+    stt_beam_size: Option<u32>,
 ) -> Result<SttTranscriptionPayload, String> {
     let mode = match mode {
         SttModeInput::Mock => SttMode::Mock,
@@ -25,5 +30,10 @@ pub fn transcribe_audio(
         audio_path,
         audio_duration_ms,
         seed_text,
+        stt_model,
+        stt_device,
+        stt_compute_type,
+        stt_language,
+        stt_beam_size,
     })
 }

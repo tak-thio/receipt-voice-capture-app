@@ -6,6 +6,11 @@ export interface TranscribeAudioInput {
   audioPath?: string
   audioDurationMs?: number
   seedText?: string
+  sttModel?: string
+  sttDevice?: string
+  sttComputeType?: string
+  sttLanguage?: string
+  sttBeamSize?: number
 }
 
 export interface TranscribeAudioResult {

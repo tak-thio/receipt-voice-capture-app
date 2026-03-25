@@ -24,6 +24,7 @@
   - 現在は録音クリップを `session/<id>/audio/` に保存し、Tauri backend の STT command から service 経由で処理する土台まで実装済み
   - 現在は `scripts/stt_sidecar.py` を Python sidecar として backend から起動し、`seed_text` を sidecar 経由でイベント列へ変換できる
   - `RECEIPT_STT_PYTHON` と `RECEIPT_STT_SIDECAR` で実行環境を上書き可能にし、次段で faster-whisper 実装へ差し替える
+  - `faster-whisper` 自体の導入準備として `scripts/requirements-stt.txt` と `docs/local-stt-setup.md` を追加し、依存導入後は sidecar が実音声ファイルを `WhisperModel(...).transcribe(...)` で処理できる
 
 ## 3. 税区分の拡張
 - 未確定事項:

@@ -419,6 +419,11 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
               audioPath: request.audioClip?.filePath,
               audioDurationMs: request.audioClip?.durationMs,
               seedText: buildSeedText(request),
+              sttModel: settings.sttModel,
+              sttDevice: settings.sttDevice,
+              sttComputeType: settings.sttComputeType,
+              sttLanguage: settings.sttLanguage,
+              sttBeamSize: settings.sttBeamSize,
             })
           : await sttAdapter.transcribe(request)
 

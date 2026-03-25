@@ -99,6 +99,36 @@ export function SettingsPage() {
             </select>
           </label>
           <label className="field">
+            <span>STTモデル</span>
+            <input value={draft.sttModel} onChange={(event) => setDraft({ ...draft, sttModel: event.target.value })} />
+          </label>
+          <label className="field">
+            <span>STT device</span>
+            <input value={draft.sttDevice} onChange={(event) => setDraft({ ...draft, sttDevice: event.target.value })} />
+          </label>
+          <label className="field">
+            <span>STT compute type</span>
+            <input value={draft.sttComputeType} onChange={(event) => setDraft({ ...draft, sttComputeType: event.target.value })} />
+          </label>
+          <label className="field">
+            <span>STT language</span>
+            <input value={draft.sttLanguage} onChange={(event) => setDraft({ ...draft, sttLanguage: event.target.value })} />
+          </label>
+          <label className="field">
+            <span>STT beam size</span>
+            <input
+              type="number"
+              min={1}
+              value={draft.sttBeamSize}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  sttBeamSize: Number(event.target.value || 1),
+                })
+              }
+            />
+          </label>
+          <label className="field">
             <span>OCRモード</span>
             <select value={draft.ocrMode} onChange={(event) => setDraft({ ...draft, ocrMode: event.target.value as AppSettings['ocrMode'] })}>
               <option value="mock">mock</option>

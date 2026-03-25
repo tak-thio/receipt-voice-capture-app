@@ -15,6 +15,11 @@ pub struct SttTranscriptionRequest {
     pub audio_path: Option<String>,
     pub audio_duration_ms: Option<u64>,
     pub seed_text: Option<String>,
+    pub stt_model: Option<String>,
+    pub stt_device: Option<String>,
+    pub stt_compute_type: Option<String>,
+    pub stt_language: Option<String>,
+    pub stt_beam_size: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -39,6 +44,11 @@ struct SidecarSttRequest {
     audio_path: Option<String>,
     audio_duration_ms: Option<u64>,
     seed_text: Option<String>,
+    stt_model: Option<String>,
+    stt_device: Option<String>,
+    stt_compute_type: Option<String>,
+    stt_language: Option<String>,
+    stt_beam_size: Option<u32>,
 }
 
 trait SttAdapter {
@@ -98,6 +108,11 @@ fn build_sidecar_request(request: &SttTranscriptionRequest) -> SidecarSttRequest
         audio_path: request.audio_path.clone(),
         audio_duration_ms: request.audio_duration_ms,
         seed_text: request.seed_text.clone(),
+        stt_model: request.stt_model.clone(),
+        stt_device: request.stt_device.clone(),
+        stt_compute_type: request.stt_compute_type.clone(),
+        stt_language: request.stt_language.clone(),
+        stt_beam_size: request.stt_beam_size,
     }
 }
 
@@ -241,6 +256,11 @@ mod tests {
             audio_path: None,
             audio_duration_ms: Some(4000),
             seed_text: Some("一件目\n次\n二件目".to_string()),
+            stt_model: None,
+            stt_device: None,
+            stt_compute_type: None,
+            stt_language: None,
+            stt_beam_size: None,
         })
         .expect("mock mode should succeed");
 
@@ -257,6 +277,11 @@ mod tests {
             audio_path: Some("/tmp/audio.webm".to_string()),
             audio_duration_ms: Some(2000),
             seed_text: Some("一件目\n次へ".to_string()),
+            stt_model: Some("small".to_string()),
+            stt_device: Some("cpu".to_string()),
+            stt_compute_type: Some("int8".to_string()),
+            stt_language: Some("ja".to_string()),
+            stt_beam_size: Some(5),
         });
 
         assert_eq!(
@@ -265,6 +290,11 @@ mod tests {
                 audio_path: Some("/tmp/audio.webm".to_string()),
                 audio_duration_ms: Some(2000),
                 seed_text: Some("一件目\n次へ".to_string()),
+                stt_model: Some("small".to_string()),
+                stt_device: Some("cpu".to_string()),
+                stt_compute_type: Some("int8".to_string()),
+                stt_language: Some("ja".to_string()),
+                stt_beam_size: Some(5),
             }
         );
     }
