@@ -27,7 +27,13 @@ pub fn save_audio_clip(
     let audio_dir = SessionRepository::audio_dir(storage_root.as_deref(), &session_id);
     let file_name = suggested_file_name
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| format!("audio-{}.{}", chrono::Utc::now().timestamp_millis(), extension));
+        .unwrap_or_else(|| {
+            format!(
+                "audio-{}.{}",
+                chrono::Utc::now().timestamp_millis(),
+                extension
+            )
+        });
     let file_path = audio_dir.join(file_name);
 
     let base64_payload = audio_data_url

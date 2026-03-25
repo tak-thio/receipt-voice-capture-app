@@ -1,16 +1,37 @@
 import { useEffect, useState } from 'react'
+import {
+  listAudioInputDevices,
+  listVideoInputDevices,
+} from '../services/audio/media-recorder-service'
 import { useSessionStore } from '../store/session-store'
+import type { RecordingDeviceOption } from '../types/audio'
 import type { AppSettings } from '../types/settings'
 
 export function SettingsPage() {
   const settings = useSessionStore((state) => state.settings)
   const persistSettings = useSessionStore((state) => state.persistSettings)
   const [draft, setDraft] = useState<AppSettings>(settings)
+  const [cameraDevices, setCameraDevices] = useState<RecordingDeviceOption[]>([])
+  const [audioDevices, setAudioDevices] = useState<RecordingDeviceOption[]>([])
   const [message, setMessage] = useState('')
 
   useEffect(() => {
     setDraft(settings)
   }, [settings])
+
+  useEffect(() => {
+    async function refreshDevices() {
+      const [cameras, microphones] = await Promise.all([
+        listVideoInputDevices(),
+        listAudioInputDevices(),
+      ])
+
+      setCameraDevices(cameras)
+      setAudioDevices(microphones)
+    }
+
+    void refreshDevices()
+  }, [])
 
   return (
     <section className="page">
@@ -30,11 +51,31 @@ export function SettingsPage() {
           </label>
           <label className="field">
             <span>カメラID</span>
-            <input value={draft.preferredCameraId} onChange={(event) => setDraft({ ...draft, preferredCameraId: event.target.value })} />
+            <select
+              value={draft.preferredCameraId}
+              onChange={(event) => setDraft({ ...draft, preferredCameraId: event.target.value })}
+            >
+              <option value="">既定のカメラ</option>
+              {cameraDevices.map((device) => (
+                <option key={device.deviceId} value={device.deviceId}>
+                  {device.label}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="field">
             <span>マイクID</span>
-            <input value={draft.preferredMicrophoneId} onChange={(event) => setDraft({ ...draft, preferredMicrophoneId: event.target.value })} />
+            <select
+              value={draft.preferredMicrophoneId}
+              onChange={(event) => setDraft({ ...draft, preferredMicrophoneId: event.target.value })}
+            >
+              <option value="">既定のマイク</option>
+              {audioDevices.map((device) => (
+                <option key={device.deviceId} value={device.deviceId}>
+                  {device.label}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="field">
             <span>STTモード</span>
@@ -88,7 +129,9 @@ export function SettingsPage() {
             保存
           </button>
         </div>
-        <p className="muted small">{message || '辞書ファイルは `dictionaries/` 配下を静的読込しています。'}</p>
+        <p className="muted small">
+          {message || '辞書ファイルは `dictionaries/` 配下を静的読込しています。デバイス名はブラウザ権限取得後に表示されます。'}
+        </p>
       </article>
     </section>
   )

@@ -31,14 +31,23 @@ pub struct SttTranscriptionPayload {
 }
 
 trait SttAdapter {
-    fn transcribe(&self, request: &SttTranscriptionRequest) -> Result<SttTranscriptionPayload, String>;
+    fn transcribe(
+        &self,
+        request: &SttTranscriptionRequest,
+    ) -> Result<SttTranscriptionPayload, String>;
 }
 
 struct MockBackendSttAdapter;
 
 impl SttAdapter for MockBackendSttAdapter {
-    fn transcribe(&self, request: &SttTranscriptionRequest) -> Result<SttTranscriptionPayload, String> {
-        let events = build_events_from_seed_text(request.seed_text.as_deref().unwrap_or(""), request.audio_duration_ms);
+    fn transcribe(
+        &self,
+        request: &SttTranscriptionRequest,
+    ) -> Result<SttTranscriptionPayload, String> {
+        let events = build_events_from_seed_text(
+            request.seed_text.as_deref().unwrap_or(""),
+            request.audio_duration_ms,
+        );
 
         Ok(SttTranscriptionPayload {
             events,
@@ -50,7 +59,10 @@ impl SttAdapter for MockBackendSttAdapter {
 struct LocalScaffoldSttAdapter;
 
 impl SttAdapter for LocalScaffoldSttAdapter {
-    fn transcribe(&self, request: &SttTranscriptionRequest) -> Result<SttTranscriptionPayload, String> {
+    fn transcribe(
+        &self,
+        request: &SttTranscriptionRequest,
+    ) -> Result<SttTranscriptionPayload, String> {
         if let Some(seed_text) = request.seed_text.as_deref() {
             let trimmed = seed_text.trim();
             if !trimmed.is_empty() {
@@ -80,7 +92,10 @@ impl SttService {
     }
 }
 
-fn build_events_from_seed_text(seed_text: &str, duration_ms: Option<u64>) -> Vec<SttInputEventPayload> {
+fn build_events_from_seed_text(
+    seed_text: &str,
+    duration_ms: Option<u64>,
+) -> Vec<SttInputEventPayload> {
     let lines: Vec<&str> = seed_text
         .lines()
         .map(|line| line.trim())

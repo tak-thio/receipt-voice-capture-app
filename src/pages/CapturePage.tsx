@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { TAX_MODE_LABELS } from '../lib/constants'
 import { revokeRecordedClip } from '../services/adapters/mock-stt-adapter'
-import { MediaRecorderService, listAudioInputDevices } from '../services/audio/media-recorder-service'
+import {
+  MediaRecorderService,
+  listAudioInputDevices,
+  listVideoInputDevices,
+} from '../services/audio/media-recorder-service'
 import { MOCK_TRANSCRIPT_SEQUENCES } from '../services/sample-sequences'
 import { useSessionStore } from '../store/session-store'
 import type { RecordedAudioClip, RecordingDeviceOption } from '../types/audio'
@@ -43,6 +47,7 @@ export function CapturePage() {
   )
   const [transcriptionMode, setTranscriptionMode] = useState<TranscriptionMode>('sequence')
   const [cameraStatus, setCameraStatus] = useState<'idle' | 'ready' | 'fallback'>('idle')
+  const [cameraDevices, setCameraDevices] = useState<RecordingDeviceOption[]>([])
   const [audioDevices, setAudioDevices] = useState<RecordingDeviceOption[]>([])
   const [latestAudioClip, setLatestAudioClip] = useState<RecordedAudioClip | null>(null)
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0)
@@ -120,8 +125,12 @@ export function CapturePage() {
 
   useEffect(() => {
     async function refreshAudioDevices() {
-      const devices = await listAudioInputDevices()
-      setAudioDevices(devices)
+      const [microphones, cameras] = await Promise.all([
+        listAudioInputDevices(),
+        listVideoInputDevices(),
+      ])
+      setAudioDevices(microphones)
+      setCameraDevices(cameras)
     }
 
     void refreshAudioDevices()
@@ -191,6 +200,7 @@ export function CapturePage() {
     })
     const devices = await listAudioInputDevices()
     setAudioDevices(devices)
+    setCameraDevices(await listVideoInputDevices())
   }
 
   async function handleProcessRecording() {
@@ -239,6 +249,25 @@ export function CapturePage() {
           </div>
           <video ref={videoRef} className="camera-surface" autoPlay muted playsInline />
           <div className="field-grid compact-top">
+            <label className="field">
+              <span>入力カメラ</span>
+              <select
+                value={settings.preferredCameraId}
+                onChange={(event) =>
+                  void persistSettings({
+                    ...settings,
+                    preferredCameraId: event.target.value,
+                  })
+                }
+              >
+                <option value="">既定のカメラ</option>
+                {cameraDevices.map((device) => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="field">
               <span>入力マイク</span>
               <select

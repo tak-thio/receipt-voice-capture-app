@@ -10,18 +10,28 @@ function pickMimeType(): string {
   return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ?? ''
 }
 
-export async function listAudioInputDevices(): Promise<RecordingDeviceOption[]> {
+async function listInputDevices(kind: MediaDeviceKind): Promise<RecordingDeviceOption[]> {
   if (!navigator.mediaDevices?.enumerateDevices) {
     return []
   }
 
   const devices = await navigator.mediaDevices.enumerateDevices()
   return devices
-    .filter((device) => device.kind === 'audioinput')
+    .filter((device) => device.kind === kind)
     .map((device, index) => ({
       deviceId: device.deviceId,
-      label: device.label || `Microphone ${index + 1}`,
+      label:
+        device.label ||
+        `${kind === 'audioinput' ? 'Microphone' : 'Camera'} ${index + 1}`,
     }))
+}
+
+export async function listAudioInputDevices(): Promise<RecordingDeviceOption[]> {
+  return listInputDevices('audioinput')
+}
+
+export async function listVideoInputDevices(): Promise<RecordingDeviceOption[]> {
+  return listInputDevices('videoinput')
 }
 
 export class MediaRecorderService {
