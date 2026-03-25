@@ -56,12 +56,19 @@ export async function loadSession(sessionId: string, storageRoot?: string): Prom
 }
 
 export async function loadCurrentSession(storageRoot?: string): Promise<Session | null> {
-  const tauriSession = await maybeInvoke<Session | null>('load_current_session', {
-    storageRoot,
-  })
-  if (tauriSession) {
-    rememberCurrentSession(tauriSession.id)
-    return tauriSession
+  try {
+    const tauriSession = await maybeInvoke<Session | null>('load_current_session', {
+      storageRoot,
+    })
+    if (tauriSession) {
+      rememberCurrentSession(tauriSession.id)
+      return tauriSession
+    }
+  } catch {
+    const recovered = await loadLatestSession(storageRoot)
+    if (recovered) {
+      return recovered
+    }
   }
 
   const currentSessionId = localStorage.getItem(CURRENT_SESSION_KEY)
@@ -73,12 +80,16 @@ export async function loadCurrentSession(storageRoot?: string): Promise<Session 
 }
 
 export async function loadLatestSession(storageRoot?: string): Promise<Session | null> {
-  const tauriSession = await maybeInvoke<Session | null>('load_latest_session', {
-    storageRoot,
-  })
-  if (tauriSession) {
-    rememberCurrentSession(tauriSession.id)
-    return tauriSession
+  try {
+    const tauriSession = await maybeInvoke<Session | null>('load_latest_session', {
+      storageRoot,
+    })
+    if (tauriSession) {
+      rememberCurrentSession(tauriSession.id)
+      return tauriSession
+    }
+  } catch {
+    return null
   }
 
   const summaries = await listSessions(storageRoot)
@@ -91,11 +102,15 @@ export async function loadLatestSession(storageRoot?: string): Promise<Session |
 }
 
 export async function listSessions(storageRoot?: string): Promise<SessionSummary[]> {
-  const tauriSummaries = await maybeInvoke<SessionSummary[]>('list_sessions', {
-    storageRoot,
-  })
-  if (tauriSummaries) {
-    return tauriSummaries
+  try {
+    const tauriSummaries = await maybeInvoke<SessionSummary[]>('list_sessions', {
+      storageRoot,
+    })
+    if (tauriSummaries) {
+      return tauriSummaries
+    }
+  } catch {
+    return []
   }
 
   const summaries: SessionSummary[] = []

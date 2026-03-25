@@ -82,6 +82,7 @@
 - [x] backend 側で current session を復元できるようにする
 - [x] 現在セッションの再読込 UI を追加する
 - [x] 保存済みセッション一覧と復元 UI を追加する
+- [x] current-session 破損時の latest fallback を実装
 - [ ] セッション途中終了からの復帰確認
 - [ ] Windows優先で動作確認
 - [ ] macOSの基本確認

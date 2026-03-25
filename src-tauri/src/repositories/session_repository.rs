@@ -59,11 +59,14 @@ impl SessionRepository {
     }
 
     pub fn load_current(storage_root: Option<&str>) -> Result<Option<Value>, String> {
-        let Some(session_id) = Self::load_current_session_id(storage_root)? else {
-            return Ok(None);
-        };
-
-        Self::load(storage_root, &session_id)
+        match Self::load_current_session_id(storage_root) {
+            Ok(Some(session_id)) => match Self::load(storage_root, &session_id)? {
+                Some(session) => Ok(Some(session)),
+                None => Self::recover_latest_as_current(storage_root),
+            },
+            Ok(None) => Ok(None),
+            Err(_) => Self::recover_latest_as_current(storage_root),
+        }
     }
 
     pub fn load_latest(storage_root: Option<&str>) -> Result<Option<Value>, String> {
@@ -168,6 +171,17 @@ impl SessionRepository {
         let json = serde_json::to_string_pretty(&payload).map_err(|error| error.to_string())?;
         fs::write(pointer_file, json).map_err(|error| error.to_string())?;
         Ok(())
+    }
+
+    fn recover_latest_as_current(storage_root: Option<&str>) -> Result<Option<Value>, String> {
+        let latest = Self::load_latest(storage_root)?;
+        if let Some(session) = latest.as_ref() {
+            if let Some(session_id) = session.get("id").and_then(|value| value.as_str()) {
+                Self::save_current_session_id(storage_root, session_id)?;
+            }
+        }
+
+        Ok(latest)
     }
 
     pub fn captures_dir(storage_root: Option<&str>, session_id: &str) -> PathBuf {
@@ -312,6 +326,63 @@ mod tests {
         assert_eq!(summaries.len(), 2);
         assert_eq!(summaries[0].get("id").and_then(|value| value.as_str()), Some("session-second"));
         assert_eq!(summaries[0].get("recordCount").and_then(|value| value.as_u64()), Some(1));
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn falls_back_to_latest_when_current_pointer_is_missing_target() {
+        let root = temp_root();
+        let latest = json!({
+            "id": "session-latest",
+            "createdAt": "2026-03-25T00:01:00.000Z",
+            "updatedAt": "2026-03-25T00:02:00.000Z",
+            "settingsSnapshot": {},
+            "records": []
+        });
+
+        SessionRepository::save(Some(&root), "session-latest", &latest)
+            .expect("latest session should save");
+        SessionRepository::save_current_session_id(Some(&root), "session-missing")
+            .expect("broken pointer should save");
+
+        let loaded = SessionRepository::load_current(Some(&root))
+            .expect("current session should recover")
+            .expect("recovered session should exist");
+
+        assert_eq!(
+            loaded.get("id").and_then(|value| value.as_str()),
+            Some("session-latest")
+        );
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn falls_back_to_latest_when_current_pointer_file_is_invalid() {
+        let root = temp_root();
+        let latest = json!({
+            "id": "session-latest",
+            "createdAt": "2026-03-25T00:01:00.000Z",
+            "updatedAt": "2026-03-25T00:02:00.000Z",
+            "settingsSnapshot": {},
+            "records": []
+        });
+
+        SessionRepository::save(Some(&root), "session-latest", &latest)
+            .expect("latest session should save");
+        let pointer_file = SessionRepository::current_session_pointer_file(Some(&root));
+        SessionRepository::ensure_parent(&pointer_file).expect("pointer parent should exist");
+        std::fs::write(pointer_file, "{ invalid json").expect("broken pointer should write");
+
+        let loaded = SessionRepository::load_current(Some(&root))
+            .expect("current session should recover")
+            .expect("recovered session should exist");
+
+        assert_eq!(
+            loaded.get("id").and_then(|value| value.as_str()),
+            Some("session-latest")
+        );
 
         std::fs::remove_dir_all(root).ok();
     }
