@@ -1,0 +1,32 @@
+[
+  {
+    "id": "cash",
+    "label": "現金",
+    "aliases": ["現金"]
+  },
+  {
+    "id": "credit_card",
+    "label": "クレジットカード",
+    "aliases": ["クレジット", "クレカ", "カード", "クレジットカード"]
+  },
+  {
+    "id": "e_money",
+    "label": "電子マネー",
+    "aliases": ["電子マネー", "交通系IC", "ICカード"]
+  },
+  {
+    "id": "bank_transfer",
+    "label": "振込",
+    "aliases": ["振込", "銀行振込"]
+  },
+  {
+    "id": "qr_payment",
+    "label": "QR決済",
+    "aliases": ["QR決済", "PayPay", "楽天ペイ", "d払い"]
+  },
+  {
+    "id": "other",
+    "label": "その他",
+    "aliases": ["その他"]
+  }
+]

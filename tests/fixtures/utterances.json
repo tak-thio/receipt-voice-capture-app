@@ -1,0 +1,82 @@
+[
+  {
+    "id": "basic_stationery",
+    "rawText": "3月24日 セブンイレブン 税込1158円 現金 文具代 次へ",
+    "expected": {
+      "date": "2026-03-24",
+      "vendor": "セブンイレブン",
+      "taxMode": "inclusive",
+      "amount": 1158,
+      "paymentMethod": "現金",
+      "descriptionRaw": "文具代",
+      "accountCategoryCandidate": "消耗品費",
+      "accountCategoryFinal": "消耗品費",
+      "summary": "",
+      "invoiceNumber": ""
+    }
+  },
+  {
+    "id": "year_explicit",
+    "rawText": "2026年3月1日 アマゾン 税込2480円 クレジットカード 消耗品費 USBケーブル 次へ",
+    "expected": {
+      "date": "2026-03-01",
+      "vendor": "アマゾン",
+      "taxMode": "inclusive",
+      "amount": 2480,
+      "paymentMethod": "クレジットカード",
+      "descriptionRaw": "USBケーブル",
+      "accountCategoryCandidate": "消耗品費",
+      "accountCategoryFinal": "消耗品費",
+      "summary": "",
+      "invoiceNumber": ""
+    }
+  },
+  {
+    "id": "with_summary",
+    "rawText": "3月11日 スターバックス 税込980円 電子マネー 飲食代 打ち合わせ用 次へ",
+    "expected": {
+      "date": "2026-03-11",
+      "vendor": "スターバックス",
+      "taxMode": "inclusive",
+      "amount": 980,
+      "paymentMethod": "電子マネー",
+      "descriptionRaw": "飲食代",
+      "accountCategoryCandidate": "接待交際費",
+      "accountCategoryFinal": "接待交際費",
+      "summary": "打ち合わせ用",
+      "invoiceNumber": ""
+    }
+  },
+  {
+    "id": "with_invoice",
+    "rawText": "3月20日 タクシー福岡 税込1640円 現金 タクシー代 交通費 客先訪問 T1234567890123 次へ",
+    "expected": {
+      "date": "2026-03-20",
+      "vendor": "タクシー福岡",
+      "taxMode": "inclusive",
+      "amount": 1640,
+      "paymentMethod": "現金",
+      "descriptionRaw": "タクシー代",
+      "accountCategoryCandidate": "旅費交通費",
+      "accountCategoryFinal": "旅費交通費",
+      "summary": "客先訪問",
+      "invoiceNumber": "T1234567890123"
+    }
+  },
+  {
+    "id": "tax_unknown",
+    "rawText": "3月26日 ファミリーマート 680円 現金 消耗品費 次へ",
+    "expected": {
+      "date": "2026-03-26",
+      "vendor": "ファミリーマート",
+      "taxMode": "unknown",
+      "amount": 680,
+      "paymentMethod": "現金",
+      "descriptionRaw": "",
+      "accountCategoryCandidate": "消耗品費",
+      "accountCategoryFinal": "消耗品費",
+      "summary": "",
+      "invoiceNumber": ""
+    }
+  }
+]

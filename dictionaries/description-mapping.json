@@ -1,0 +1,152 @@
+[
+  {
+    "pattern": "文具代",
+    "account_category": "消耗品費",
+    "confidence": 0.95,
+    "notes": "文房具は一般に消耗品費へ"
+  },
+  {
+    "pattern": "事務用品",
+    "account_category": "消耗品費",
+    "confidence": 0.95,
+    "notes": "事務用品は消耗品費へ"
+  },
+  {
+    "pattern": "USBケーブル",
+    "account_category": "消耗品費",
+    "confidence": 0.85,
+    "notes": "少額周辺機器は消耗品費候補"
+  },
+  {
+    "pattern": "駐車場代",
+    "account_category": "旅費交通費",
+    "confidence": 0.95,
+    "notes": "移動に伴う駐車場利用"
+  },
+  {
+    "pattern": "高速代",
+    "account_category": "旅費交通費",
+    "confidence": 0.95,
+    "notes": "移動に伴う高速道路料金"
+  },
+  {
+    "pattern": "電車代",
+    "account_category": "旅費交通費",
+    "confidence": 0.95,
+    "notes": "公共交通機関"
+  },
+  {
+    "pattern": "バス代",
+    "account_category": "旅費交通費",
+    "confidence": 0.95,
+    "notes": "公共交通機関"
+  },
+  {
+    "pattern": "タクシー代",
+    "account_category": "旅費交通費",
+    "confidence": 0.95,
+    "notes": "移動費"
+  },
+  {
+    "pattern": "ガソリン代",
+    "account_category": "旅費交通費",
+    "confidence": 0.8,
+    "notes": "用途次第で車両費の可能性もある"
+  },
+  {
+    "pattern": "飲食代",
+    "account_category": "接待交際費",
+    "confidence": 0.7,
+    "notes": "相手先との飲食なら接待交際費、社内会議なら会議費の可能性"
+  },
+  {
+    "pattern": "会議用飲料",
+    "account_category": "会議費",
+    "confidence": 0.9,
+    "notes": "会議目的の飲料は会議費寄り"
+  },
+  {
+    "pattern": "打ち合わせ",
+    "account_category": "会議費",
+    "confidence": 0.8,
+    "notes": "打ち合わせ用途は会議費候補"
+  },
+  {
+    "pattern": "書籍代",
+    "account_category": "新聞図書費",
+    "confidence": 0.95,
+    "notes": "書籍・資料購入"
+  },
+  {
+    "pattern": "雑誌代",
+    "account_category": "新聞図書費",
+    "confidence": 0.95,
+    "notes": "雑誌・定期刊行物"
+  },
+  {
+    "pattern": "切手代",
+    "account_category": "通信費",
+    "confidence": 0.95,
+    "notes": "郵送費用"
+  },
+  {
+    "pattern": "電話代",
+    "account_category": "通信費",
+    "confidence": 0.95,
+    "notes": "通話・通信費用"
+  },
+  {
+    "pattern": "ネット代",
+    "account_category": "通信費",
+    "confidence": 0.9,
+    "notes": "インターネット回線費用"
+  },
+  {
+    "pattern": "宅配便",
+    "account_category": "荷造運賃",
+    "confidence": 0.95,
+    "notes": "配送・発送費用"
+  },
+  {
+    "pattern": "送料",
+    "account_category": "荷造運賃",
+    "confidence": 0.9,
+    "notes": "配送費用"
+  },
+  {
+    "pattern": "サーバー代",
+    "account_category": "ソフトウェア利用料",
+    "confidence": 0.9,
+    "notes": "クラウド/サーバー利用料"
+  },
+  {
+    "pattern": "ドメイン代",
+    "account_category": "ソフトウェア利用料",
+    "confidence": 0.9,
+    "notes": "ドメイン・Webサービス関連"
+  },
+  {
+    "pattern": "振込手数料",
+    "account_category": "支払手数料",
+    "confidence": 0.98,
+    "notes": "銀行振込に伴う手数料"
+  },
+  {
+    "pattern": "印紙代",
+    "account_category": "租税公課",
+    "confidence": 0.95,
+    "notes": "収入印紙など"
+  },
+  {
+    "pattern": "広告費",
+    "account_category": "広告宣伝費",
+    "confidence": 0.98,
+    "notes": "広告出稿関連"
+  },
+  {
+    "pattern": "外注費",
+    "account_category": "外注工賃",
+    "confidence": 0.98,
+    "notes": "外部委託関連"
+  }
+]
