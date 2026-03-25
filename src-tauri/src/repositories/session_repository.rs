@@ -116,6 +116,7 @@ impl SessionRepository {
 #[cfg(test)]
 mod tests {
     use super::SessionRepository;
+    use serde_json::json;
     use uuid::Uuid;
 
     fn temp_root() -> String {
@@ -135,6 +136,72 @@ mod tests {
             SessionRepository::load_current_session_id(Some(&root)).expect("pointer should load");
 
         assert_eq!(loaded.as_deref(), Some("session-123"));
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn saves_and_loads_current_session_value() {
+        let root = temp_root();
+        let session = json!({
+            "id": "session-456",
+            "createdAt": "2026-03-25T00:00:00.000Z",
+            "updatedAt": "2026-03-25T00:00:00.000Z",
+            "settingsSnapshot": {
+                "storageRoot": root,
+                "preferredCameraId": "",
+                "preferredMicrophoneId": "",
+                "sttMode": "mock",
+                "ocrEnabled": true,
+                "ocrMode": "mock",
+                "exportTargetDefault": "generic"
+            },
+            "records": []
+        });
+
+        SessionRepository::save(Some(&root), "session-456", &session)
+            .expect("session should save");
+
+        let loaded = SessionRepository::load_current(Some(&root))
+            .expect("session should load")
+            .expect("current session should exist");
+
+        assert_eq!(loaded.get("id").and_then(|value| value.as_str()), Some("session-456"));
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn latest_saved_session_becomes_current_pointer() {
+        let root = temp_root();
+        let first = json!({
+            "id": "session-first",
+            "createdAt": "2026-03-25T00:00:00.000Z",
+            "updatedAt": "2026-03-25T00:00:00.000Z",
+            "settingsSnapshot": {},
+            "records": []
+        });
+        let second = json!({
+            "id": "session-second",
+            "createdAt": "2026-03-25T00:01:00.000Z",
+            "updatedAt": "2026-03-25T00:01:00.000Z",
+            "settingsSnapshot": {},
+            "records": []
+        });
+
+        SessionRepository::save(Some(&root), "session-first", &first)
+            .expect("first session should save");
+        SessionRepository::save(Some(&root), "session-second", &second)
+            .expect("second session should save");
+
+        let loaded = SessionRepository::load_current(Some(&root))
+            .expect("current session should load")
+            .expect("current session should exist");
+
+        assert_eq!(
+            loaded.get("id").and_then(|value| value.as_str()),
+            Some("session-second")
+        );
 
         std::fs::remove_dir_all(root).ok();
     }

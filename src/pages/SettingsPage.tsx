@@ -10,15 +10,20 @@ import type { AppSettings } from '../types/settings'
 export function SettingsPage() {
   const settings = useSessionStore((state) => state.settings)
   const dictionaries = useSessionStore((state) => state.dictionaries)
+  const session = useSessionStore((state) => state.session)
   const lastDictionaryReloadAt = useSessionStore((state) => state.lastDictionaryReloadAt)
   const lastDictionaryError = useSessionStore((state) => state.lastDictionaryError)
+  const lastSessionReloadAt = useSessionStore((state) => state.lastSessionReloadAt)
+  const lastSessionReloadError = useSessionStore((state) => state.lastSessionReloadError)
   const persistSettings = useSessionStore((state) => state.persistSettings)
   const reloadDictionaries = useSessionStore((state) => state.reloadDictionaries)
+  const reloadCurrentSessionFromDisk = useSessionStore((state) => state.reloadCurrentSessionFromDisk)
   const [draft, setDraft] = useState<AppSettings>(settings)
   const [cameraDevices, setCameraDevices] = useState<RecordingDeviceOption[]>([])
   const [audioDevices, setAudioDevices] = useState<RecordingDeviceOption[]>([])
   const [message, setMessage] = useState('')
   const [isReloading, setIsReloading] = useState(false)
+  const [isReloadingSession, setIsReloadingSession] = useState(false)
 
   useEffect(() => {
     setDraft(settings)
@@ -189,6 +194,65 @@ export function SettingsPage() {
         </dl>
         <p className="muted small">
           {lastDictionaryError || 'payment-methods.json / account-categories.json / description-mapping.json を利用しています。'}
+        </p>
+      </article>
+
+      <article className="panel">
+        <div className="panel-title-row">
+          <h3>Session Status</h3>
+          <span className={`status-chip ${lastSessionReloadError ? 'warning' : 'ready'}`}>
+            {lastSessionReloadError ? 'error' : 'ready'}
+          </span>
+        </div>
+        <dl className="meta-grid">
+          <div>
+            <dt>session id</dt>
+            <dd>{session?.id ?? 'none'}</dd>
+          </div>
+          <div>
+            <dt>records</dt>
+            <dd>{session?.records.length ?? 0}</dd>
+          </div>
+          <div>
+            <dt>updated at</dt>
+            <dd>{session ? new Date(session.updatedAt).toLocaleString('ja-JP') : 'none'}</dd>
+          </div>
+          <div>
+            <dt>storage root</dt>
+            <dd>{settings.storageRoot}</dd>
+          </div>
+          <div>
+            <dt>last reload</dt>
+            <dd>
+              {lastSessionReloadAt
+                ? new Date(lastSessionReloadAt).toLocaleString('ja-JP')
+                : '未実行'}
+            </dd>
+          </div>
+        </dl>
+        <div className="header-actions">
+          <button
+            className="ghost-button"
+            disabled={isReloadingSession}
+            onClick={() => {
+              setIsReloadingSession(true)
+              void reloadCurrentSessionFromDisk()
+                .then(() => {
+                  setMessage('現在セッションをディスクから再読込しました。')
+                })
+                .catch((error) => {
+                  setMessage(error instanceof Error ? error.message : 'セッション再読込に失敗しました。')
+                })
+                .finally(() => {
+                  setIsReloadingSession(false)
+                })
+            }}
+          >
+            {isReloadingSession ? 'セッション再読込中...' : '現在セッションを再読込'}
+          </button>
+        </div>
+        <p className="muted small">
+          {lastSessionReloadError || '保存先ルート配下の current-session.json と session.json を再読込します。'}
         </p>
       </article>
     </section>

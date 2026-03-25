@@ -48,8 +48,11 @@ interface SessionStoreState {
   lastCaptureError: string | null
   lastDictionaryReloadAt: string | null
   lastDictionaryError: string | null
+  lastSessionReloadAt: string | null
+  lastSessionReloadError: string | null
   initialize: () => Promise<void>
   reloadDictionaries: () => Promise<void>
+  reloadCurrentSessionFromDisk: () => Promise<void>
   setRecording: (value: boolean) => void
   pushTranscriptEvent: (event: SttInputEvent, captureFrame: CaptureFrameInput) => Promise<void>
   processTranscriptSequence: (events: SttInputEvent[], captureFrame: CaptureFrameInput) => Promise<void>
@@ -226,6 +229,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   lastCaptureError: null,
   lastDictionaryReloadAt: null,
   lastDictionaryError: null,
+  lastSessionReloadAt: null,
+  lastSessionReloadError: null,
   initialize: async () => {
     const [settings, dictionaries] = await Promise.all([
       loadSettings(),
@@ -244,6 +249,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       lastCaptureError: null,
       lastDictionaryReloadAt: new Date().toISOString(),
       lastDictionaryError: null,
+      lastSessionReloadAt: new Date().toISOString(),
+      lastSessionReloadError: null,
     })
   },
   reloadDictionaries: async () => {
@@ -259,6 +266,34 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         error instanceof Error ? error.message : 'Dictionary reload failed.'
       set({
         lastDictionaryError: message,
+      })
+      throw error instanceof Error ? error : new Error(message)
+    }
+  },
+  reloadCurrentSessionFromDisk: async () => {
+    const { settings, selectedRecordId } = get()
+
+    try {
+      const session = await loadCurrentSession(settings.storageRoot)
+      if (!session) {
+        throw new Error('保存済みの現在セッションが見つかりませんでした。')
+      }
+
+      const nextSelectedRecordId = session.records.some((record) => record.id === selectedRecordId)
+        ? selectedRecordId
+        : session.records[0]?.id ?? null
+
+      set({
+        session,
+        selectedRecordId: nextSelectedRecordId,
+        lastSessionReloadAt: new Date().toISOString(),
+        lastSessionReloadError: null,
+      })
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Session reload failed.'
+      set({
+        lastSessionReloadError: message,
       })
       throw error instanceof Error ? error : new Error(message)
     }
@@ -428,6 +463,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       lastTranscriptionError: null,
       lastCaptureError: null,
       lastDictionaryError: null,
+      lastSessionReloadAt: new Date().toISOString(),
+      lastSessionReloadError: null,
     })
   },
 }))
