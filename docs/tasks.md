@@ -37,6 +37,7 @@
 - [x] 「次 / 次へ」検出を実装
 - [x] STT結果をレコード候補として保持する
 - [x] backend 側の STT command / service scaffold を実装
+- [x] Python sidecar 経由の local STT scaffold を実装
 
 ## Phase 5: Rule-Based Parser
 - [x] 日付パーサを実装

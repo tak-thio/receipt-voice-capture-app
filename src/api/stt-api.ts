@@ -10,7 +10,7 @@ export interface TranscribeAudioInput {
 
 export interface TranscribeAudioResult {
   events: SttInputEvent[]
-  source: 'mock-backend' | 'local'
+  source: 'mock-backend' | 'local' | 'local-python-sidecar'
 }
 
 export async function transcribeAudio(input: TranscribeAudioInput): Promise<TranscribeAudioResult> {

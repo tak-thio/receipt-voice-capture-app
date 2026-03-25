@@ -1,4 +1,7 @@
 use serde::{Deserialize, Serialize};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 pub enum SttMode {
@@ -30,6 +33,14 @@ pub struct SttTranscriptionPayload {
     pub source: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct SidecarSttRequest {
+    audio_path: Option<String>,
+    audio_duration_ms: Option<u64>,
+    seed_text: Option<String>,
+}
+
 trait SttAdapter {
     fn transcribe(
         &self,
@@ -56,28 +67,18 @@ impl SttAdapter for MockBackendSttAdapter {
     }
 }
 
-struct LocalScaffoldSttAdapter;
+struct LocalPythonSidecarSttAdapter;
 
-impl SttAdapter for LocalScaffoldSttAdapter {
+impl SttAdapter for LocalPythonSidecarSttAdapter {
     fn transcribe(
         &self,
         request: &SttTranscriptionRequest,
     ) -> Result<SttTranscriptionPayload, String> {
-        if let Some(seed_text) = request.seed_text.as_deref() {
-            let trimmed = seed_text.trim();
-            if !trimmed.is_empty() {
-                return Ok(SttTranscriptionPayload {
-                    events: build_events_from_seed_text(trimmed, request.audio_duration_ms),
-                    source: "local".to_string(),
-                });
-            }
-        }
+        let python_executable = resolve_python_executable()?;
+        let sidecar_script = resolve_sidecar_script_path()?;
+        let payload = build_sidecar_request(request);
 
-        let path = request.audio_path.clone().unwrap_or_default();
-        Err(format!(
-            "Local STT adapter is not connected yet. Captured audio is available at: {}",
-            path
-        ))
+        run_python_sidecar(&python_executable, &sidecar_script, &payload)
     }
 }
 
@@ -87,9 +88,107 @@ impl SttService {
     pub fn transcribe(request: SttTranscriptionRequest) -> Result<SttTranscriptionPayload, String> {
         match request.mode {
             SttMode::Mock => MockBackendSttAdapter.transcribe(&request),
-            SttMode::Local => LocalScaffoldSttAdapter.transcribe(&request),
+            SttMode::Local => LocalPythonSidecarSttAdapter.transcribe(&request),
         }
     }
+}
+
+fn build_sidecar_request(request: &SttTranscriptionRequest) -> SidecarSttRequest {
+    SidecarSttRequest {
+        audio_path: request.audio_path.clone(),
+        audio_duration_ms: request.audio_duration_ms,
+        seed_text: request.seed_text.clone(),
+    }
+}
+
+fn resolve_python_executable() -> Result<String, String> {
+    if let Ok(executable) = std::env::var("RECEIPT_STT_PYTHON") {
+        let trimmed = executable.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+    }
+
+    for candidate in ["python3", "python"] {
+        let status = Command::new(candidate)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+
+        if matches!(status, Ok(value) if value.success()) {
+            return Ok(candidate.to_string());
+        }
+    }
+
+    Err("Python executable was not found. Set RECEIPT_STT_PYTHON or install python3.".to_string())
+}
+
+fn resolve_sidecar_script_path() -> Result<PathBuf, String> {
+    if let Ok(path) = std::env::var("RECEIPT_STT_SIDECAR") {
+        let candidate = PathBuf::from(path);
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    let candidate = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../scripts/stt_sidecar.py");
+    if candidate.exists() {
+        return Ok(candidate);
+    }
+
+    Err(format!(
+        "STT sidecar script was not found at {}",
+        candidate.to_string_lossy()
+    ))
+}
+
+fn run_python_sidecar(
+    python_executable: &str,
+    sidecar_script: &Path,
+    payload: &SidecarSttRequest,
+) -> Result<SttTranscriptionPayload, String> {
+    let request_json = serde_json::to_vec(payload).map_err(|error| error.to_string())?;
+
+    let mut child = Command::new(python_executable)
+        .arg(sidecar_script)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| {
+            format!(
+                "Failed to launch python sidecar `{}`: {}",
+                sidecar_script.to_string_lossy(),
+                error
+            )
+        })?;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin
+            .write_all(&request_json)
+            .map_err(|error| format!("Failed to send request to python sidecar: {}", error))?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("Failed to wait for python sidecar: {}", error))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Python sidecar execution failed.".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|error| format!("Invalid UTF-8 in python sidecar output: {}", error))?;
+
+    serde_json::from_str::<SttTranscriptionPayload>(&stdout)
+        .map_err(|error| format!("Failed to parse python sidecar response: {}", error))
 }
 
 fn build_events_from_seed_text(
@@ -130,7 +229,10 @@ fn build_events_from_seed_text(
 
 #[cfg(test)]
 mod tests {
-    use super::{SttMode, SttService, SttTranscriptionRequest};
+    use super::{
+        build_sidecar_request, resolve_sidecar_script_path, SidecarSttRequest, SttMode,
+        SttService, SttTranscriptionPayload, SttTranscriptionRequest,
+    };
 
     #[test]
     fn builds_events_from_seed_text_for_mock_mode() {
@@ -149,30 +251,50 @@ mod tests {
     }
 
     #[test]
-    fn returns_local_scaffold_error_without_seed_text() {
-        let result = SttService::transcribe(SttTranscriptionRequest {
-            mode: SttMode::Local,
-            audio_path: Some("/tmp/audio.webm".to_string()),
-            audio_duration_ms: Some(2000),
-            seed_text: None,
-        });
-
-        let error = result.expect_err("local mode should fail until adapter is connected");
-        assert!(error.contains("/tmp/audio.webm"));
-    }
-
-    #[test]
-    fn uses_seed_text_for_local_scaffold() {
-        let result = SttService::transcribe(SttTranscriptionRequest {
+    fn builds_sidecar_request_payload() {
+        let payload = build_sidecar_request(&SttTranscriptionRequest {
             mode: SttMode::Local,
             audio_path: Some("/tmp/audio.webm".to_string()),
             audio_duration_ms: Some(2000),
             seed_text: Some("一件目\n次へ".to_string()),
-        })
-        .expect("local scaffold should accept seed text");
+        });
 
-        assert_eq!(result.source, "local");
-        assert_eq!(result.events.len(), 2);
-        assert_eq!(result.events[1].text, "次へ");
+        assert_eq!(
+            payload,
+            SidecarSttRequest {
+                audio_path: Some("/tmp/audio.webm".to_string()),
+                audio_duration_ms: Some(2000),
+                seed_text: Some("一件目\n次へ".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_python_sidecar_payload_shape() {
+        let payload = serde_json::json!({
+            "events": [
+                {
+                    "id": "evt-1",
+                    "text": "一件目",
+                    "startMs": 0,
+                    "endMs": 1000
+                }
+            ],
+            "source": "local-python-sidecar"
+        });
+
+        let parsed: SttTranscriptionPayload =
+            serde_json::from_value(payload).expect("sidecar response should parse");
+
+        assert_eq!(parsed.source, "local-python-sidecar");
+        assert_eq!(parsed.events.len(), 1);
+        assert_eq!(parsed.events[0].text, "一件目");
+    }
+
+    #[test]
+    fn resolves_default_sidecar_script_path() {
+        let sidecar_path = resolve_sidecar_script_path().expect("sidecar script should exist");
+        assert!(sidecar_path.exists());
+        assert!(sidecar_path.to_string_lossy().ends_with("scripts/stt_sidecar.py"));
     }
 }

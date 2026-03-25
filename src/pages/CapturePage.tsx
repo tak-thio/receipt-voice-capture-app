@@ -308,7 +308,7 @@ export function CapturePage() {
               <p className="muted small">
                 {recordingError ||
                   (settings.sttMode === 'local'
-                    ? '録音後は Tauri backend の STT command 境界を通します。現在の local 実装は seed text scaffold です。'
+                    ? '録音後は Tauri backend から Python STT sidecar を呼び出します。現状は seed text scaffold を sidecar 経由で流します。'
                     : 'MediaRecorder で音声を収集し、mock STT の入力ソースとして使います。')}
               </p>
               {lastCaptureError ? <p className="muted small">{lastCaptureError}</p> : null}
