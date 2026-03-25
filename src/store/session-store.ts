@@ -46,7 +46,10 @@ interface SessionStoreState {
   lastTranscriptionSource: string | null
   lastTranscriptionError: string | null
   lastCaptureError: string | null
+  lastDictionaryReloadAt: string | null
+  lastDictionaryError: string | null
   initialize: () => Promise<void>
+  reloadDictionaries: () => Promise<void>
   setRecording: (value: boolean) => void
   pushTranscriptEvent: (event: SttInputEvent, captureFrame: CaptureFrameInput) => Promise<void>
   processTranscriptSequence: (events: SttInputEvent[], captureFrame: CaptureFrameInput) => Promise<void>
@@ -221,6 +224,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   lastTranscriptionSource: null,
   lastTranscriptionError: null,
   lastCaptureError: null,
+  lastDictionaryReloadAt: null,
+  lastDictionaryError: null,
   initialize: async () => {
     const [settings, dictionaries] = await Promise.all([
       loadSettings(),
@@ -237,7 +242,26 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       session,
       selectedRecordId: session.records[0]?.id ?? null,
       lastCaptureError: null,
+      lastDictionaryReloadAt: new Date().toISOString(),
+      lastDictionaryError: null,
     })
+  },
+  reloadDictionaries: async () => {
+    try {
+      const dictionaries = await loadDictionaries()
+      set({
+        dictionaries,
+        lastDictionaryReloadAt: new Date().toISOString(),
+        lastDictionaryError: null,
+      })
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Dictionary reload failed.'
+      set({
+        lastDictionaryError: message,
+      })
+      throw error instanceof Error ? error : new Error(message)
+    }
   },
   setRecording: (value) => set({ isRecording: value }),
   persistRecordedAudioClip: async (audioClip) => {
@@ -403,6 +427,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       lastTranscriptionSource: null,
       lastTranscriptionError: null,
       lastCaptureError: null,
+      lastDictionaryError: null,
     })
   },
 }))

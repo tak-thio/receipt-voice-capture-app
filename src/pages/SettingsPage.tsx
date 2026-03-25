@@ -9,11 +9,16 @@ import type { AppSettings } from '../types/settings'
 
 export function SettingsPage() {
   const settings = useSessionStore((state) => state.settings)
+  const dictionaries = useSessionStore((state) => state.dictionaries)
+  const lastDictionaryReloadAt = useSessionStore((state) => state.lastDictionaryReloadAt)
+  const lastDictionaryError = useSessionStore((state) => state.lastDictionaryError)
   const persistSettings = useSessionStore((state) => state.persistSettings)
+  const reloadDictionaries = useSessionStore((state) => state.reloadDictionaries)
   const [draft, setDraft] = useState<AppSettings>(settings)
   const [cameraDevices, setCameraDevices] = useState<RecordingDeviceOption[]>([])
   const [audioDevices, setAudioDevices] = useState<RecordingDeviceOption[]>([])
   const [message, setMessage] = useState('')
+  const [isReloading, setIsReloading] = useState(false)
 
   useEffect(() => {
     setDraft(settings)
@@ -128,9 +133,62 @@ export function SettingsPage() {
           >
             保存
           </button>
+          <button
+            className="ghost-button"
+            disabled={isReloading}
+            onClick={() => {
+              setIsReloading(true)
+              void reloadDictionaries()
+                .then(() => {
+                  setMessage('辞書を再読込しました。')
+                })
+                .catch((error) => {
+                  setMessage(error instanceof Error ? error.message : '辞書の再読込に失敗しました。')
+                })
+                .finally(() => {
+                  setIsReloading(false)
+                })
+            }}
+          >
+            {isReloading ? '再読込中...' : '辞書を再読込'}
+          </button>
         </div>
         <p className="muted small">
           {message || '辞書ファイルは `dictionaries/` 配下を静的読込しています。デバイス名はブラウザ権限取得後に表示されます。'}
+        </p>
+      </article>
+
+      <article className="panel">
+        <div className="panel-title-row">
+          <h3>Dictionary Status</h3>
+          <span className={`status-chip ${lastDictionaryError ? 'warning' : 'ready'}`}>
+            {lastDictionaryError ? 'error' : 'loaded'}
+          </span>
+        </div>
+        <dl className="meta-grid">
+          <div>
+            <dt>payment methods</dt>
+            <dd>{dictionaries?.paymentMethods.length ?? 0}</dd>
+          </div>
+          <div>
+            <dt>account categories</dt>
+            <dd>{dictionaries?.accountCategories.length ?? 0}</dd>
+          </div>
+          <div>
+            <dt>description mappings</dt>
+            <dd>{dictionaries?.descriptionMappings.length ?? 0}</dd>
+          </div>
+          <div>
+            <dt>last reload</dt>
+            <dd>
+              {lastDictionaryReloadAt
+                ? new Date(lastDictionaryReloadAt).toLocaleString('ja-JP')
+                : '未読込'}
+            </dd>
+          </div>
+        </dl>
+        <p className="muted small">
+          {lastDictionaryError || 'payment-methods.json / account-categories.json / description-mapping.json を利用しています。'}
         </p>
       </article>
     </section>
