@@ -1,7 +1,9 @@
+import { saveAudioClip } from '../api/audio-api'
 import { create } from 'zustand'
 import { saveCaptureImage } from '../api/capture-api'
 import { createSession, loadCurrentSession, saveSession } from '../api/session-api'
 import { loadSettings, saveSettings } from '../api/settings-api'
+import { transcribeAudio } from '../api/stt-api'
 import { DEFAULT_SETTINGS } from '../lib/constants'
 import { buildReviewBlock } from '../matching/match-record'
 import { parseSpeech } from '../parser/speech-parser'
@@ -11,6 +13,7 @@ import type { SttTranscriptionRequest } from '../services/adapters/stt-adapter'
 import { loadDictionaries } from '../services/dictionary-loader'
 import { MOCK_TRANSCRIPT_SEQUENCES } from '../services/sample-sequences'
 import { SegmentManager } from '../services/stt/segment-manager'
+import type { RecordedAudioClip } from '../types/audio'
 import type { DictionaryBundle } from '../types/dictionaries'
 import type {
   CaptureImageMeta,
@@ -41,14 +44,16 @@ interface SessionStoreState {
   reviewMode: ReviewMode
   pendingEvents: SttInputEvent[]
   lastTranscriptionSource: string | null
+  lastTranscriptionError: string | null
   initialize: () => Promise<void>
   setRecording: (value: boolean) => void
   pushTranscriptEvent: (event: SttInputEvent, captureFrame: CaptureFrameInput) => Promise<void>
   processTranscriptSequence: (events: SttInputEvent[], captureFrame: CaptureFrameInput) => Promise<void>
-  transcribeMockInput: (
+  transcribeInput: (
     request: SttTranscriptionRequest,
     captureFrame: CaptureFrameInput,
   ) => Promise<void>
+  persistRecordedAudioClip: (audioClip: RecordedAudioClip) => Promise<RecordedAudioClip>
   setSelectedRecordId: (recordId: string | null) => void
   setReviewMode: (mode: ReviewMode) => void
   updateFinalField: <K extends keyof ReceiptRecord['final']>(
@@ -66,6 +71,21 @@ const sttAdapter = new MockSttAdapter({
 })
 const ocrAdapter = new MockOcrAdapter()
 const segmentManager = new SegmentManager()
+
+function buildSeedText(request: SttTranscriptionRequest): string {
+  if (request.manualTranscript?.trim()) {
+    return request.manualTranscript.trim()
+  }
+
+  if (request.sequenceId) {
+    const sequence = MOCK_TRANSCRIPT_SEQUENCES.find((item) => item.id === request.sequenceId)
+    if (sequence) {
+      return sequence.events.map((event) => event.text).join('\n')
+    }
+  }
+
+  return ''
+}
 
 function buildRecordFromSegment(
   segment: SttCommittedSegment,
@@ -175,6 +195,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   reviewMode: 'table',
   pendingEvents: [],
   lastTranscriptionSource: null,
+  lastTranscriptionError: null,
   initialize: async () => {
     const [settings, dictionaries] = await Promise.all([
       loadSettings(),
@@ -193,6 +214,30 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     })
   },
   setRecording: (value) => set({ isRecording: value }),
+  persistRecordedAudioClip: async (audioClip) => {
+    const session = await ensureSession(get().session, get().settings)
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(String(reader.result ?? ''))
+      reader.onerror = () => reject(reader.error ?? new Error('Failed to read recorded audio clip.'))
+      reader.readAsDataURL(audioClip.blob)
+    })
+
+    const savedClip = await saveAudioClip({
+      sessionId: session.id,
+      audioDataUrl: dataUrl,
+      mimeType: audioClip.mimeType,
+      size: audioClip.size,
+      startedAt: audioClip.startedAt,
+      endedAt: audioClip.endedAt,
+      storageRoot: get().settings.storageRoot,
+    })
+
+    return {
+      ...audioClip,
+      filePath: savedClip.audioPath,
+    }
+  },
   pushTranscriptEvent: async (event, captureFrame) => {
     await get().processTranscriptSequence([event], captureFrame)
   },
@@ -213,12 +258,33 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       session: nextSession,
       pendingEvents: segmentManager.snapshot(),
       selectedRecordId: nextSession.records.at(-1)?.id ?? get().selectedRecordId,
+      lastTranscriptionError: null,
     })
   },
-  transcribeMockInput: async (request, captureFrame) => {
-    const transcription = await sttAdapter.transcribe(request)
-    await get().processTranscriptSequence(transcription.events, captureFrame)
-    set({ lastTranscriptionSource: transcription.source })
+  transcribeInput: async (request, captureFrame) => {
+    const { settings } = get()
+
+    try {
+      const transcription =
+        settings.sttMode === 'local'
+          ? await transcribeAudio({
+              mode: settings.sttMode,
+              audioPath: request.audioClip?.filePath,
+              audioDurationMs: request.audioClip?.durationMs,
+              seedText: buildSeedText(request),
+            })
+          : await sttAdapter.transcribe(request)
+
+      await get().processTranscriptSequence(transcription.events, captureFrame)
+      set({
+        lastTranscriptionSource: transcription.source,
+        lastTranscriptionError: null,
+      })
+    } catch (error) {
+      set({
+        lastTranscriptionError: error instanceof Error ? error.message : 'STT transcription failed.',
+      })
+    }
   },
   setSelectedRecordId: (recordId) => set({ selectedRecordId: recordId }),
   setReviewMode: (mode) => set({ reviewMode: mode }),
@@ -301,6 +367,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       selectedRecordId: null,
       pendingEvents: [],
       lastTranscriptionSource: null,
+      lastTranscriptionError: null,
     })
   },
 }))

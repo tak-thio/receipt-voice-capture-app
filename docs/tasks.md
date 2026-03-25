@@ -31,9 +31,11 @@
 ## Phase 4: STT Integration
 - [x] faster-whisper の実行方式を決める
 - [x] 音声録音機能を実装
+- [x] 録音データを session 配下へ保存できるようにする
 - [x] 音声セグメントを取得できるようにする
 - [x] 「次 / 次へ」検出を実装
 - [x] STT結果をレコード候補として保持する
+- [x] backend 側の STT command / service scaffold を実装
 
 ## Phase 5: Rule-Based Parser
 - [x] 日付パーサを実装

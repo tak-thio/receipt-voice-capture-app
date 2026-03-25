@@ -22,6 +22,7 @@ impl SessionRepository {
 
     pub fn create_directories(storage_root: Option<&str>, session_id: &str) -> Result<(), String> {
         let session_dir = Self::session_dir(storage_root, session_id);
+        fs::create_dir_all(session_dir.join("audio")).map_err(|error| error.to_string())?;
         fs::create_dir_all(session_dir.join("captures")).map_err(|error| error.to_string())?;
         fs::create_dir_all(session_dir.join("exports")).map_err(|error| error.to_string())?;
         fs::create_dir_all(session_dir.join("logs")).map_err(|error| error.to_string())?;
@@ -50,6 +51,10 @@ impl SessionRepository {
 
     pub fn captures_dir(storage_root: Option<&str>, session_id: &str) -> PathBuf {
         Self::session_dir(storage_root, session_id).join("captures")
+    }
+
+    pub fn audio_dir(storage_root: Option<&str>, session_id: &str) -> PathBuf {
+        Self::session_dir(storage_root, session_id).join("audio")
     }
 
     pub fn exports_dir(storage_root: Option<&str>, session_id: &str) -> PathBuf {

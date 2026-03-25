@@ -54,9 +54,11 @@ export function CapturePage() {
   const isRecording = useSessionStore((state) => state.isRecording)
   const isProcessing = useSessionStore((state) => state.isProcessing)
   const lastTranscriptionSource = useSessionStore((state) => state.lastTranscriptionSource)
+  const lastTranscriptionError = useSessionStore((state) => state.lastTranscriptionError)
   const setRecording = useSessionStore((state) => state.setRecording)
   const processTranscriptSequence = useSessionStore((state) => state.processTranscriptSequence)
-  const transcribeMockInput = useSessionStore((state) => state.transcribeMockInput)
+  const transcribeInput = useSessionStore((state) => state.transcribeInput)
+  const persistRecordedAudioClip = useSessionStore((state) => state.persistRecordedAudioClip)
   const startNewSession = useSessionStore((state) => state.startNewSession)
   const setSelectedRecordId = useSessionStore((state) => state.setSelectedRecordId)
   const persistSettings = useSessionStore((state) => state.persistSettings)
@@ -182,9 +184,10 @@ export function CapturePage() {
 
     setRecording(false)
     setRecordingElapsedMs(0)
+    const persistedClip = clip ? await persistRecordedAudioClip(clip) : null
     setLatestAudioClip((current) => {
       revokeRecordedClip(current)
-      return clip
+      return persistedClip
     })
     const devices = await listAudioInputDevices()
     setAudioDevices(devices)
@@ -196,7 +199,7 @@ export function CapturePage() {
         ? { audioClip: latestAudioClip, manualTranscript }
         : { audioClip: latestAudioClip, sequenceId: selectedSequenceId }
 
-    await transcribeMockInput(request, captureFrame())
+    await transcribeInput(request, captureFrame())
   }
 
   async function handleInjectSequenceWithoutRecording() {
@@ -260,7 +263,10 @@ export function CapturePage() {
                 {isRecording ? `recording ${formatDuration(recordingElapsedMs)}` : 'idle'}
               </span>
               <p className="muted small">
-                {recordingError || 'MediaRecorder で音声を収集し、mock STT の入力ソースとして使います。'}
+                {recordingError ||
+                  (settings.sttMode === 'local'
+                    ? '録音後は Tauri backend の STT command 境界を通します。現在の local 実装は seed text scaffold です。'
+                    : 'MediaRecorder で音声を収集し、mock STT の入力ソースとして使います。')}
               </p>
             </div>
           </div>
@@ -363,6 +369,9 @@ export function CapturePage() {
           <span className="muted small">
             pending events: {pendingEvents.length} / source: {lastTranscriptionSource ?? 'none'}
           </span>
+          {lastTranscriptionError ? (
+            <span className="muted small">{lastTranscriptionError}</span>
+          ) : null}
         </div>
       </div>
 
@@ -390,6 +399,10 @@ export function CapturePage() {
               <div>
                 <dt>ended</dt>
                 <dd>{new Date(latestAudioClip.endedAt).toLocaleTimeString('ja-JP')}</dd>
+              </div>
+              <div>
+                <dt>path</dt>
+                <dd>{latestAudioClip.filePath ?? 'unsaved'}</dd>
               </div>
             </dl>
           </div>

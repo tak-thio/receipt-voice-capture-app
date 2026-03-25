@@ -21,6 +21,8 @@
   - local STT の第一候補は Python sidecar とし、Tauri backend から起動・呼び出しできる構成を前提にする
   - 実行境界は backend 側 adapter に寄せ、frontend は API client 経由でのみ扱う
   - MVP初期は browser 録音 + `MockSttAdapter` + `SegmentManager` で、単発文字列ではなくセグメント列または逐次入力を模した形で実装を進める
+  - 現在は録音クリップを `session/<id>/audio/` に保存し、Tauri backend の STT command から service 経由で処理する土台まで実装済み
+  - local STT は未接続だが、暫定的に `seed_text` を backend 側でイベント列へ変換できるため、frontend からは同じ API 境界で疎通確認できる
 
 ## 3. 税区分の拡張
 - 未確定事項:

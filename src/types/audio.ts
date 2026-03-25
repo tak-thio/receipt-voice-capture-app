@@ -1,6 +1,7 @@
 export interface RecordedAudioClip {
   blob: Blob
   objectUrl: string
+  filePath?: string
   mimeType: string
   size: number
   durationMs: number
