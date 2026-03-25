@@ -38,6 +38,16 @@ pub fn load_current_session(storage_root: Option<String>) -> Result<Option<Value
 }
 
 #[tauri::command]
+pub fn load_latest_session(storage_root: Option<String>) -> Result<Option<Value>, String> {
+    SessionRepository::load_latest(storage_root.as_deref())
+}
+
+#[tauri::command]
+pub fn list_sessions(storage_root: Option<String>) -> Result<Vec<Value>, String> {
+    SessionRepository::list_summaries(storage_root.as_deref())
+}
+
+#[tauri::command]
 pub fn save_session(session: Value, storage_root: Option<String>) -> Result<Value, String> {
     let session_id = session
         .get("id")

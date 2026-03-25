@@ -1,7 +1,14 @@
 import { saveAudioClip } from '../api/audio-api'
 import { create } from 'zustand'
 import { saveCaptureImage } from '../api/capture-api'
-import { createSession, loadCurrentSession, saveSession } from '../api/session-api'
+import {
+  createSession,
+  listSessions,
+  loadCurrentSession,
+  loadLatestSession,
+  loadSession,
+  saveSession,
+} from '../api/session-api'
 import { loadSettings, saveSettings } from '../api/settings-api'
 import { transcribeAudio } from '../api/stt-api'
 import { DEFAULT_SETTINGS } from '../lib/constants'
@@ -20,6 +27,7 @@ import type {
   ManualEditedField,
   ReceiptRecord,
   Session,
+  SessionSummary,
   SttCommittedSegment,
   SttInputEvent,
 } from '../types/domain'
@@ -50,9 +58,12 @@ interface SessionStoreState {
   lastDictionaryError: string | null
   lastSessionReloadAt: string | null
   lastSessionReloadError: string | null
+  availableSessions: SessionSummary[]
   initialize: () => Promise<void>
   reloadDictionaries: () => Promise<void>
   reloadCurrentSessionFromDisk: () => Promise<void>
+  refreshAvailableSessions: () => Promise<void>
+  restoreSessionById: (sessionId: string) => Promise<void>
   setRecording: (value: boolean) => void
   pushTranscriptEvent: (event: SttInputEvent, captureFrame: CaptureFrameInput) => Promise<void>
   processTranscriptSequence: (events: SttInputEvent[], captureFrame: CaptureFrameInput) => Promise<void>
@@ -231,20 +242,38 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   lastDictionaryError: null,
   lastSessionReloadAt: null,
   lastSessionReloadError: null,
+  availableSessions: [],
   initialize: async () => {
     const [settings, dictionaries] = await Promise.all([
       loadSettings(),
       loadDictionaries(),
     ])
-    const existingSession = await loadCurrentSession(settings.storageRoot)
+    const [existingSession, availableSessions] = await Promise.all([
+      loadCurrentSession(settings.storageRoot),
+      listSessions(settings.storageRoot),
+    ])
 
-    const session = existingSession ?? (await createSession(settings))
+    const session =
+      existingSession ??
+      (await loadLatestSession(settings.storageRoot)) ??
+      (await createSession(settings))
 
     set({
       isReady: true,
       settings,
       dictionaries,
       session,
+      availableSessions:
+        availableSessions.length > 0
+          ? availableSessions
+          : [
+              {
+                id: session.id,
+                createdAt: session.createdAt,
+                updatedAt: session.updatedAt,
+                recordCount: session.records.length,
+              },
+            ],
       selectedRecordId: session.records[0]?.id ?? null,
       lastCaptureError: null,
       lastDictionaryReloadAt: new Date().toISOString(),
@@ -270,11 +299,18 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       throw error instanceof Error ? error : new Error(message)
     }
   },
+  refreshAvailableSessions: async () => {
+    const { settings } = get()
+    const availableSessions = await listSessions(settings.storageRoot)
+    set({ availableSessions })
+  },
   reloadCurrentSessionFromDisk: async () => {
     const { settings, selectedRecordId } = get()
 
     try {
-      const session = await loadCurrentSession(settings.storageRoot)
+      const session =
+        (await loadCurrentSession(settings.storageRoot)) ??
+        (await loadLatestSession(settings.storageRoot))
       if (!session) {
         throw new Error('保存済みの現在セッションが見つかりませんでした。')
       }
@@ -288,6 +324,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         selectedRecordId: nextSelectedRecordId,
         lastSessionReloadAt: new Date().toISOString(),
         lastSessionReloadError: null,
+        availableSessions: await listSessions(settings.storageRoot),
       })
     } catch (error) {
       const message =
@@ -297,6 +334,21 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       })
       throw error instanceof Error ? error : new Error(message)
     }
+  },
+  restoreSessionById: async (sessionId) => {
+    const { settings } = get()
+    const session = await loadSession(sessionId, settings.storageRoot)
+
+    if (!session) {
+      throw new Error('選択したセッションを読み込めませんでした。')
+    }
+
+    set({
+      session,
+      selectedRecordId: session.records[0]?.id ?? null,
+      lastSessionReloadAt: new Date().toISOString(),
+      lastSessionReloadError: null,
+    })
   },
   setRecording: (value) => set({ isRecording: value }),
   persistRecordedAudioClip: async (audioClip) => {
@@ -338,10 +390,12 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     try {
       const segments = segmentManager.append(events)
       const nextSession = await commitSegments(segments, captureFrame, session, settings, dictionaries)
+      const availableSessions = await listSessions(settings.storageRoot)
 
       set({
         isProcessing: false,
         session: nextSession,
+        availableSessions,
         pendingEvents: segmentManager.snapshot(),
         selectedRecordId: nextSession.records.at(-1)?.id ?? get().selectedRecordId,
         lastTranscriptionError: null,
@@ -418,7 +472,10 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     }
 
     await saveSession(nextSession, session.settingsSnapshot.storageRoot)
-    set({ session: nextSession })
+    set({
+      session: nextSession,
+      availableSessions: await listSessions(session.settingsSnapshot.storageRoot),
+    })
   },
   deleteRecord: async (recordId) => {
     const session = get().session
@@ -436,13 +493,16 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     await saveSession(nextSession, session.settingsSnapshot.storageRoot)
     set({
       session: nextSession,
+      availableSessions: await listSessions(session.settingsSnapshot.storageRoot),
       selectedRecordId: records[0]?.id ?? null,
     })
   },
   persistSettings: async (settings) => {
     const saved = await saveSettings(settings)
+    const availableSessions = await listSessions(saved.storageRoot)
     set((state) => ({
       settings: saved,
+      availableSessions,
       session: state.session
         ? {
             ...state.session,
@@ -455,8 +515,10 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     const nextSession = await createSession(get().settings)
     sttAdapter.reset()
     segmentManager.reset()
+    const availableSessions = await listSessions(get().settings.storageRoot)
     set({
       session: nextSession,
+      availableSessions,
       selectedRecordId: null,
       pendingEvents: [],
       lastTranscriptionSource: null,

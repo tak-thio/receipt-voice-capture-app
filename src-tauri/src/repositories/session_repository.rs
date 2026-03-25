@@ -66,6 +66,83 @@ impl SessionRepository {
         Self::load(storage_root, &session_id)
     }
 
+    pub fn load_latest(storage_root: Option<&str>) -> Result<Option<Value>, String> {
+        let sessions = Self::list_summaries(storage_root)?;
+        let Some(latest_session_id) = sessions
+            .first()
+            .and_then(|session| session.get("id"))
+            .and_then(|value| value.as_str())
+        else {
+            return Ok(None);
+        };
+
+        Self::load(storage_root, latest_session_id)
+    }
+
+    pub fn list_summaries(storage_root: Option<&str>) -> Result<Vec<Value>, String> {
+        let base_dir = Self::base_dir(storage_root);
+        if !base_dir.exists() {
+            return Ok(vec![]);
+        }
+
+        let mut sessions = Vec::new();
+
+        for entry in fs::read_dir(base_dir).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            let path = entry.path();
+
+            if !path.is_dir() {
+                continue;
+            }
+
+            let Some(session_id) = path.file_name().and_then(|value| value.to_str()) else {
+                continue;
+            };
+
+            let Some(session) = Self::load(storage_root, session_id)? else {
+                continue;
+            };
+
+            let created_at = session
+                .get("createdAt")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let updated_at = session
+                .get("updatedAt")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let record_count = session
+                .get("records")
+                .and_then(|value| value.as_array())
+                .map(|records| records.len())
+                .unwrap_or(0);
+
+            sessions.push(serde_json::json!({
+                "id": session_id,
+                "createdAt": created_at,
+                "updatedAt": updated_at,
+                "recordCount": record_count
+            }));
+        }
+
+        sessions.sort_by(|left, right| {
+            let left_updated = left
+                .get("updatedAt")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+            let right_updated = right
+                .get("updatedAt")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+
+            right_updated.cmp(left_updated)
+        });
+
+        Ok(sessions)
+    }
+
     pub fn load_current_session_id(storage_root: Option<&str>) -> Result<Option<String>, String> {
         let pointer_file = Self::current_session_pointer_file(storage_root);
         if !pointer_file.exists() {
@@ -202,6 +279,39 @@ mod tests {
             loaded.get("id").and_then(|value| value.as_str()),
             Some("session-second")
         );
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn lists_sessions_sorted_by_updated_at() {
+        let root = temp_root();
+        let first = json!({
+            "id": "session-first",
+            "createdAt": "2026-03-25T00:00:00.000Z",
+            "updatedAt": "2026-03-25T00:00:00.000Z",
+            "settingsSnapshot": {},
+            "records": []
+        });
+        let second = json!({
+            "id": "session-second",
+            "createdAt": "2026-03-25T00:01:00.000Z",
+            "updatedAt": "2026-03-25T00:02:00.000Z",
+            "settingsSnapshot": {},
+            "records": [{ "id": "record-1" }]
+        });
+
+        SessionRepository::save(Some(&root), "session-first", &first)
+            .expect("first session should save");
+        SessionRepository::save(Some(&root), "session-second", &second)
+            .expect("second session should save");
+
+        let summaries = SessionRepository::list_summaries(Some(&root))
+            .expect("session summaries should load");
+
+        assert_eq!(summaries.len(), 2);
+        assert_eq!(summaries[0].get("id").and_then(|value| value.as_str()), Some("session-second"));
+        assert_eq!(summaries[0].get("recordCount").and_then(|value| value.as_u64()), Some(1));
 
         std::fs::remove_dir_all(root).ok();
     }

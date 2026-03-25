@@ -126,3 +126,10 @@ export interface Session {
   settingsSnapshot: AppSettings
   records: ReceiptRecord[]
 }
+
+export interface SessionSummary {
+  id: string
+  createdAt: string
+  updatedAt: string
+  recordCount: number
+}

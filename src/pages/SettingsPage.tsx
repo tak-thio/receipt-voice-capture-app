@@ -11,19 +11,23 @@ export function SettingsPage() {
   const settings = useSessionStore((state) => state.settings)
   const dictionaries = useSessionStore((state) => state.dictionaries)
   const session = useSessionStore((state) => state.session)
+  const availableSessions = useSessionStore((state) => state.availableSessions)
   const lastDictionaryReloadAt = useSessionStore((state) => state.lastDictionaryReloadAt)
   const lastDictionaryError = useSessionStore((state) => state.lastDictionaryError)
   const lastSessionReloadAt = useSessionStore((state) => state.lastSessionReloadAt)
   const lastSessionReloadError = useSessionStore((state) => state.lastSessionReloadError)
   const persistSettings = useSessionStore((state) => state.persistSettings)
   const reloadDictionaries = useSessionStore((state) => state.reloadDictionaries)
+  const refreshAvailableSessions = useSessionStore((state) => state.refreshAvailableSessions)
   const reloadCurrentSessionFromDisk = useSessionStore((state) => state.reloadCurrentSessionFromDisk)
+  const restoreSessionById = useSessionStore((state) => state.restoreSessionById)
   const [draft, setDraft] = useState<AppSettings>(settings)
   const [cameraDevices, setCameraDevices] = useState<RecordingDeviceOption[]>([])
   const [audioDevices, setAudioDevices] = useState<RecordingDeviceOption[]>([])
   const [message, setMessage] = useState('')
   const [isReloading, setIsReloading] = useState(false)
   const [isReloadingSession, setIsReloadingSession] = useState(false)
+  const [restoringSessionId, setRestoringSessionId] = useState<string | null>(null)
 
   useEffect(() => {
     setDraft(settings)
@@ -250,10 +254,85 @@ export function SettingsPage() {
           >
             {isReloadingSession ? 'セッション再読込中...' : '現在セッションを再読込'}
           </button>
+          <button
+            className="ghost-button"
+            disabled={isReloadingSession}
+            onClick={() => {
+              setIsReloadingSession(true)
+              void refreshAvailableSessions()
+                .then(() => {
+                  setMessage('保存済みセッション一覧を更新しました。')
+                })
+                .catch((error) => {
+                  setMessage(error instanceof Error ? error.message : 'セッション一覧の更新に失敗しました。')
+                })
+                .finally(() => {
+                  setIsReloadingSession(false)
+                })
+            }}
+          >
+            一覧を更新
+          </button>
         </div>
         <p className="muted small">
           {lastSessionReloadError || '保存先ルート配下の current-session.json と session.json を再読込します。'}
         </p>
+      </article>
+
+      <article className="panel">
+        <div className="panel-title-row">
+          <h3>Saved Sessions</h3>
+          <span className="status-chip ready">{availableSessions.length} sessions</span>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>session id</th>
+                <th>updated</th>
+                <th>records</th>
+                <th>action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {availableSessions.map((savedSession) => (
+                <tr key={savedSession.id}>
+                  <td>{savedSession.id}</td>
+                  <td>{new Date(savedSession.updatedAt).toLocaleString('ja-JP')}</td>
+                  <td>{savedSession.recordCount}</td>
+                  <td>
+                    <button
+                      className="ghost-button"
+                      disabled={restoringSessionId === savedSession.id}
+                      onClick={() => {
+                        setRestoringSessionId(savedSession.id)
+                        void restoreSessionById(savedSession.id)
+                          .then(() => {
+                            setMessage(`セッション ${savedSession.id} を復元しました。`)
+                          })
+                          .catch((error) => {
+                            setMessage(error instanceof Error ? error.message : 'セッション復元に失敗しました。')
+                          })
+                          .finally(() => {
+                            setRestoringSessionId(null)
+                          })
+                      }}
+                    >
+                      {restoringSessionId === savedSession.id ? '復元中...' : '復元'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!availableSessions.length && (
+                <tr>
+                  <td colSpan={4} className="empty-cell">
+                    保存済みセッションがありません。
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </article>
     </section>
   )
