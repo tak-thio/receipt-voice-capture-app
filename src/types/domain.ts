@@ -80,7 +80,7 @@ export interface OcrExtractedCandidates {
 export interface ReceiptRecordOcrBlock {
   rawText: string
   extractedCandidates: OcrExtractedCandidates
-  source: 'mock' | 'local'
+  source: 'mock' | 'local' | 'disabled' | 'error'
 }
 
 export interface ReceiptRecordFinalBlock {

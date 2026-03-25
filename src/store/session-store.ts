@@ -45,6 +45,7 @@ interface SessionStoreState {
   pendingEvents: SttInputEvent[]
   lastTranscriptionSource: string | null
   lastTranscriptionError: string | null
+  lastCaptureError: string | null
   initialize: () => Promise<void>
   setRecording: (value: boolean) => void
   pushTranscriptEvent: (event: SttInputEvent, captureFrame: CaptureFrameInput) => Promise<void>
@@ -91,6 +92,7 @@ function buildRecordFromSegment(
   segment: SttCommittedSegment,
   capture: CaptureImageMeta,
   dictionaries: DictionaryBundle,
+  settings: AppSettings,
 ): Promise<ReceiptRecord> {
   const parsed = parseSpeech({
     rawText: segment.rawText,
@@ -103,7 +105,29 @@ function buildRecordFromSegment(
     manualEditedFields: [],
   }
 
-  return ocrAdapter.extractFromImage({ imagePath: capture.imagePath, finalBlock }).then((ocr) => {
+  const ocrPromise = !settings.ocrEnabled
+    ? Promise.resolve({
+        rawText: '',
+        extractedCandidates: {
+          dates: [],
+          vendors: [],
+          amounts: [],
+          invoiceNumbers: [],
+        },
+        source: 'disabled' as const,
+      })
+    : ocrAdapter.extractFromImage({ imagePath: capture.imagePath, finalBlock }).catch(() => ({
+        rawText: '',
+        extractedCandidates: {
+          dates: [],
+          vendors: [],
+          amounts: [],
+          invoiceNumbers: [],
+        },
+        source: 'error' as const,
+      }))
+
+  return ocrPromise.then((ocr) => {
     const review = buildReviewBlock(
       finalBlock,
       {
@@ -171,7 +195,7 @@ async function commitSegments(
   })
 
   const newRecords = await Promise.all(
-    segments.map((segment) => buildRecordFromSegment(segment, capture, dictionaries)),
+    segments.map((segment) => buildRecordFromSegment(segment, capture, dictionaries, settings)),
   )
 
   const nextSession: Session = {
@@ -196,6 +220,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   pendingEvents: [],
   lastTranscriptionSource: null,
   lastTranscriptionError: null,
+  lastCaptureError: null,
   initialize: async () => {
     const [settings, dictionaries] = await Promise.all([
       loadSettings(),
@@ -211,6 +236,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       dictionaries,
       session,
       selectedRecordId: session.records[0]?.id ?? null,
+      lastCaptureError: null,
     })
   },
   setRecording: (value) => set({ isRecording: value }),
@@ -248,18 +274,26 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     }
 
     const session = await ensureSession(get().session, settings)
-    set({ isProcessing: true })
+    set({ isProcessing: true, lastCaptureError: null })
 
-    const segments = segmentManager.append(events)
-    const nextSession = await commitSegments(segments, captureFrame, session, settings, dictionaries)
+    try {
+      const segments = segmentManager.append(events)
+      const nextSession = await commitSegments(segments, captureFrame, session, settings, dictionaries)
 
-    set({
-      isProcessing: false,
-      session: nextSession,
-      pendingEvents: segmentManager.snapshot(),
-      selectedRecordId: nextSession.records.at(-1)?.id ?? get().selectedRecordId,
-      lastTranscriptionError: null,
-    })
+      set({
+        isProcessing: false,
+        session: nextSession,
+        pendingEvents: segmentManager.snapshot(),
+        selectedRecordId: nextSession.records.at(-1)?.id ?? get().selectedRecordId,
+        lastTranscriptionError: null,
+        lastCaptureError: null,
+      })
+    } catch (error) {
+      set({
+        isProcessing: false,
+        lastCaptureError: error instanceof Error ? error.message : 'Capture commit failed.',
+      })
+    }
   },
   transcribeInput: async (request, captureFrame) => {
     const { settings } = get()
@@ -368,6 +402,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       pendingEvents: [],
       lastTranscriptionSource: null,
       lastTranscriptionError: null,
+      lastCaptureError: null,
     })
   },
 }))

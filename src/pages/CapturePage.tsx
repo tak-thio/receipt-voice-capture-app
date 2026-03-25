@@ -60,6 +60,7 @@ export function CapturePage() {
   const isProcessing = useSessionStore((state) => state.isProcessing)
   const lastTranscriptionSource = useSessionStore((state) => state.lastTranscriptionSource)
   const lastTranscriptionError = useSessionStore((state) => state.lastTranscriptionError)
+  const lastCaptureError = useSessionStore((state) => state.lastCaptureError)
   const setRecording = useSessionStore((state) => state.setRecording)
   const processTranscriptSequence = useSessionStore((state) => state.processTranscriptSequence)
   const transcribeInput = useSessionStore((state) => state.transcribeInput)
@@ -185,7 +186,14 @@ export function CapturePage() {
       return
     }
 
-    const clip = await recorderRef.current.stop()
+    let clip: RecordedAudioClip | null = null
+    try {
+      clip = await recorderRef.current.stop()
+    } catch (error) {
+      setRecording(false)
+      setRecordingError(error instanceof Error ? error.message : '録音停止に失敗しました。')
+      return
+    }
     if (recordingTimerRef.current) {
       window.clearInterval(recordingTimerRef.current)
       recordingTimerRef.current = null
@@ -193,7 +201,13 @@ export function CapturePage() {
 
     setRecording(false)
     setRecordingElapsedMs(0)
-    const persistedClip = clip ? await persistRecordedAudioClip(clip) : null
+    let persistedClip: RecordedAudioClip | null = null
+    try {
+      persistedClip = clip ? await persistRecordedAudioClip(clip) : null
+      setRecordingError('')
+    } catch (error) {
+      setRecordingError(error instanceof Error ? error.message : '録音ファイルの保存に失敗しました。')
+    }
     setLatestAudioClip((current) => {
       revokeRecordedClip(current)
       return persistedClip
@@ -297,6 +311,7 @@ export function CapturePage() {
                     ? '録音後は Tauri backend の STT command 境界を通します。現在の local 実装は seed text scaffold です。'
                     : 'MediaRecorder で音声を収集し、mock STT の入力ソースとして使います。')}
               </p>
+              {lastCaptureError ? <p className="muted small">{lastCaptureError}</p> : null}
             </div>
           </div>
         </article>
@@ -400,6 +415,9 @@ export function CapturePage() {
           </span>
           {lastTranscriptionError ? (
             <span className="muted small">{lastTranscriptionError}</span>
+          ) : null}
+          {lastCaptureError ? (
+            <span className="muted small">{lastCaptureError}</span>
           ) : null}
         </div>
       </div>
