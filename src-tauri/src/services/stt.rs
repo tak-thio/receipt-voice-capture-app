@@ -124,6 +124,12 @@ fn resolve_python_executable() -> Result<String, String> {
         }
     }
 
+    let local_venv_python = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../.venv-stt/bin/python");
+    if local_venv_python.exists() {
+        return Ok(local_venv_python.to_string_lossy().to_string());
+    }
+
     for candidate in ["python3", "python"] {
         let status = Command::new(candidate)
             .arg("--version")

@@ -5,3 +5,5 @@ tmp
 src-tauri/target
 receipt-sessions
 src-tauri/receipt-sessions
+.venv-stt
+__pycache__
