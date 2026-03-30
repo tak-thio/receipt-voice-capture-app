@@ -3,6 +3,7 @@ import { TAX_MODE_LABELS } from '../lib/constants'
 import { revokeRecordedClip } from '../services/adapters/mock-stt-adapter'
 import {
   MediaRecorderService,
+  getMediaRecordingSupport,
   listAudioInputDevices,
   listVideoInputDevices,
 } from '../services/audio/media-recorder-service'
@@ -78,6 +79,7 @@ export function CapturePage() {
     [selectedSequenceId],
   )
   const hasSavedAudioClip = Boolean(latestAudioClip?.filePath)
+  const recordingSupport = getMediaRecordingSupport()
   const localSttWillUseRecordedAudio = settings.sttMode === 'local' && hasSavedAudioClip
   const localSttButtonLabel = localSttWillUseRecordedAudio
     ? '最新録音を local STT 実行'
@@ -261,6 +263,7 @@ export function CapturePage() {
           <button
             className={`accent-button${isRecording ? ' danger' : ''}`}
             onClick={() => void (isRecording ? handleStopRecording() : handleStartRecording())}
+            disabled={!isRecording && !recordingSupport.supported}
           >
             {isRecording ? '録音停止' : '録音開始'}
           </button>
@@ -319,6 +322,7 @@ export function CapturePage() {
               </span>
               <p className="muted small">
                 {recordingError ||
+                  recordingSupport.reason ||
                   (settings.sttMode === 'local'
                     ? localSttWillUseRecordedAudio
                       ? '録音後は保存済み音声ファイルを優先して、Tauri backend から Python STT sidecar を呼び出します。'

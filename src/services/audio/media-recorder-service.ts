@@ -1,6 +1,15 @@
 import type { RecordedAudioClip, RecordingDeviceOption } from '../../types/audio'
 
+export interface MediaRecordingSupport {
+  supported: boolean
+  reason: string | null
+}
+
 function pickMimeType(): string {
+  if (typeof MediaRecorder === 'undefined') {
+    return ''
+  }
+
   const candidates = [
     'audio/webm;codecs=opus',
     'audio/webm',
@@ -34,6 +43,35 @@ export async function listVideoInputDevices(): Promise<RecordingDeviceOption[]> 
   return listInputDevices('videoinput')
 }
 
+export function getMediaRecordingSupport(): MediaRecordingSupport {
+  if (typeof navigator === 'undefined') {
+    return {
+      supported: false,
+      reason: 'この環境では navigator が利用できないため、録音機能を開始できません。',
+    }
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return {
+      supported: false,
+      reason:
+        'この実行環境ではマイク API (`navigator.mediaDevices.getUserMedia`) が利用できません。',
+    }
+  }
+
+  if (typeof MediaRecorder === 'undefined') {
+    return {
+      supported: false,
+      reason: 'この実行環境では MediaRecorder が利用できません。',
+    }
+  }
+
+  return {
+    supported: true,
+    reason: null,
+  }
+}
+
 export class MediaRecorderService {
   private mediaRecorder: MediaRecorder | null = null
   private stream: MediaStream | null = null
@@ -43,6 +81,11 @@ export class MediaRecorderService {
   async start(preferredDeviceId?: string): Promise<void> {
     if (this.mediaRecorder?.state === 'recording') {
       return
+    }
+
+    const support = getMediaRecordingSupport()
+    if (!support.supported) {
+      throw new Error(support.reason ?? '録音機能を利用できません。')
     }
 
     const constraints: MediaStreamConstraints = {
