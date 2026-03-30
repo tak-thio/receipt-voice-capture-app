@@ -17,6 +17,8 @@ fn main() {
             commands::settings::load_settings,
             commands::settings::save_settings,
             commands::capture::save_capture_image,
+            commands::ocr::extract_ocr_from_image,
+            commands::ocr::get_ocr_diagnostics,
             commands::stt::transcribe_audio,
             commands::stt::get_stt_diagnostics,
             commands::export::export_csv

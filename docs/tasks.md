@@ -55,9 +55,10 @@
 
 ## Phase 6: OCR Integration
 - [x] OCRアダプタの抽象インターフェースを作る
-- [ ] 画像からOCRテキストを取得する処理を実装
+- [x] 画像からOCRテキストを取得する処理を実装
 - [x] 日付・金額・支払先・インボイス番号候補抽出を実装
 - [x] OCR結果をレコードに保持する
+- [x] local OCR diagnostics を追加
 
 ## Phase 7: Matching / Review
 - [x] STT vs OCR の一致判定ロジックを実装

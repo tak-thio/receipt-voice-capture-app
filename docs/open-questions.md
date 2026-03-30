@@ -13,6 +13,7 @@
   - 抽象インターフェースだけ先に作る
   - MVP Phase 0/1 は `MockOcrAdapter` で end-to-end を成立させる
   - 本接続候補は Tesseract / PaddleOCR を比較対象として残し、backend adapter 差し替えで接続可能にする
+  - 2026-03-30 時点の first target は Tauri backend からの `tesseract` CLI 実行とし、local OCR diagnostics で実行可否を確認できるようにする
 
 ## 2. STT実行方法
 - 未確定事項:

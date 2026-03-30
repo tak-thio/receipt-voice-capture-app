@@ -1,3 +1,4 @@
+import { getOcrDiagnostics } from '../api/ocr-api'
 import { getSttDiagnostics } from '../api/stt-api'
 import { useEffect, useState } from 'react'
 import { LOCAL_STT_RECOMMENDED_SETTINGS } from '../lib/constants'
@@ -9,6 +10,7 @@ import { useSessionStore } from '../store/session-store'
 import type { RecordingDeviceOption } from '../types/audio'
 import type { AppSettings } from '../types/settings'
 import type { SttDiagnostics } from '../api/stt-api'
+import type { OcrDiagnostics } from '../api/ocr-api'
 
 export function SettingsPage() {
   const settings = useSessionStore((state) => state.settings)
@@ -33,6 +35,8 @@ export function SettingsPage() {
   const [restoringSessionId, setRestoringSessionId] = useState<string | null>(null)
   const [sttDiagnostics, setSttDiagnostics] = useState<SttDiagnostics | null>(null)
   const [isRefreshingSttDiagnostics, setIsRefreshingSttDiagnostics] = useState(false)
+  const [ocrDiagnostics, setOcrDiagnostics] = useState<OcrDiagnostics | null>(null)
+  const [isRefreshingOcrDiagnostics, setIsRefreshingOcrDiagnostics] = useState(false)
 
   useEffect(() => {
     setDraft(settings)
@@ -60,6 +64,17 @@ export function SettingsPage() {
       })
       .finally(() => {
         setIsRefreshingSttDiagnostics(false)
+      })
+  }, [])
+
+  useEffect(() => {
+    setIsRefreshingOcrDiagnostics(true)
+    void getOcrDiagnostics()
+      .then((result) => {
+        setOcrDiagnostics(result)
+      })
+      .finally(() => {
+        setIsRefreshingOcrDiagnostics(false)
       })
   }, [])
 
@@ -273,6 +288,52 @@ export function SettingsPage() {
         <p className="muted small">
           {sttDiagnostics?.error ||
             'local モードでは .venv-stt/bin/python を優先して Python sidecar を探します。'}
+        </p>
+      </article>
+
+      <article className="panel">
+        <div className="panel-title-row">
+          <h3>Local OCR Diagnostics</h3>
+          <span className={`status-chip ${ocrDiagnostics?.ready ? 'ready' : 'warning'}`}>
+            {ocrDiagnostics?.ready ? 'ready' : 'check'}
+          </span>
+        </div>
+        <dl className="meta-grid">
+          <div>
+            <dt>tesseract</dt>
+            <dd>{ocrDiagnostics?.tesseractExecutable ?? 'Tauri runtime で確認'}</dd>
+          </div>
+          <div>
+            <dt>mode</dt>
+            <dd>{draft.ocrMode}</dd>
+          </div>
+          <div>
+            <dt>enabled</dt>
+            <dd>{draft.ocrEnabled ? 'true' : 'false'}</dd>
+          </div>
+        </dl>
+        <div className="header-actions">
+          <button
+            className="ghost-button"
+            disabled={isRefreshingOcrDiagnostics}
+            onClick={() => {
+              setIsRefreshingOcrDiagnostics(true)
+              void getOcrDiagnostics()
+                .then((result) => {
+                  setOcrDiagnostics(result)
+                  setMessage(result?.ready ? 'local OCR 診断情報を更新しました。' : 'local OCR 診断情報を再確認しました。')
+                })
+                .finally(() => {
+                  setIsRefreshingOcrDiagnostics(false)
+                })
+            }}
+          >
+            {isRefreshingOcrDiagnostics ? '診断更新中...' : 'OCR 診断を更新'}
+          </button>
+        </div>
+        <p className="muted small">
+          {ocrDiagnostics?.error ||
+            'local OCR は Tesseract CLI を前提にし、未検出時は mock OCR を使う構成ではなく error source として扱います。'}
         </p>
       </article>
 

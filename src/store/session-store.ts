@@ -14,6 +14,7 @@ import { transcribeAudio } from '../api/stt-api'
 import { DEFAULT_SETTINGS } from '../lib/constants'
 import { buildReviewBlock } from '../matching/match-record'
 import { parseSpeech } from '../parser/speech-parser'
+import { LocalOcrAdapter } from '../services/adapters/local-ocr-adapter'
 import { MockOcrAdapter } from '../services/adapters/mock-ocr-adapter'
 import { MockSttAdapter } from '../services/adapters/mock-stt-adapter'
 import type { SttTranscriptionRequest } from '../services/adapters/stt-adapter'
@@ -91,7 +92,8 @@ interface SessionStoreState {
 const sttAdapter = new MockSttAdapter({
   sequences: MOCK_TRANSCRIPT_SEQUENCES,
 })
-const ocrAdapter = new MockOcrAdapter()
+const mockOcrAdapter = new MockOcrAdapter()
+const localOcrAdapter = new LocalOcrAdapter()
 const segmentManager = new SegmentManager()
 
 function buildFallbackSeedText(request: SttTranscriptionRequest): string {
@@ -137,7 +139,9 @@ function buildRecordFromSegment(
         },
         source: 'disabled' as const,
       })
-    : ocrAdapter.extractFromImage({ imagePath: capture.imagePath, finalBlock }).catch(() => ({
+    : (settings.ocrMode === 'local' ? localOcrAdapter : mockOcrAdapter)
+        .extractFromImage({ imagePath: capture.imagePath, finalBlock })
+        .catch(() => ({
         rawText: '',
         extractedCandidates: {
           dates: [],
