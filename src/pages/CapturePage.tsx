@@ -74,6 +74,15 @@ export function CapturePage() {
     () => MOCK_TRANSCRIPT_SEQUENCES.find((sequence) => sequence.id === selectedSequenceId) ?? null,
     [selectedSequenceId],
   )
+  const hasSavedAudioClip = Boolean(latestAudioClip?.filePath)
+  const localSttWillUseRecordedAudio = settings.sttMode === 'local' && hasSavedAudioClip
+  const localSttButtonLabel = localSttWillUseRecordedAudio
+    ? '最新録音を local STT 実行'
+    : settings.sttMode === 'local'
+      ? 'seed fallback で local STT 実行'
+      : latestAudioClip
+        ? '最新録音からSTT生成'
+        : '入力内容からSTT生成'
 
   useEffect(() => {
     recorderRef.current = new MediaRecorderService()
@@ -308,7 +317,9 @@ export function CapturePage() {
               <p className="muted small">
                 {recordingError ||
                   (settings.sttMode === 'local'
-                    ? '録音後は Tauri backend から Python STT sidecar を呼び出します。現状は seed text scaffold を sidecar 経由で流します。'
+                    ? localSttWillUseRecordedAudio
+                      ? '録音後は保存済み音声ファイルを優先して、Tauri backend から Python STT sidecar を呼び出します。'
+                      : '保存済み録音がない場合は、入力 transcript を seed fallback として Python STT sidecar に渡します。'
                     : 'MediaRecorder で音声を収集し、mock STT の入力ソースとして使います。')}
               </p>
               {lastCaptureError ? <p className="muted small">{lastCaptureError}</p> : null}
@@ -400,7 +411,7 @@ export function CapturePage() {
               onClick={() => void handleProcessRecording()}
               disabled={isProcessing || (transcriptionMode === 'manual' ? !manualTranscript.trim() : !selectedSequence)}
             >
-              {latestAudioClip ? '最新録音からSTT生成' : '入力内容からSTT生成'}
+              {localSttButtonLabel}
             </button>
             <button
               className="ghost-button"
@@ -413,6 +424,11 @@ export function CapturePage() {
           <span className="muted small">
             pending events: {pendingEvents.length} / source: {lastTranscriptionSource ?? 'none'}
           </span>
+          {settings.sttMode === 'local' ? (
+            <span className="muted small">
+              strategy: {localSttWillUseRecordedAudio ? 'recorded-audio' : 'seed-fallback'}
+            </span>
+          ) : null}
           {lastTranscriptionError ? (
             <span className="muted small">{lastTranscriptionError}</span>
           ) : null}
@@ -450,6 +466,16 @@ export function CapturePage() {
               <div>
                 <dt>path</dt>
                 <dd>{latestAudioClip.filePath ?? 'unsaved'}</dd>
+              </div>
+              <div>
+                <dt>stt route</dt>
+                <dd>
+                  {settings.sttMode === 'local'
+                    ? hasSavedAudioClip
+                      ? 'recorded-audio'
+                      : 'seed-fallback'
+                    : 'mock'}
+                </dd>
               </div>
             </dl>
           </div>

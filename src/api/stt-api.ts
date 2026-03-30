@@ -18,6 +18,14 @@ export interface TranscribeAudioResult {
   source: 'mock-backend' | 'local' | 'local-python-sidecar'
 }
 
+export interface SttDiagnostics {
+  ready: boolean
+  pythonExecutable: string | null
+  sidecarScript: string | null
+  localVenvPython: string | null
+  error: string | null
+}
+
 export async function transcribeAudio(input: TranscribeAudioInput): Promise<TranscribeAudioResult> {
   const result = await maybeInvoke<TranscribeAudioResult>('transcribe_audio', input)
   if (!result) {
@@ -25,4 +33,9 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
   }
 
   return result
+}
+
+export async function getSttDiagnostics(): Promise<SttDiagnostics | null> {
+  const result = await maybeInvoke<SttDiagnostics>('get_stt_diagnostics')
+  return result ?? null
 }

@@ -40,6 +40,8 @@
 - [x] Python sidecar 経由の local STT scaffold を実装
 - [x] faster-whisper 導入準備ファイルを追加
 - [x] faster-whisper の sidecar 単体疎通を確認
+- [x] local STT の recorded-audio 優先ルートを実装
+- [x] local STT 診断情報の確認 UI を追加
 
 ## Phase 5: Rule-Based Parser
 - [x] 日付パーサを実装

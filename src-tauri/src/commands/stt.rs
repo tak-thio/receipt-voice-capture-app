@@ -1,4 +1,7 @@
-use crate::services::stt::{SttMode, SttService, SttTranscriptionPayload, SttTranscriptionRequest};
+use crate::services::stt::{
+    SttDiagnosticsPayload, SttMode, SttService, SttTranscriptionPayload,
+    SttTranscriptionRequest,
+};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -36,4 +39,9 @@ pub fn transcribe_audio(
         stt_language,
         stt_beam_size,
     })
+}
+
+#[tauri::command]
+pub fn get_stt_diagnostics() -> SttDiagnosticsPayload {
+    SttService::diagnostics()
 }

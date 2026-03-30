@@ -19,6 +19,7 @@ import { MockSttAdapter } from '../services/adapters/mock-stt-adapter'
 import type { SttTranscriptionRequest } from '../services/adapters/stt-adapter'
 import { loadDictionaries } from '../services/dictionary-loader'
 import { MOCK_TRANSCRIPT_SEQUENCES } from '../services/sample-sequences'
+import { buildLocalSttExecutionPlan } from '../services/stt/build-local-stt-input'
 import { SegmentManager } from '../services/stt/segment-manager'
 import type { RecordedAudioClip } from '../types/audio'
 import type { DictionaryBundle } from '../types/dictionaries'
@@ -90,7 +91,7 @@ const sttAdapter = new MockSttAdapter({
 const ocrAdapter = new MockOcrAdapter()
 const segmentManager = new SegmentManager()
 
-function buildSeedText(request: SttTranscriptionRequest): string {
+function buildFallbackSeedText(request: SttTranscriptionRequest): string {
   if (request.manualTranscript?.trim()) {
     return request.manualTranscript.trim()
   }
@@ -414,17 +415,13 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     try {
       const transcription =
         settings.sttMode === 'local'
-          ? await transcribeAudio({
-              mode: settings.sttMode,
-              audioPath: request.audioClip?.filePath,
-              audioDurationMs: request.audioClip?.durationMs,
-              seedText: buildSeedText(request),
-              sttModel: settings.sttModel,
-              sttDevice: settings.sttDevice,
-              sttComputeType: settings.sttComputeType,
-              sttLanguage: settings.sttLanguage,
-              sttBeamSize: settings.sttBeamSize,
-            })
+          ? await transcribeAudio(
+              buildLocalSttExecutionPlan(
+                request,
+                settings,
+                buildFallbackSeedText(request),
+              ).input,
+            )
           : await sttAdapter.transcribe(request)
 
       await get().processTranscriptSequence(transcription.events, captureFrame)

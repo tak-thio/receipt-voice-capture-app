@@ -18,6 +18,7 @@ fn main() {
             commands::settings::save_settings,
             commands::capture::save_capture_image,
             commands::stt::transcribe_audio,
+            commands::stt::get_stt_diagnostics,
             commands::export::export_csv
         ])
         .run(tauri::generate_context!())

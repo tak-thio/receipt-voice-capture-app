@@ -40,6 +40,16 @@ pub struct SttTranscriptionPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct SttDiagnosticsPayload {
+    pub ready: bool,
+    pub python_executable: Option<String>,
+    pub sidecar_script: Option<String>,
+    pub local_venv_python: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 struct SidecarSttRequest {
     audio_path: Option<String>,
     audio_duration_ms: Option<u64>,
@@ -101,6 +111,30 @@ impl SttService {
             SttMode::Local => LocalPythonSidecarSttAdapter.transcribe(&request),
         }
     }
+
+    pub fn diagnostics() -> SttDiagnosticsPayload {
+        let local_venv_python = local_venv_python_path();
+        let python_executable = resolve_python_executable().ok();
+        let sidecar_script = resolve_sidecar_script_path()
+            .ok()
+            .map(|path| path.to_string_lossy().to_string());
+
+        let error = if python_executable.is_none() {
+            resolve_python_executable().err()
+        } else if sidecar_script.is_none() {
+            resolve_sidecar_script_path().err()
+        } else {
+            None
+        };
+
+        SttDiagnosticsPayload {
+            ready: error.is_none(),
+            python_executable,
+            sidecar_script,
+            local_venv_python,
+            error,
+        }
+    }
 }
 
 fn build_sidecar_request(request: &SttTranscriptionRequest) -> SidecarSttRequest {
@@ -124,10 +158,8 @@ fn resolve_python_executable() -> Result<String, String> {
         }
     }
 
-    let local_venv_python = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../.venv-stt/bin/python");
-    if local_venv_python.exists() {
-        return Ok(local_venv_python.to_string_lossy().to_string());
+    if let Some(local_venv_python) = local_venv_python_path() {
+        return Ok(local_venv_python);
     }
 
     for candidate in ["python3", "python"] {
@@ -143,6 +175,16 @@ fn resolve_python_executable() -> Result<String, String> {
     }
 
     Err("Python executable was not found. Set RECEIPT_STT_PYTHON or install python3.".to_string())
+}
+
+fn local_venv_python_path() -> Option<String> {
+    let local_venv_python = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../.venv-stt/bin/python");
+    if local_venv_python.exists() {
+        Some(local_venv_python.to_string_lossy().to_string())
+    } else {
+        None
+    }
 }
 
 fn resolve_sidecar_script_path() -> Result<PathBuf, String> {
@@ -332,5 +374,13 @@ mod tests {
         let sidecar_path = resolve_sidecar_script_path().expect("sidecar script should exist");
         assert!(sidecar_path.exists());
         assert!(sidecar_path.to_string_lossy().ends_with("scripts/stt_sidecar.py"));
+    }
+
+    #[test]
+    fn builds_diagnostics_payload() {
+        let diagnostics = SttService::diagnostics();
+
+        assert!(diagnostics.sidecar_script.is_some());
+        assert!(diagnostics.ready || diagnostics.error.is_some());
     }
 }

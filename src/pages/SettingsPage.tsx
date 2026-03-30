@@ -1,3 +1,4 @@
+import { getSttDiagnostics } from '../api/stt-api'
 import { useEffect, useState } from 'react'
 import {
   listAudioInputDevices,
@@ -6,6 +7,7 @@ import {
 import { useSessionStore } from '../store/session-store'
 import type { RecordingDeviceOption } from '../types/audio'
 import type { AppSettings } from '../types/settings'
+import type { SttDiagnostics } from '../api/stt-api'
 
 export function SettingsPage() {
   const settings = useSessionStore((state) => state.settings)
@@ -28,6 +30,8 @@ export function SettingsPage() {
   const [isReloading, setIsReloading] = useState(false)
   const [isReloadingSession, setIsReloadingSession] = useState(false)
   const [restoringSessionId, setRestoringSessionId] = useState<string | null>(null)
+  const [sttDiagnostics, setSttDiagnostics] = useState<SttDiagnostics | null>(null)
+  const [isRefreshingSttDiagnostics, setIsRefreshingSttDiagnostics] = useState(false)
 
   useEffect(() => {
     setDraft(settings)
@@ -45,6 +49,17 @@ export function SettingsPage() {
     }
 
     void refreshDevices()
+  }, [])
+
+  useEffect(() => {
+    setIsRefreshingSttDiagnostics(true)
+    void getSttDiagnostics()
+      .then((result) => {
+        setSttDiagnostics(result)
+      })
+      .finally(() => {
+        setIsRefreshingSttDiagnostics(false)
+      })
   }, [])
 
   return (
@@ -194,6 +209,56 @@ export function SettingsPage() {
         </div>
         <p className="muted small">
           {message || '辞書ファイルは `dictionaries/` 配下を静的読込しています。デバイス名はブラウザ権限取得後に表示されます。'}
+        </p>
+      </article>
+
+      <article className="panel">
+        <div className="panel-title-row">
+          <h3>Local STT Diagnostics</h3>
+          <span className={`status-chip ${sttDiagnostics?.ready ? 'ready' : 'warning'}`}>
+            {sttDiagnostics?.ready ? 'ready' : 'check'}
+          </span>
+        </div>
+        <dl className="meta-grid">
+          <div>
+            <dt>python</dt>
+            <dd>{sttDiagnostics?.pythonExecutable ?? 'Tauri runtime で確認'}</dd>
+          </div>
+          <div>
+            <dt>sidecar</dt>
+            <dd>{sttDiagnostics?.sidecarScript ?? 'Tauri runtime で確認'}</dd>
+          </div>
+          <div>
+            <dt>local venv</dt>
+            <dd>{sttDiagnostics?.localVenvPython ?? 'not found'}</dd>
+          </div>
+          <div>
+            <dt>mode</dt>
+            <dd>{draft.sttMode}</dd>
+          </div>
+        </dl>
+        <div className="header-actions">
+          <button
+            className="ghost-button"
+            disabled={isRefreshingSttDiagnostics}
+            onClick={() => {
+              setIsRefreshingSttDiagnostics(true)
+              void getSttDiagnostics()
+                .then((result) => {
+                  setSttDiagnostics(result)
+                  setMessage(result?.ready ? 'local STT 診断情報を更新しました。' : 'local STT 診断情報を再確認しました。')
+                })
+                .finally(() => {
+                  setIsRefreshingSttDiagnostics(false)
+                })
+            }}
+          >
+            {isRefreshingSttDiagnostics ? '診断更新中...' : '診断を更新'}
+          </button>
+        </div>
+        <p className="muted small">
+          {sttDiagnostics?.error ||
+            'local モードでは .venv-stt/bin/python を優先して Python sidecar を探します。'}
         </p>
       </article>
 
