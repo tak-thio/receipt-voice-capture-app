@@ -36,6 +36,7 @@ pub struct SttInputEventPayload {
 pub struct SttTranscriptionPayload {
     pub events: Vec<SttInputEventPayload>,
     pub source: String,
+    pub detected_language: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -83,6 +84,7 @@ impl SttAdapter for MockBackendSttAdapter {
         Ok(SttTranscriptionPayload {
             events,
             source: "mock-backend".to_string(),
+            detected_language: None,
         })
     }
 }
@@ -365,6 +367,7 @@ mod tests {
             serde_json::from_value(payload).expect("sidecar response should parse");
 
         assert_eq!(parsed.source, "local-python-sidecar");
+        assert_eq!(parsed.detected_language, None);
         assert_eq!(parsed.events.len(), 1);
         assert_eq!(parsed.events[0].text, "一件目");
     }

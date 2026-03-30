@@ -24,4 +24,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   exportTargetDefault: 'generic',
 }
 
+export const LOCAL_STT_RECOMMENDED_SETTINGS = {
+  sttModel: 'tiny',
+  sttDevice: 'cpu',
+  sttComputeType: 'int8',
+  sttLanguage: 'ja',
+  sttBeamSize: 1,
+} as const
+
 export const BOUNDARY_KEYWORDS = ['次', '次へ']

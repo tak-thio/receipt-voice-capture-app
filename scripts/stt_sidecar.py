@@ -115,6 +115,7 @@ def main() -> int:
         response = {
             "events": build_events(seed_text, audio_duration_ms),
             "source": "local-python-sidecar",
+            "detectedLanguage": str(payload.get("sttLanguage") or "").strip() or None,
         }
         print(json.dumps(response, ensure_ascii=False))
         return 0

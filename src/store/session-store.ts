@@ -53,6 +53,9 @@ interface SessionStoreState {
   reviewMode: ReviewMode
   pendingEvents: SttInputEvent[]
   lastTranscriptionSource: string | null
+  lastTranscriptionStrategy: string | null
+  lastDetectedLanguage: string | null
+  lastTranscriptionEventCount: number
   lastTranscriptionError: string | null
   lastCaptureError: string | null
   lastDictionaryReloadAt: string | null
@@ -237,6 +240,9 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   reviewMode: 'table',
   pendingEvents: [],
   lastTranscriptionSource: null,
+  lastTranscriptionStrategy: null,
+  lastDetectedLanguage: null,
+  lastTranscriptionEventCount: 0,
   lastTranscriptionError: null,
   lastCaptureError: null,
   lastDictionaryReloadAt: null,
@@ -413,24 +419,39 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     const { settings } = get()
 
     try {
-      const transcription =
-        settings.sttMode === 'local'
-          ? await transcribeAudio(
-              buildLocalSttExecutionPlan(
-                request,
-                settings,
-                buildFallbackSeedText(request),
-              ).input,
-            )
-          : await sttAdapter.transcribe(request)
+      let transcription: Awaited<ReturnType<typeof transcribeAudio>> | Awaited<ReturnType<typeof sttAdapter.transcribe>>
+      let transcriptionStrategy: string | null = null
+
+      if (settings.sttMode === 'local') {
+        const localPlan = buildLocalSttExecutionPlan(
+          request,
+          settings,
+          buildFallbackSeedText(request),
+        )
+        transcription = await transcribeAudio(localPlan.input)
+        transcriptionStrategy = localPlan.strategy
+      } else {
+        transcription = await sttAdapter.transcribe(request)
+        transcriptionStrategy = request.manualTranscript?.trim()
+          ? 'manual-transcript'
+          : request.audioClip
+            ? 'recording'
+            : 'mock-sequence'
+      }
 
       await get().processTranscriptSequence(transcription.events, captureFrame)
       set({
         lastTranscriptionSource: transcription.source,
+        lastTranscriptionStrategy: transcriptionStrategy,
+        lastDetectedLanguage: transcription.detectedLanguage ?? null,
+        lastTranscriptionEventCount: transcription.events.length,
         lastTranscriptionError: null,
       })
     } catch (error) {
       set({
+        lastTranscriptionStrategy: null,
+        lastDetectedLanguage: null,
+        lastTranscriptionEventCount: 0,
         lastTranscriptionError: error instanceof Error ? error.message : 'STT transcription failed.',
       })
     }
@@ -524,6 +545,9 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       selectedRecordId: null,
       pendingEvents: [],
       lastTranscriptionSource: null,
+      lastTranscriptionStrategy: null,
+      lastDetectedLanguage: null,
+      lastTranscriptionEventCount: 0,
       lastTranscriptionError: null,
       lastCaptureError: null,
       lastDictionaryError: null,

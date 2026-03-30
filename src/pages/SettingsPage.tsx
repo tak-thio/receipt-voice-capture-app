@@ -1,5 +1,6 @@
 import { getSttDiagnostics } from '../api/stt-api'
 import { useEffect, useState } from 'react'
+import { LOCAL_STT_RECOMMENDED_SETTINGS } from '../lib/constants'
 import {
   listAudioInputDevices,
   listVideoInputDevices,
@@ -186,6 +187,19 @@ export function SettingsPage() {
             }}
           >
             保存
+          </button>
+          <button
+            className="ghost-button"
+            onClick={() => {
+              setDraft({
+                ...draft,
+                ...LOCAL_STT_RECOMMENDED_SETTINGS,
+                sttMode: 'local',
+              })
+              setMessage('軽量 local STT 推奨値をフォームへ反映しました。')
+            }}
+          >
+            local 推奨値を適用
           </button>
           <button
             className="ghost-button"

@@ -42,6 +42,7 @@
 - [x] faster-whisper の sidecar 単体疎通を確認
 - [x] local STT の recorded-audio 優先ルートを実装
 - [x] local STT 診断情報の確認 UI を追加
+- [x] local STT 実行サマリを Capture 画面に表示
 
 ## Phase 5: Rule-Based Parser
 - [x] 日付パーサを実装

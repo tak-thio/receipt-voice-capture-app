@@ -16,6 +16,7 @@ export interface TranscribeAudioInput {
 export interface TranscribeAudioResult {
   events: SttInputEvent[]
   source: 'mock-backend' | 'local' | 'local-python-sidecar'
+  detectedLanguage?: string | null
 }
 
 export interface SttDiagnostics {

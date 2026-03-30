@@ -10,6 +10,7 @@ export interface SttTranscriptionRequest {
 export interface SttTranscriptionResult {
   events: SttInputEvent[]
   source: 'mock-sequence' | 'manual-transcript' | 'recording'
+  detectedLanguage?: string | null
 }
 
 export interface SttAdapter {

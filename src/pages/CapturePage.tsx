@@ -59,6 +59,9 @@ export function CapturePage() {
   const isRecording = useSessionStore((state) => state.isRecording)
   const isProcessing = useSessionStore((state) => state.isProcessing)
   const lastTranscriptionSource = useSessionStore((state) => state.lastTranscriptionSource)
+  const lastTranscriptionStrategy = useSessionStore((state) => state.lastTranscriptionStrategy)
+  const lastDetectedLanguage = useSessionStore((state) => state.lastDetectedLanguage)
+  const lastTranscriptionEventCount = useSessionStore((state) => state.lastTranscriptionEventCount)
   const lastTranscriptionError = useSessionStore((state) => state.lastTranscriptionError)
   const lastCaptureError = useSessionStore((state) => state.lastCaptureError)
   const setRecording = useSessionStore((state) => state.setRecording)
@@ -424,10 +427,14 @@ export function CapturePage() {
           <span className="muted small">
             pending events: {pendingEvents.length} / source: {lastTranscriptionSource ?? 'none'}
           </span>
-          {settings.sttMode === 'local' ? (
+          {lastTranscriptionStrategy ? (
             <span className="muted small">
-              strategy: {localSttWillUseRecordedAudio ? 'recorded-audio' : 'seed-fallback'}
+              strategy: {lastTranscriptionStrategy}
             </span>
+          ) : null}
+          <span className="muted small">events: {lastTranscriptionEventCount}</span>
+          {lastDetectedLanguage ? (
+            <span className="muted small">detected language: {lastDetectedLanguage}</span>
           ) : null}
           {lastTranscriptionError ? (
             <span className="muted small">{lastTranscriptionError}</span>
