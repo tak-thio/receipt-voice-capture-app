@@ -10,7 +10,7 @@ export interface OcrAdapterRequest {
 export interface OcrAdapterResult {
   rawText: string
   extractedCandidates: OcrExtractedCandidates
-  source: 'mock' | 'local' | 'disabled' | 'error'
+  source: 'mock' | 'local' | 'gemini' | 'disabled' | 'error'
 }
 
 export interface OcrAdapter {

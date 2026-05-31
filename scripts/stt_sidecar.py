@@ -13,7 +13,7 @@ def load_faster_whisper():
         return WhisperModel
     except Exception as error:
         raise RuntimeError(
-            "faster-whisper is not installed. Run `python3 -m pip install -r scripts/requirements-stt.txt` "
+            "faster-whisper is not installed. Run `python -m pip install -r scripts/requirements-stt.txt` "
             "or provide seedText for scaffold mode."
         ) from error
 

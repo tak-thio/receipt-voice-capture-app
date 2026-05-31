@@ -2,12 +2,16 @@ use crate::services::ocr::{OcrDiagnosticsPayload, OcrRequest, OcrResponsePayload
 
 #[tauri::command]
 pub fn extract_ocr_from_image(
-    image_path: String,
-    mock_raw_text: Option<String>,
+    #[allow(non_snake_case)] imagePath: String,
+    #[allow(non_snake_case)] mockRawText: Option<String>,
+    provider: Option<String>,
+    model: Option<String>,
 ) -> Result<OcrResponsePayload, String> {
     OcrService::extract(OcrRequest {
-        image_path,
-        mock_raw_text,
+        image_path: imagePath,
+        mock_raw_text: mockRawText,
+        provider,
+        model,
     })
 }
 

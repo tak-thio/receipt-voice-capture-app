@@ -80,7 +80,7 @@ export interface OcrExtractedCandidates {
 export interface ReceiptRecordOcrBlock {
   rawText: string
   extractedCandidates: OcrExtractedCandidates
-  source: 'mock' | 'local' | 'disabled' | 'error'
+  source: 'mock' | 'local' | 'gemini' | 'disabled' | 'error'
 }
 
 export interface ReceiptRecordFinalBlock {
@@ -103,6 +103,7 @@ export interface ReceiptRecordReviewBlock {
   reviewRequired: boolean
   mismatchReasons: string[]
   confidence: number
+  confirmedAt?: string | null
 }
 
 export interface ReceiptRecord {

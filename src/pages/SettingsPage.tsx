@@ -1,3 +1,4 @@
+import { formatReceiptText, getAiDiagnostics } from '../api/ai-formatter-api'
 import { getOcrDiagnostics } from '../api/ocr-api'
 import { getSttDiagnostics } from '../api/stt-api'
 import { useEffect, useState } from 'react'
@@ -9,6 +10,7 @@ import {
 import { useSessionStore } from '../store/session-store'
 import type { RecordingDeviceOption } from '../types/audio'
 import type { AppSettings } from '../types/settings'
+import type { AiDiagnostics } from '../api/ai-formatter-api'
 import type { SttDiagnostics } from '../api/stt-api'
 import type { OcrDiagnostics } from '../api/ocr-api'
 
@@ -37,6 +39,14 @@ export function SettingsPage() {
   const [isRefreshingSttDiagnostics, setIsRefreshingSttDiagnostics] = useState(false)
   const [ocrDiagnostics, setOcrDiagnostics] = useState<OcrDiagnostics | null>(null)
   const [isRefreshingOcrDiagnostics, setIsRefreshingOcrDiagnostics] = useState(false)
+  const [aiDiagnostics, setAiDiagnostics] = useState<AiDiagnostics | null>(null)
+  const [isRefreshingAiDiagnostics, setIsRefreshingAiDiagnostics] = useState(false)
+  const [isTestingAiFormatter, setIsTestingAiFormatter] = useState(false)
+  const [aiFormatterTestMessage, setAiFormatterTestMessage] = useState('')
+  const selectedProviderKeyConfigured =
+    draft.aiProvider === 'gemini'
+      ? Boolean(aiDiagnostics?.geminiKeyConfigured)
+      : Boolean(aiDiagnostics?.openaiKeyConfigured)
 
   useEffect(() => {
     setDraft(settings)
@@ -78,12 +88,23 @@ export function SettingsPage() {
       })
   }, [])
 
+  useEffect(() => {
+    setIsRefreshingAiDiagnostics(true)
+    void getAiDiagnostics()
+      .then((result) => {
+        setAiDiagnostics(result)
+      })
+      .finally(() => {
+        setIsRefreshingAiDiagnostics(false)
+      })
+  }, [])
+
   return (
     <section className="page">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Phase 1</p>
-          <h2>Settings</h2>
+          <p className="eyebrow">設定</p>
+          <h2>アプリ設定</h2>
           <p className="muted">保存先、入力デバイス、STT/OCR モード、既定の出力形式を保持します。</p>
         </div>
       </header>
@@ -125,28 +146,69 @@ export function SettingsPage() {
           <label className="field">
             <span>STTモード</span>
             <select value={draft.sttMode} onChange={(event) => setDraft({ ...draft, sttMode: event.target.value as AppSettings['sttMode'] })}>
-              <option value="mock">mock</option>
-              <option value="local">local</option>
+              <option value="mock">テスト</option>
+              <option value="local">ローカル</option>
+              <option value="openai">OpenAI</option>
+              <option value="gemini">Gemini</option>
             </select>
+          </label>
+          <label className="field">
+            <span>AIプロバイダー</span>
+            <select
+              value={draft.aiProvider}
+              onChange={(event) => {
+                const aiProvider = event.target.value as AppSettings['aiProvider']
+                setDraft({
+                  ...draft,
+                  aiProvider,
+                  sttMode: draft.sttMode === 'openai' || draft.sttMode === 'gemini' ? aiProvider : draft.sttMode,
+                  aiFormatMode:
+                    draft.aiFormatMode === 'openai' || draft.aiFormatMode === 'gemini'
+                      ? aiProvider
+                      : draft.aiFormatMode,
+                })
+              }}
+            >
+              <option value="openai">OpenAI</option>
+              <option value="gemini">Gemini</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>OpenAI APIキー</span>
+            <input
+              type="password"
+              value={draft.openaiApiKey}
+              autoComplete="off"
+              onChange={(event) => setDraft({ ...draft, openaiApiKey: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span>Gemini APIキー</span>
+            <input
+              type="password"
+              value={draft.geminiApiKey}
+              autoComplete="off"
+              onChange={(event) => setDraft({ ...draft, geminiApiKey: event.target.value })}
+            />
           </label>
           <label className="field">
             <span>STTモデル</span>
             <input value={draft.sttModel} onChange={(event) => setDraft({ ...draft, sttModel: event.target.value })} />
           </label>
           <label className="field">
-            <span>STT device</span>
+            <span>STT実行デバイス</span>
             <input value={draft.sttDevice} onChange={(event) => setDraft({ ...draft, sttDevice: event.target.value })} />
           </label>
           <label className="field">
-            <span>STT compute type</span>
+            <span>STT計算方式</span>
             <input value={draft.sttComputeType} onChange={(event) => setDraft({ ...draft, sttComputeType: event.target.value })} />
           </label>
           <label className="field">
-            <span>STT language</span>
+            <span>STT言語</span>
             <input value={draft.sttLanguage} onChange={(event) => setDraft({ ...draft, sttLanguage: event.target.value })} />
           </label>
           <label className="field">
-            <span>STT beam size</span>
+            <span>STT探索幅</span>
             <input
               type="number"
               min={1}
@@ -160,10 +222,35 @@ export function SettingsPage() {
             />
           </label>
           <label className="field">
+            <span>OpenAI STTモデル</span>
+            <input value={draft.openaiSttModel} onChange={(event) => setDraft({ ...draft, openaiSttModel: event.target.value })} />
+          </label>
+          <label className="field">
+            <span>Geminiモデル</span>
+            <input value={draft.geminiModel} onChange={(event) => setDraft({ ...draft, geminiModel: event.target.value })} />
+          </label>
+          <label className="field">
+            <span>AI整形モード</span>
+            <select
+              value={draft.aiFormatMode}
+              onChange={(event) => setDraft({ ...draft, aiFormatMode: event.target.value as AppSettings['aiFormatMode'] })}
+            >
+              <option value="rule">ルールベース</option>
+              <option value="openai">OpenAI</option>
+              <option value="gemini">Gemini</option>
+              <option value="local">ローカル</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>AI整形モデル</span>
+            <input value={draft.aiFormatterModel} onChange={(event) => setDraft({ ...draft, aiFormatterModel: event.target.value })} />
+          </label>
+          <label className="field">
             <span>OCRモード</span>
             <select value={draft.ocrMode} onChange={(event) => setDraft({ ...draft, ocrMode: event.target.value as AppSettings['ocrMode'] })}>
-              <option value="mock">mock</option>
-              <option value="local">local</option>
+              <option value="mock">テスト</option>
+              <option value="local">ローカル</option>
+              <option value="gemini">Gemini</option>
             </select>
           </label>
           <label className="field">
@@ -177,7 +264,8 @@ export function SettingsPage() {
                 })
               }
             >
-              <option value="generic">generic</option>
+              <option value="generic">汎用CSV</option>
+              <option value="mas">MJS/MAS</option>
               <option value="freee">freee</option>
               <option value="yayoi">yayoi</option>
             </select>
@@ -214,7 +302,23 @@ export function SettingsPage() {
               setMessage('軽量 local STT 推奨値をフォームへ反映しました。')
             }}
           >
-            local 推奨値を適用
+            ローカル推奨値を適用
+          </button>
+          <button
+            className="ghost-button"
+            onClick={() => {
+              setDraft({
+                ...draft,
+                aiProvider: 'gemini',
+                sttMode: 'gemini',
+                aiFormatMode: 'gemini',
+                ocrMode: 'gemini',
+                geminiModel: draft.geminiModel || 'gemini-2.5-flash',
+              })
+              setMessage('Gemini 推奨値をフォームへ反映しました。')
+            }}
+          >
+            Gemini 推奨値を適用
           </button>
           <button
             className="ghost-button"
@@ -243,26 +347,119 @@ export function SettingsPage() {
 
       <article className="panel">
         <div className="panel-title-row">
-          <h3>Local STT Diagnostics</h3>
-          <span className={`status-chip ${sttDiagnostics?.ready ? 'ready' : 'warning'}`}>
-            {sttDiagnostics?.ready ? 'ready' : 'check'}
+          <h3>AI接続診断</h3>
+          <span className={`status-chip ${selectedProviderKeyConfigured ? 'ready' : 'warning'}`}>
+            {selectedProviderKeyConfigured ? `${draft.aiProvider} 利用可能` : '要確認'}
           </span>
         </div>
         <dl className="meta-grid">
           <div>
-            <dt>python</dt>
+            <dt>プロバイダー</dt>
+            <dd>{draft.aiProvider}</dd>
+          </div>
+          <div>
+            <dt>Geminiキー</dt>
+            <dd>{aiDiagnostics?.geminiKeyConfigured ? '設定済み' : '未設定'}</dd>
+          </div>
+          <div>
+            <dt>OpenAIキー</dt>
+            <dd>{aiDiagnostics?.openaiKeyConfigured ? '設定済み' : '未設定'}</dd>
+          </div>
+          <div>
+            <dt>キー取得元</dt>
+            <dd>{aiDiagnostics ? `${aiDiagnostics.geminiEnvVar} / ${aiDiagnostics.openaiEnvVar} / 設定ファイル` : 'Tauri runtime で確認'}</dd>
+          </div>
+        </dl>
+        <div className="header-actions">
+          <button
+            className="ghost-button"
+            disabled={isRefreshingAiDiagnostics}
+            onClick={() => {
+              setIsRefreshingAiDiagnostics(true)
+              void getAiDiagnostics()
+                .then((result) => {
+                  setAiDiagnostics(result)
+                  const configured = draft.aiProvider === 'gemini' ? result?.geminiKeyConfigured : result?.openaiKeyConfigured
+                  setMessage(configured ? `${draft.aiProvider} APIキー設定を確認しました。` : `${draft.aiProvider} APIキーが未設定です。`)
+                })
+                .finally(() => {
+                  setIsRefreshingAiDiagnostics(false)
+                })
+            }}
+          >
+            {isRefreshingAiDiagnostics ? 'AI診断更新中...' : 'AI診断を更新'}
+          </button>
+          <button
+            className="ghost-button"
+            disabled={isTestingAiFormatter || !dictionaries}
+            onClick={() => {
+              if (!dictionaries) {
+                const nextMessage = '辞書が未読込のためAI整形テストを実行できません。'
+                setMessage(nextMessage)
+                setAiFormatterTestMessage(nextMessage)
+                return
+              }
+
+              setIsTestingAiFormatter(true)
+              setAiFormatterTestMessage('')
+              void formatReceiptText({
+                rawText: '3月24日 セブンイレブン 税込1158円 現金 文具代 次へ',
+                provider: draft.aiProvider,
+                model: draft.aiProvider === 'gemini' ? draft.geminiModel : draft.aiFormatterModel,
+                referenceDate: new Date().toISOString(),
+                dictionaries,
+              })
+                .then((result) => {
+                  const record = result.records[0]
+                  const nextMessage = record
+                    ? `AI整形テスト成功: ${record.vendor || '支払先未入力'} / ${record.amount ?? '金額未入力'}円`
+                    : 'AI整形テストは成功しましたが、レコードが返りませんでした。'
+                  setMessage(nextMessage)
+                  setAiFormatterTestMessage(nextMessage)
+                })
+                .catch((error) => {
+                  const nextMessage = error instanceof Error ? error.message : 'AI整形テストに失敗しました。'
+                  setMessage(nextMessage)
+                  setAiFormatterTestMessage(nextMessage)
+                })
+                .finally(() => {
+                  setIsTestingAiFormatter(false)
+                })
+            }}
+          >
+            {isTestingAiFormatter ? 'AI整形テスト中...' : 'AI整形をテスト'}
+          </button>
+        </div>
+        <p className="muted small">
+          APIキーは環境変数を優先し、未設定なら保存済みのアプリ設定を使います。AI整形テストは選択中のプロバイダーへ短いサンプルを1回送信します。
+        </p>
+        {aiFormatterTestMessage ? (
+          <p className="muted small">{aiFormatterTestMessage}</p>
+        ) : null}
+      </article>
+
+      <article className="panel">
+        <div className="panel-title-row">
+          <h3>ローカル文字起こし診断</h3>
+          <span className={`status-chip ${sttDiagnostics?.ready ? 'ready' : 'warning'}`}>
+            {sttDiagnostics?.ready ? '利用可能' : '要確認'}
+          </span>
+        </div>
+        <dl className="meta-grid">
+          <div>
+            <dt>Python</dt>
             <dd>{sttDiagnostics?.pythonExecutable ?? 'Tauri runtime で確認'}</dd>
           </div>
           <div>
-            <dt>sidecar</dt>
+            <dt>補助スクリプト</dt>
             <dd>{sttDiagnostics?.sidecarScript ?? 'Tauri runtime で確認'}</dd>
           </div>
           <div>
-            <dt>local venv</dt>
-            <dd>{sttDiagnostics?.localVenvPython ?? 'not found'}</dd>
+            <dt>ローカル仮想環境</dt>
+            <dd>{sttDiagnostics?.localVenvPython ?? '未検出'}</dd>
           </div>
           <div>
-            <dt>mode</dt>
+            <dt>モード</dt>
             <dd>{draft.sttMode}</dd>
           </div>
         </dl>
@@ -287,15 +484,15 @@ export function SettingsPage() {
         </div>
         <p className="muted small">
           {sttDiagnostics?.error ||
-            'local モードでは .venv-stt/bin/python を優先して Python sidecar を探します。'}
+            'ローカルモードでは .venv-stt 配下の Python を優先して補助スクリプトを探します。'}
         </p>
       </article>
 
       <article className="panel">
         <div className="panel-title-row">
-          <h3>Local OCR Diagnostics</h3>
+          <h3>OCR診断</h3>
           <span className={`status-chip ${ocrDiagnostics?.ready ? 'ready' : 'warning'}`}>
-            {ocrDiagnostics?.ready ? 'ready' : 'check'}
+            {ocrDiagnostics?.ready ? '利用可能' : '要確認'}
           </span>
         </div>
         <dl className="meta-grid">
@@ -304,12 +501,12 @@ export function SettingsPage() {
             <dd>{ocrDiagnostics?.tesseractExecutable ?? 'Tauri runtime で確認'}</dd>
           </div>
           <div>
-            <dt>mode</dt>
+            <dt>モード</dt>
             <dd>{draft.ocrMode}</dd>
           </div>
           <div>
-            <dt>enabled</dt>
-            <dd>{draft.ocrEnabled ? 'true' : 'false'}</dd>
+            <dt>有効</dt>
+            <dd>{draft.ocrEnabled ? 'はい' : 'いいえ'}</dd>
           </div>
         </dl>
         <div className="header-actions">
@@ -333,32 +530,32 @@ export function SettingsPage() {
         </div>
         <p className="muted small">
           {ocrDiagnostics?.error ||
-            'local OCR は Tesseract CLI を前提にし、未検出時は mock OCR を使う構成ではなく error source として扱います。'}
+            'Gemini OCR は設定画面または GEMINI_API_KEY のAPIキーを使い、ローカルOCRは Tesseract CLI を前提にします。OCR失敗時はエラーとして扱います。'}
         </p>
       </article>
 
       <article className="panel">
         <div className="panel-title-row">
-          <h3>Dictionary Status</h3>
+          <h3>辞書データ</h3>
           <span className={`status-chip ${lastDictionaryError ? 'warning' : 'ready'}`}>
-            {lastDictionaryError ? 'error' : 'loaded'}
+            {lastDictionaryError ? 'エラー' : '読込済み'}
           </span>
         </div>
         <dl className="meta-grid">
           <div>
-            <dt>payment methods</dt>
+            <dt>支払方法</dt>
             <dd>{dictionaries?.paymentMethods.length ?? 0}</dd>
           </div>
           <div>
-            <dt>account categories</dt>
+            <dt>勘定科目</dt>
             <dd>{dictionaries?.accountCategories.length ?? 0}</dd>
           </div>
           <div>
-            <dt>description mappings</dt>
+            <dt>摘要マッピング</dt>
             <dd>{dictionaries?.descriptionMappings.length ?? 0}</dd>
           </div>
           <div>
-            <dt>last reload</dt>
+            <dt>最終読込</dt>
             <dd>
               {lastDictionaryReloadAt
                 ? new Date(lastDictionaryReloadAt).toLocaleString('ja-JP')
@@ -373,30 +570,30 @@ export function SettingsPage() {
 
       <article className="panel">
         <div className="panel-title-row">
-          <h3>Session Status</h3>
+          <h3>セッション状態</h3>
           <span className={`status-chip ${lastSessionReloadError ? 'warning' : 'ready'}`}>
-            {lastSessionReloadError ? 'error' : 'ready'}
+            {lastSessionReloadError ? 'エラー' : '正常'}
           </span>
         </div>
         <dl className="meta-grid">
           <div>
-            <dt>session id</dt>
-            <dd>{session?.id ?? 'none'}</dd>
+            <dt>セッションID</dt>
+            <dd>{session?.id ?? 'なし'}</dd>
           </div>
           <div>
-            <dt>records</dt>
+            <dt>レコード数</dt>
             <dd>{session?.records.length ?? 0}</dd>
           </div>
           <div>
-            <dt>updated at</dt>
-            <dd>{session ? new Date(session.updatedAt).toLocaleString('ja-JP') : 'none'}</dd>
+            <dt>更新日時</dt>
+            <dd>{session ? new Date(session.updatedAt).toLocaleString('ja-JP') : 'なし'}</dd>
           </div>
           <div>
-            <dt>storage root</dt>
+            <dt>保存先ルート</dt>
             <dd>{settings.storageRoot}</dd>
           </div>
           <div>
-            <dt>last reload</dt>
+            <dt>最終再読込</dt>
             <dd>
               {lastSessionReloadAt
                 ? new Date(lastSessionReloadAt).toLocaleString('ja-JP')
@@ -451,17 +648,17 @@ export function SettingsPage() {
 
       <article className="panel">
         <div className="panel-title-row">
-          <h3>Saved Sessions</h3>
-          <span className="status-chip ready">{availableSessions.length} sessions</span>
+          <h3>保存済みセッション</h3>
+          <span className="status-chip ready">{availableSessions.length}件</span>
         </div>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>session id</th>
-                <th>updated</th>
-                <th>records</th>
-                <th>action</th>
+                <th>セッションID</th>
+                <th>更新日時</th>
+                <th>件数</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>

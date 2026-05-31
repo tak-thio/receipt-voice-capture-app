@@ -3,11 +3,13 @@ import { maybeInvoke } from './tauri'
 export interface ExtractOcrTextInput {
   imagePath: string
   mockRawText?: string
+  provider?: 'local' | 'gemini'
+  model?: string
 }
 
 export interface ExtractOcrTextResult {
   rawText: string
-  source: 'local'
+  source: 'local' | 'gemini'
 }
 
 export interface OcrDiagnostics {

@@ -250,14 +250,16 @@ mod tests {
             "records": []
         });
 
-        SessionRepository::save(Some(&root), "session-456", &session)
-            .expect("session should save");
+        SessionRepository::save(Some(&root), "session-456", &session).expect("session should save");
 
         let loaded = SessionRepository::load_current(Some(&root))
             .expect("session should load")
             .expect("current session should exist");
 
-        assert_eq!(loaded.get("id").and_then(|value| value.as_str()), Some("session-456"));
+        assert_eq!(
+            loaded.get("id").and_then(|value| value.as_str()),
+            Some("session-456")
+        );
 
         std::fs::remove_dir_all(root).ok();
     }
@@ -320,12 +322,20 @@ mod tests {
         SessionRepository::save(Some(&root), "session-second", &second)
             .expect("second session should save");
 
-        let summaries = SessionRepository::list_summaries(Some(&root))
-            .expect("session summaries should load");
+        let summaries =
+            SessionRepository::list_summaries(Some(&root)).expect("session summaries should load");
 
         assert_eq!(summaries.len(), 2);
-        assert_eq!(summaries[0].get("id").and_then(|value| value.as_str()), Some("session-second"));
-        assert_eq!(summaries[0].get("recordCount").and_then(|value| value.as_u64()), Some(1));
+        assert_eq!(
+            summaries[0].get("id").and_then(|value| value.as_str()),
+            Some("session-second")
+        );
+        assert_eq!(
+            summaries[0]
+                .get("recordCount")
+                .and_then(|value| value.as_u64()),
+            Some(1)
+        );
 
         std::fs::remove_dir_all(root).ok();
     }

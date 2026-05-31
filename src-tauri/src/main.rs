@@ -21,6 +21,8 @@ fn main() {
             commands::ocr::get_ocr_diagnostics,
             commands::stt::transcribe_audio,
             commands::stt::get_stt_diagnostics,
+            commands::ai_formatter::format_receipt_text,
+            commands::ai_formatter::get_ai_diagnostics,
             commands::export::export_csv
         ])
         .run(tauri::generate_context!())

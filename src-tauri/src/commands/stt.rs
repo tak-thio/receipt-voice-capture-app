@@ -1,6 +1,5 @@
 use crate::services::stt::{
-    SttDiagnosticsPayload, SttMode, SttService, SttTranscriptionPayload,
-    SttTranscriptionRequest,
+    SttDiagnosticsPayload, SttMode, SttService, SttTranscriptionPayload, SttTranscriptionRequest,
 };
 use serde::Deserialize;
 
@@ -9,6 +8,8 @@ use serde::Deserialize;
 pub enum SttModeInput {
     Mock,
     Local,
+    Openai,
+    Gemini,
 }
 
 #[tauri::command]
@@ -26,6 +27,8 @@ pub fn transcribe_audio(
     let mode = match mode {
         SttModeInput::Mock => SttMode::Mock,
         SttModeInput::Local => SttMode::Local,
+        SttModeInput::Openai => SttMode::Openai,
+        SttModeInput::Gemini => SttMode::Gemini,
     };
 
     SttService::transcribe(SttTranscriptionRequest {

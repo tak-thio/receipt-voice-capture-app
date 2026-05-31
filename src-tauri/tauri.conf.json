@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Receipt Voice Capture",
+  "productName": "領収書入力",
   "version": "0.1.0",
   "identifier": "com.tak.receiptvoicecapture",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Receipt Voice Capture",
+        "title": "領収書入力",
         "width": 1440,
         "height": 960,
         "resizable": true

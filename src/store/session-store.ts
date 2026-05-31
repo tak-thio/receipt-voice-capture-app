@@ -1,4 +1,5 @@
 import { saveAudioClip } from '../api/audio-api'
+import { formatReceiptText } from '../api/ai-formatter-api'
 import { create } from 'zustand'
 import { saveCaptureImage } from '../api/capture-api'
 import {
@@ -11,16 +12,23 @@ import {
 } from '../api/session-api'
 import { loadSettings, saveSettings } from '../api/settings-api'
 import { transcribeAudio } from '../api/stt-api'
-import { DEFAULT_SETTINGS } from '../lib/constants'
+import { BOUNDARY_KEYWORDS, DEFAULT_SETTINGS } from '../lib/constants'
 import { buildReviewBlock } from '../matching/match-record'
+import { normalizeSpeechText } from '../parser/normalizers'
 import { parseSpeech } from '../parser/speech-parser'
+import { tokenizeSpeech } from '../parser/tokenize'
 import { LocalOcrAdapter } from '../services/adapters/local-ocr-adapter'
 import { MockOcrAdapter } from '../services/adapters/mock-ocr-adapter'
+import { GeminiOcrAdapter } from '../services/adapters/gemini-ocr-adapter'
 import { MockSttAdapter } from '../services/adapters/mock-stt-adapter'
 import type { SttTranscriptionRequest } from '../services/adapters/stt-adapter'
 import { loadDictionaries } from '../services/dictionary-loader'
 import { MOCK_TRANSCRIPT_SEQUENCES } from '../services/sample-sequences'
-import { buildLocalSttExecutionPlan } from '../services/stt/build-local-stt-input'
+import {
+  buildGeminiSttExecutionPlan,
+  buildLocalSttExecutionPlan,
+  buildOpenAiSttExecutionPlan,
+} from '../services/stt/build-local-stt-input'
 import { SegmentManager } from '../services/stt/segment-manager'
 import type { RecordedAudioClip } from '../types/audio'
 import type { DictionaryBundle } from '../types/dictionaries'
@@ -30,6 +38,7 @@ import type {
   ReceiptRecord,
   Session,
   SessionSummary,
+  SpeechParseResult,
   SttCommittedSegment,
   SttInputEvent,
 } from '../types/domain'
@@ -41,6 +50,7 @@ interface CaptureFrameInput {
   imageDataUrl: string
   width: number
   height: number
+  capturedAtMs?: number
 }
 
 interface SessionStoreState {
@@ -70,11 +80,15 @@ interface SessionStoreState {
   refreshAvailableSessions: () => Promise<void>
   restoreSessionById: (sessionId: string) => Promise<void>
   setRecording: (value: boolean) => void
-  pushTranscriptEvent: (event: SttInputEvent, captureFrame: CaptureFrameInput) => Promise<void>
-  processTranscriptSequence: (events: SttInputEvent[], captureFrame: CaptureFrameInput) => Promise<void>
+  pushTranscriptEvent: (event: SttInputEvent, captureFrames: CaptureFrameInput[]) => Promise<void>
+  processTranscriptSequence: (
+    events: SttInputEvent[],
+    captureFrames: CaptureFrameInput[],
+    options?: { flushPending?: boolean },
+  ) => Promise<void>
   transcribeInput: (
     request: SttTranscriptionRequest,
-    captureFrame: CaptureFrameInput,
+    captureFrames: CaptureFrameInput[],
   ) => Promise<void>
   persistRecordedAudioClip: (audioClip: RecordedAudioClip) => Promise<RecordedAudioClip>
   setSelectedRecordId: (recordId: string | null) => void
@@ -84,6 +98,7 @@ interface SessionStoreState {
     field: K,
     value: ReceiptRecord['final'][K],
   ) => Promise<void>
+  markRecordConfirmed: (recordId: string) => Promise<void>
   deleteRecord: (recordId: string) => Promise<void>
   persistSettings: (settings: AppSettings) => Promise<void>
   startNewSession: () => Promise<void>
@@ -111,16 +126,70 @@ function buildFallbackSeedText(request: SttTranscriptionRequest): string {
   return ''
 }
 
-function buildRecordFromSegment(
+async function formatSegmentText(
+  rawText: string,
+  dictionaries: DictionaryBundle,
+  settings: AppSettings,
+): Promise<SpeechParseResult> {
+  const fallback = parseSpeech({
+    rawText,
+    dictionaries,
+  })
+
+  if (settings.aiFormatMode !== 'openai' && settings.aiFormatMode !== 'gemini') {
+    return fallback
+  }
+
+  try {
+    const formatted = await formatReceiptText({
+      rawText,
+      provider: settings.aiFormatMode,
+      model: settings.aiFormatMode === 'gemini' ? settings.geminiModel : settings.aiFormatterModel,
+      referenceDate: new Date().toISOString(),
+      dictionaries,
+    })
+    const fields = formatted.records[0]
+
+    if (!fields) {
+      return {
+        ...fallback,
+        warnings: [...fallback.warnings, 'AI整形結果にレコードが含まれていませんでした。'],
+      }
+    }
+
+    const normalizedText = normalizeSpeechText(rawText)
+    const rawTokens = tokenizeSpeech(normalizedText)
+
+    return {
+      normalizedText,
+      tokens: rawTokens.filter((token) => !BOUNDARY_KEYWORDS.includes(token)),
+      fields: {
+        ...fields,
+        amount: fields.amount === null ? null : Number(fields.amount),
+      },
+      warnings: formatted.warnings,
+      boundaryDetected: rawTokens.some((token) => BOUNDARY_KEYWORDS.includes(token)),
+    }
+  } catch (error) {
+    return {
+      ...fallback,
+      warnings: [
+        ...fallback.warnings,
+        error instanceof Error
+          ? `AI整形に失敗したためルールベース結果を使用しました: ${error.message}`
+          : 'AI整形に失敗したためルールベース結果を使用しました。',
+      ],
+    }
+  }
+}
+
+async function buildRecordFromSegment(
   segment: SttCommittedSegment,
   capture: CaptureImageMeta,
   dictionaries: DictionaryBundle,
   settings: AppSettings,
 ): Promise<ReceiptRecord> {
-  const parsed = parseSpeech({
-    rawText: segment.rawText,
-    dictionaries,
-  })
+  const parsed = await formatSegmentText(segment.rawText, dictionaries, settings)
 
   const now = new Date().toISOString()
   const finalBlock = {
@@ -139,7 +208,11 @@ function buildRecordFromSegment(
         },
         source: 'disabled' as const,
       })
-    : (settings.ocrMode === 'local' ? localOcrAdapter : mockOcrAdapter)
+    : (settings.ocrMode === 'local'
+        ? localOcrAdapter
+        : settings.ocrMode === 'gemini'
+          ? new GeminiOcrAdapter(settings.geminiModel)
+          : mockOcrAdapter)
         .extractFromImage({ imagePath: capture.imagePath, finalBlock })
         .catch(() => ({
         rawText: '',
@@ -202,7 +275,7 @@ async function ensureSession(currentSession: Session | null, settings: AppSettin
 
 async function commitSegments(
   segments: SttCommittedSegment[],
-  captureFrame: CaptureFrameInput,
+  captureFrames: CaptureFrameInput[],
   session: Session,
   settings: AppSettings,
   dictionaries: DictionaryBundle,
@@ -211,26 +284,56 @@ async function commitSegments(
     return session
   }
 
-  const capture = await saveCaptureImage({
-    sessionId: session.id,
-    imageDataUrl: captureFrame.imageDataUrl,
-    width: captureFrame.width,
-    height: captureFrame.height,
-    storageRoot: settings.storageRoot,
-  })
-
   const newRecords = await Promise.all(
-    segments.map((segment) => buildRecordFromSegment(segment, capture, dictionaries, settings)),
+    segments.map(async (segment, index) => {
+      const captureFrame = selectCaptureFrameForSegment(segment, captureFrames)
+      const capture = await saveCaptureImage({
+        sessionId: session.id,
+        imageDataUrl: captureFrame.imageDataUrl,
+        width: captureFrame.width,
+        height: captureFrame.height,
+        storageRoot: settings.storageRoot,
+        suggestedFileName: `capture-${Date.now()}-${index + 1}.jpg`,
+      })
+
+      return buildRecordFromSegment(segment, capture, dictionaries, settings)
+    }),
   )
 
   const nextSession: Session = {
     ...session,
+    settingsSnapshot: settings,
     updatedAt: new Date().toISOString(),
     records: [...session.records, ...newRecords],
   }
 
   await saveSession(nextSession, settings.storageRoot)
   return nextSession
+}
+
+function selectCaptureFrameForSegment(
+  segment: SttCommittedSegment,
+  captureFrames: CaptureFrameInput[],
+): CaptureFrameInput {
+  const frames = captureFrames.length ? captureFrames : []
+  if (!frames.length) {
+    throw new Error('レコードに紐づける画像がありません。')
+  }
+
+  const startMs = segment.segmentStartMs ?? 0
+  const endMs = segment.segmentEndMs ?? startMs
+  const targetMs = Math.max(startMs, endMs - 800)
+  const framesInSegment = frames.filter((frame) => {
+    const capturedAtMs = frame.capturedAtMs ?? targetMs
+    return capturedAtMs >= startMs && capturedAtMs <= endMs
+  })
+  const candidates = framesInSegment.length ? framesInSegment : frames
+
+  return candidates.reduce((best, frame) => {
+    const bestDistance = Math.abs((best.capturedAtMs ?? targetMs) - targetMs)
+    const frameDistance = Math.abs((frame.capturedAtMs ?? targetMs) - targetMs)
+    return frameDistance < bestDistance ? frame : best
+  })
 }
 
 export const useSessionStore = create<SessionStoreState>((set, get) => ({
@@ -386,10 +489,10 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       filePath: savedClip.audioPath,
     }
   },
-  pushTranscriptEvent: async (event, captureFrame) => {
-    await get().processTranscriptSequence([event], captureFrame)
+  pushTranscriptEvent: async (event, captureFrames) => {
+    await get().processTranscriptSequence([event], captureFrames)
   },
-  processTranscriptSequence: async (events, captureFrame) => {
+  processTranscriptSequence: async (events, captureFrames, options) => {
     const { dictionaries, settings } = get()
     if (!dictionaries) {
       return
@@ -399,8 +502,11 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     set({ isProcessing: true, lastCaptureError: null })
 
     try {
-      const segments = segmentManager.append(events)
-      const nextSession = await commitSegments(segments, captureFrame, session, settings, dictionaries)
+      const segments = [
+        ...segmentManager.append(events),
+        ...(options?.flushPending ? segmentManager.flush() : []),
+      ]
+      const nextSession = await commitSegments(segments, captureFrames, session, settings, dictionaries)
       const availableSessions = await listSessions(settings.storageRoot)
 
       set({
@@ -419,8 +525,13 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       })
     }
   },
-  transcribeInput: async (request, captureFrame) => {
+  transcribeInput: async (request, captureFrames) => {
     const { settings } = get()
+    set({
+      isProcessing: true,
+      lastTranscriptionError: null,
+      lastCaptureError: null,
+    })
 
     try {
       let transcription: Awaited<ReturnType<typeof transcribeAudio>> | Awaited<ReturnType<typeof sttAdapter.transcribe>>
@@ -434,16 +545,38 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         )
         transcription = await transcribeAudio(localPlan.input)
         transcriptionStrategy = localPlan.strategy
+      } else if (settings.sttMode === 'openai') {
+        const openAiPlan = buildOpenAiSttExecutionPlan(
+          request,
+          settings,
+          buildFallbackSeedText(request),
+        )
+        transcription = await transcribeAudio(openAiPlan.input)
+        transcriptionStrategy = `openai-${openAiPlan.strategy}`
+      } else if (settings.sttMode === 'gemini') {
+        const geminiPlan = buildGeminiSttExecutionPlan(
+          request,
+          settings,
+          buildFallbackSeedText(request),
+        )
+        transcription = await transcribeAudio(geminiPlan.input)
+        transcriptionStrategy = `gemini-${geminiPlan.strategy}`
       } else {
         transcription = await sttAdapter.transcribe(request)
         transcriptionStrategy = request.manualTranscript?.trim()
           ? 'manual-transcript'
           : request.audioClip
             ? 'recording'
-            : 'mock-sequence'
+          : 'mock-sequence'
       }
 
-      await get().processTranscriptSequence(transcription.events, captureFrame)
+      if (!transcription.events.length) {
+        throw new Error('文字起こし結果が空でした。録音音量、入力マイク、またはSTTサービスの応答を確認してください。')
+      }
+
+      await get().processTranscriptSequence(transcription.events, captureFrames, {
+        flushPending: true,
+      })
       set({
         lastTranscriptionSource: transcription.source,
         lastTranscriptionStrategy: transcriptionStrategy,
@@ -453,6 +586,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       })
     } catch (error) {
       set({
+        isProcessing: false,
         lastTranscriptionStrategy: null,
         lastDetectedLanguage: null,
         lastTranscriptionEventCount: 0,
@@ -484,17 +618,53 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         manualEditedFields: Array.from(manualEditedFields),
       }
 
+      const nextReview = buildReviewBlock(nextFinal, record.ocr, record.stt.parserWarnings)
+
       return {
         ...record,
         updatedAt: new Date().toISOString(),
         final: nextFinal,
-        review: buildReviewBlock(nextFinal, record.ocr, record.stt.parserWarnings),
+        review: {
+          ...nextReview,
+          confirmedAt: null,
+        },
       }
     })
 
     const nextSession = {
       ...session,
       updatedAt: new Date().toISOString(),
+      records,
+    }
+
+    await saveSession(nextSession, session.settingsSnapshot.storageRoot)
+    set({
+      session: nextSession,
+      availableSessions: await listSessions(session.settingsSnapshot.storageRoot),
+    })
+  },
+  markRecordConfirmed: async (recordId) => {
+    const session = get().session
+    if (!session) {
+      return
+    }
+
+    const confirmedAt = new Date().toISOString()
+    const records = session.records.map((record) =>
+      record.id === recordId
+        ? {
+            ...record,
+            updatedAt: confirmedAt,
+            review: {
+              ...record.review,
+              confirmedAt,
+            },
+          }
+        : record,
+    )
+    const nextSession = {
+      ...session,
+      updatedAt: confirmedAt,
       records,
     }
 

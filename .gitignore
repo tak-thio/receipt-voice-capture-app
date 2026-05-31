@@ -7,3 +7,7 @@ receipt-sessions
 src-tauri/receipt-sessions
 .venv-stt
 __pycache__
+settings.json
+src-tauri/settings.json
+*.command
+scripts/dev-tauri-gemini.sh

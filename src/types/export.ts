@@ -1,4 +1,5 @@
-export type ExportTarget = 'freee' | 'yayoi' | 'generic'
+export type ExportTarget = 'freee' | 'yayoi' | 'generic' | 'mas'
+export type ExportScope = 'all' | 'confirmed' | 'unconfirmed'
 
 export interface ExportRow {
   date: string

@@ -1,3 +1,4 @@
+pub mod ai_formatter;
 pub mod audio;
 pub mod capture;
 pub mod export;

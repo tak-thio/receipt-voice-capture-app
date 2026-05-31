@@ -2,11 +2,12 @@ import type { CsvPreviewDocument, ExportTarget } from '../../types/export'
 import type { Session } from '../../types/domain'
 import { freeeFormatter } from './formatters/freee-formatter'
 import { genericFormatter } from './formatters/generic-formatter'
+import { masFormatter } from './formatters/mas-formatter'
 import type { CsvFormatter } from './formatters/types'
 import { yayoiFormatter } from './formatters/yayoi-formatter'
 
 function escapeCell(value: string): string {
-  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+  if (value.includes(',') || value.includes('"') || value.includes('\n') || value.includes('\r')) {
     return `"${value.replaceAll('"', '""')}"`
   }
 
@@ -20,6 +21,10 @@ function resolveFormatter(target: ExportTarget): CsvFormatter {
 
   if (target === 'yayoi') {
     return yayoiFormatter
+  }
+
+  if (target === 'mas') {
+    return masFormatter
   }
 
   return genericFormatter

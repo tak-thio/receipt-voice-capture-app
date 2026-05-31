@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { TAX_MODE_LABELS } from '../lib/constants'
+import { MATCH_STATUS_LABELS, TAX_MODE_LABELS } from '../lib/constants'
 import { revokeRecordedClip } from '../services/adapters/mock-stt-adapter'
 import {
   MediaRecorderService,
@@ -12,17 +12,19 @@ import { useSessionStore } from '../store/session-store'
 import type { RecordedAudioClip, RecordingDeviceOption } from '../types/audio'
 
 function buildFallbackCapture(): { imageDataUrl: string; width: number; height: number } {
-  const svg = encodeURIComponent(`
+  const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="960" height="640">
       <rect width="100%" height="100%" fill="#f5efe6" />
       <rect x="42" y="42" width="876" height="556" rx="24" fill="#fffaf2" stroke="#c9b59a" stroke-width="8" />
-      <text x="80" y="140" font-size="46" fill="#734f28" font-family="Hiragino Sans, sans-serif">Camera preview unavailable</text>
-      <text x="80" y="220" font-size="28" fill="#8e7253" font-family="Hiragino Sans, sans-serif">Fallback capture generated for session testing.</text>
+      <text x="80" y="140" font-size="46" fill="#734f28" font-family="Hiragino Sans, sans-serif">カメラプレビューを利用できません</text>
+      <text x="80" y="220" font-size="28" fill="#8e7253" font-family="Hiragino Sans, sans-serif">テスト用の代替画像を作成しました。</text>
     </svg>
-  `)
+  `
+  const svgBytes = new TextEncoder().encode(svg)
+  const svgBase64 = window.btoa(String.fromCharCode(...svgBytes))
 
   return {
-    imageDataUrl: `data:image/svg+xml;charset=utf-8,${svg}`,
+    imageDataUrl: `data:image/svg+xml;base64,${svgBase64}`,
     width: 960,
     height: 640,
   }
@@ -37,10 +39,36 @@ function formatDuration(durationMs: number): string {
 
 type TranscriptionMode = 'sequence' | 'manual'
 
+interface CaptureSnapshot {
+  imageDataUrl: string
+  width: number
+  height: number
+  capturedAtMs: number
+}
+
+function formatSttRoute(settingsMode: string, hasSavedAudioClip: boolean): string {
+  if (settingsMode === 'local') {
+    return hasSavedAudioClip ? '録音音声をローカル処理' : '入力テキストをローカル処理'
+  }
+
+  if (settingsMode === 'openai') {
+    return hasSavedAudioClip ? '録音音声をOpenAI処理' : '入力テキストをOpenAI処理'
+  }
+
+  if (settingsMode === 'gemini') {
+    return hasSavedAudioClip ? '録音音声をGemini処理' : '入力テキストをGemini処理'
+  }
+
+  return 'テスト処理'
+}
+
 export function CapturePage() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const recorderRef = useRef<MediaRecorderService | null>(null)
   const recordingTimerRef = useRef<number | null>(null)
+  const snapshotTimerRef = useRef<number | null>(null)
+  const recordingStartedAtRef = useRef<number | null>(null)
+  const captureSnapshotsRef = useRef<CaptureSnapshot[]>([])
 
   const [selectedSequenceId, setSelectedSequenceId] = useState(MOCK_TRANSCRIPT_SEQUENCES[0]?.id ?? '')
   const [manualTranscript, setManualTranscript] = useState(
@@ -52,6 +80,7 @@ export function CapturePage() {
   const [audioDevices, setAudioDevices] = useState<RecordingDeviceOption[]>([])
   const [latestAudioClip, setLatestAudioClip] = useState<RecordedAudioClip | null>(null)
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0)
+  const [captureSnapshotCount, setCaptureSnapshotCount] = useState(0)
   const [recordingError, setRecordingError] = useState('')
 
   const session = useSessionStore((state) => state.session)
@@ -82,18 +111,29 @@ export function CapturePage() {
   const recordingSupport = getMediaRecordingSupport()
   const localSttWillUseRecordedAudio = settings.sttMode === 'local' && hasSavedAudioClip
   const localSttButtonLabel = localSttWillUseRecordedAudio
-    ? '最新録音を local STT 実行'
+    ? '最新録音をローカル文字起こし'
     : settings.sttMode === 'local'
-      ? 'seed fallback で local STT 実行'
+      ? '入力内容でローカル文字起こし'
+      : settings.sttMode === 'openai'
+        ? hasSavedAudioClip
+          ? '最新録音をOpenAIで文字起こし'
+          : '入力内容をOpenAIで文字起こし'
+        : settings.sttMode === 'gemini'
+          ? hasSavedAudioClip
+            ? '最新録音をGeminiで文字起こし'
+            : '入力内容をGeminiで文字起こし'
       : latestAudioClip
-        ? '最新録音からSTT生成'
-        : '入力内容からSTT生成'
+        ? '最新録音から文字起こし'
+        : '入力内容から文字起こし'
 
   useEffect(() => {
     recorderRef.current = new MediaRecorderService()
     return () => {
       if (recordingTimerRef.current) {
         window.clearInterval(recordingTimerRef.current)
+      }
+      if (snapshotTimerRef.current) {
+        window.clearInterval(snapshotTimerRef.current)
       }
       revokeRecordedClip(latestAudioClip)
     }
@@ -171,6 +211,33 @@ export function CapturePage() {
     }
   }
 
+  function captureSnapshot(): CaptureSnapshot {
+    const frame = captureFrame()
+    const capturedAtMs = recordingStartedAtRef.current
+      ? Math.max(0, Date.now() - recordingStartedAtRef.current)
+      : 0
+
+    return {
+      ...frame,
+      capturedAtMs,
+    }
+  }
+
+  function appendCaptureSnapshot() {
+    const snapshot = captureSnapshot()
+    captureSnapshotsRef.current = [...captureSnapshotsRef.current, snapshot].slice(-240)
+    setCaptureSnapshotCount(captureSnapshotsRef.current.length)
+  }
+
+  function buildCaptureFramesForProcessing(): CaptureSnapshot[] {
+    const snapshots = captureSnapshotsRef.current
+    if (snapshots.length) {
+      return snapshots
+    }
+
+    return [captureSnapshot()]
+  }
+
   async function handleStartRecording() {
     if (!recorderRef.current) {
       return
@@ -181,14 +248,24 @@ export function CapturePage() {
       await recorderRef.current.start(settings.preferredMicrophoneId || undefined)
       setRecording(true)
       setRecordingElapsedMs(0)
+      setCaptureSnapshotCount(0)
+      captureSnapshotsRef.current = []
+      recordingStartedAtRef.current = Date.now()
+      appendCaptureSnapshot()
 
       if (recordingTimerRef.current) {
         window.clearInterval(recordingTimerRef.current)
+      }
+      if (snapshotTimerRef.current) {
+        window.clearInterval(snapshotTimerRef.current)
       }
 
       recordingTimerRef.current = window.setInterval(() => {
         setRecordingElapsedMs((current) => current + 250)
       }, 250)
+      snapshotTimerRef.current = window.setInterval(() => {
+        appendCaptureSnapshot()
+      }, 1000)
     } catch (error) {
       setRecording(false)
       setRecordingError(error instanceof Error ? error.message : '録音の開始に失敗しました。')
@@ -212,6 +289,11 @@ export function CapturePage() {
       window.clearInterval(recordingTimerRef.current)
       recordingTimerRef.current = null
     }
+    if (snapshotTimerRef.current) {
+      window.clearInterval(snapshotTimerRef.current)
+      snapshotTimerRef.current = null
+    }
+    appendCaptureSnapshot()
 
     setRecording(false)
     setRecordingElapsedMs(0)
@@ -237,7 +319,7 @@ export function CapturePage() {
         ? { audioClip: latestAudioClip, manualTranscript }
         : { audioClip: latestAudioClip, sequenceId: selectedSequenceId }
 
-    await transcribeInput(request, captureFrame())
+    await transcribeInput(request, buildCaptureFramesForProcessing())
   }
 
   async function handleInjectSequenceWithoutRecording() {
@@ -245,16 +327,16 @@ export function CapturePage() {
       return
     }
 
-    await processTranscriptSequence(selectedSequence.events, captureFrame())
+    await processTranscriptSequence(selectedSequence.events, buildCaptureFramesForProcessing())
   }
 
   return (
     <section className="page">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Phase 4</p>
-          <h2>Capture Workspace</h2>
-          <p className="muted">録音、mock STT、セグメント確定を同じ画面で回せるようにしました。録音後はシナリオ適用か手入力トランスクリプトで segment 化できます。</p>
+          <p className="eyebrow">入力</p>
+          <h2>領収書の入力</h2>
+          <p className="muted">録音した内容を文字起こしし、領収書データとして取り込みます。</p>
         </div>
         <div className="header-actions">
           <button className="ghost-button" onClick={() => void startNewSession()}>
@@ -273,8 +355,8 @@ export function CapturePage() {
       <div className="capture-grid">
         <article className="panel video-panel">
           <div className="panel-title-row">
-            <h3>Camera + Audio</h3>
-            <span className={`status-chip ${cameraStatus}`}>{cameraStatus === 'ready' ? 'live' : 'fallback'}</span>
+            <h3>カメラと音声</h3>
+            <span className={`status-chip ${cameraStatus}`}>{cameraStatus === 'ready' ? '使用中' : '代替表示'}</span>
           </div>
           <video ref={videoRef} className="camera-surface" autoPlay muted playsInline />
           <div className="field-grid compact-top">
@@ -318,16 +400,23 @@ export function CapturePage() {
             </label>
             <div className="recording-summary">
               <span className={`status-chip ${isRecording ? 'warning' : 'ready'}`}>
-                {isRecording ? `recording ${formatDuration(recordingElapsedMs)}` : 'idle'}
+                {isRecording ? `録音中 ${formatDuration(recordingElapsedMs)}` : '待機中'}
               </span>
               <p className="muted small">
                 {recordingError ||
                   recordingSupport.reason ||
                   (settings.sttMode === 'local'
                     ? localSttWillUseRecordedAudio
-                      ? '録音後は保存済み音声ファイルを優先して、Tauri backend から Python STT sidecar を呼び出します。'
-                      : '保存済み録音がない場合は、入力 transcript を seed fallback として Python STT sidecar に渡します。'
-                    : 'MediaRecorder で音声を収集し、mock STT の入力ソースとして使います。')}
+                      ? '録音後は保存済み音声ファイルを使ってローカル文字起こしを実行します。'
+                      : '保存済み録音がない場合は、入力テキストを使ってローカル文字起こしを確認します。'
+                    : settings.sttMode === 'openai'
+                      ? '録音後はOpenAIで文字起こしします。APIキーは設定画面または OPENAI_API_KEY を使います。'
+                      : settings.sttMode === 'gemini'
+                        ? '録音後はGeminiで文字起こしします。APIキーは設定画面または GEMINI_API_KEY を使います。'
+                    : '録音した音声をテスト用の文字起こしに使用します。')}
+              </p>
+              <p className="muted small">
+                録音中は約1秒ごとに画像を自動保存し、各レコードの音声区間に近い画像をOCRに使います。保存候補: {captureSnapshotCount}枚
               </p>
               {lastCaptureError ? <p className="muted small">{lastCaptureError}</p> : null}
             </div>
@@ -336,31 +425,31 @@ export function CapturePage() {
 
         <article className="panel">
           <div className="panel-title-row">
-            <h3>Latest Capture</h3>
+            <h3>最新の撮影画像</h3>
             <span className={`status-chip ${latestRecord?.review.matchStatus ?? 'warning'}`}>
-              {latestRecord?.review.matchStatus ?? 'waiting'}
+              {latestRecord ? MATCH_STATUS_LABELS[latestRecord.review.matchStatus] : '待機中'}
             </span>
           </div>
           {latestRecord ? (
             <>
-              <img src={latestRecord.imagePath} alt="Latest receipt capture" className="capture-preview" />
+              <img src={latestRecord.imagePath} alt="最新の領収書画像" className="capture-preview" />
               <dl className="meta-grid">
                 <div>
-                  <dt>captured</dt>
+                  <dt>撮影日時</dt>
                   <dd>{new Date(latestRecord.capturedAt).toLocaleString('ja-JP')}</dd>
                 </div>
                 <div>
-                  <dt>size</dt>
+                  <dt>画像サイズ</dt>
                   <dd>
                     {latestRecord.imageWidth} x {latestRecord.imageHeight}
                   </dd>
                 </div>
                 <div>
-                  <dt>vendor</dt>
+                  <dt>支払先</dt>
                   <dd>{latestRecord.final.vendor || '未抽出'}</dd>
                 </div>
                 <div>
-                  <dt>tax</dt>
+                  <dt>税区分</dt>
                   <dd>{TAX_MODE_LABELS[latestRecord.final.taxMode]}</dd>
                 </div>
               </dl>
@@ -384,7 +473,7 @@ export function CapturePage() {
               className={`ghost-button${transcriptionMode === 'manual' ? ' selected' : ''}`}
               onClick={() => setTranscriptionMode('manual')}
             >
-              手入力 transcript
+              手入力テキスト
             </button>
           </div>
 
@@ -429,16 +518,16 @@ export function CapturePage() {
             </button>
           </div>
           <span className="muted small">
-            pending events: {pendingEvents.length} / source: {lastTranscriptionSource ?? 'none'}
+            未確定イベント: {pendingEvents.length} / 文字起こし元: {lastTranscriptionSource ?? 'なし'}
           </span>
           {lastTranscriptionStrategy ? (
             <span className="muted small">
-              strategy: {lastTranscriptionStrategy}
+              処理経路: {lastTranscriptionStrategy}
             </span>
           ) : null}
-          <span className="muted small">events: {lastTranscriptionEventCount}</span>
+          <span className="muted small">イベント数: {lastTranscriptionEventCount}</span>
           {lastDetectedLanguage ? (
-            <span className="muted small">detected language: {lastDetectedLanguage}</span>
+            <span className="muted small">検出言語: {lastDetectedLanguage}</span>
           ) : null}
           {lastTranscriptionError ? (
             <span className="muted small">{lastTranscriptionError}</span>
@@ -451,41 +540,37 @@ export function CapturePage() {
 
       <article className="panel">
         <div className="panel-title-row">
-          <h3>Latest Recording</h3>
-          <span className="status-chip ready">{latestAudioClip ? formatDuration(latestAudioClip.durationMs) : 'none'}</span>
+          <h3>最新の録音</h3>
+          <span className="status-chip ready">{latestAudioClip ? formatDuration(latestAudioClip.durationMs) : 'なし'}</span>
         </div>
         {latestAudioClip ? (
           <div className="recording-preview">
             <audio controls src={latestAudioClip.objectUrl} className="audio-player" />
             <dl className="meta-grid">
               <div>
-                <dt>mime</dt>
+                <dt>形式</dt>
                 <dd>{latestAudioClip.mimeType}</dd>
               </div>
               <div>
-                <dt>size</dt>
-                <dd>{latestAudioClip.size.toLocaleString('ja-JP')} bytes</dd>
+                <dt>サイズ</dt>
+                <dd>{latestAudioClip.size.toLocaleString('ja-JP')} バイト</dd>
               </div>
               <div>
-                <dt>started</dt>
+                <dt>開始時刻</dt>
                 <dd>{new Date(latestAudioClip.startedAt).toLocaleTimeString('ja-JP')}</dd>
               </div>
               <div>
-                <dt>ended</dt>
+                <dt>終了時刻</dt>
                 <dd>{new Date(latestAudioClip.endedAt).toLocaleTimeString('ja-JP')}</dd>
               </div>
               <div>
-                <dt>path</dt>
-                <dd>{latestAudioClip.filePath ?? 'unsaved'}</dd>
+                <dt>保存先</dt>
+                <dd>{latestAudioClip.filePath ?? '未保存'}</dd>
               </div>
               <div>
-                <dt>stt route</dt>
+                <dt>文字起こし経路</dt>
                 <dd>
-                  {settings.sttMode === 'local'
-                    ? hasSavedAudioClip
-                      ? 'recorded-audio'
-                      : 'seed-fallback'
-                    : 'mock'}
+                  {formatSttRoute(settings.sttMode, hasSavedAudioClip)}
                 </dd>
               </div>
             </dl>
@@ -497,8 +582,8 @@ export function CapturePage() {
 
       <article className="panel">
         <div className="panel-title-row">
-          <h3>Captured Records</h3>
-          <span className="status-chip ready">{session?.records.length ?? 0} rows</span>
+          <h3>入力済みレコード</h3>
+          <span className="status-chip ready">{session?.records.length ?? 0}件</span>
         </div>
         <div className="table-wrap">
           <table>
@@ -520,13 +605,13 @@ export function CapturePage() {
                   <td>{TAX_MODE_LABELS[record.final.taxMode]}</td>
                   <td>{record.final.amount?.toLocaleString('ja-JP') ?? '未入力'}</td>
                   <td>{record.final.accountCategoryFinal || record.final.accountCategoryCandidate || '未推定'}</td>
-                  <td>{record.review.matchStatus}</td>
+                  <td>{MATCH_STATUS_LABELS[record.review.matchStatus]}</td>
                 </tr>
               ))}
               {!session?.records.length && (
                 <tr>
                   <td colSpan={6} className="empty-cell">
-                    録音後に mock STT を流すか、シナリオを直接投入すると一覧に追加されます。
+                    録音後に文字起こしするか、シナリオを直接投入すると一覧に追加されます。
                   </td>
                 </tr>
               )}

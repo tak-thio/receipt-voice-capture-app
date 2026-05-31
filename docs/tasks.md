@@ -92,7 +92,7 @@
 - [x] 保存済みセッション一覧と復元 UI を追加する
 - [x] current-session 破損時の latest fallback を実装
 - [ ] セッション途中終了からの復帰確認
-- [ ] Windows優先で動作確認
+- [ ] Windows優先で動作確認（詳細は `docs/windows-checklist.md`）
 - [ ] macOSの基本確認
 
 ## Nice to Have (Post-MVP)

@@ -16,6 +16,43 @@ describe('segment manager and mock stt adapter', () => {
     expect(manager.snapshot()).toHaveLength(0)
   })
 
+  it('splits one transcript event that contains multiple boundary keywords', () => {
+    const manager = new SegmentManager()
+    const segments = manager.append([
+      {
+        id: '1',
+        text: '5月29日 セブンイレブン 現金 800円 消耗品 次へ 5月29日 タイムズ博多 500円 駐車場代 終了',
+        startMs: 0,
+        endMs: 4000,
+      },
+    ])
+
+    expect(segments).toHaveLength(2)
+    expect(segments[0].rawText).toBe('5月29日 セブンイレブン 現金 800円 消耗品 次へ')
+    expect(segments[1].rawText).toBe('5月29日 タイムズ博多 500円 駐車場代 終了')
+    expect(manager.snapshot()).toHaveLength(0)
+  })
+
+  it('flushes a final segment even without a spoken boundary', () => {
+    const manager = new SegmentManager()
+    const segments = manager.append([
+      { id: '1', text: '5月29日 セブンイレブン 現金 800円 消耗品', startMs: 0, endMs: 3000 },
+    ])
+
+    expect(segments).toHaveLength(0)
+    expect(manager.flush()).toEqual([
+      {
+        rawText: '5月29日 セブンイレブン 現金 800円 消耗品',
+        segmentStartMs: 0,
+        segmentEndMs: 3000,
+        sourceEvents: [
+          { id: '1', text: '5月29日 セブンイレブン 現金 800円 消耗品', startMs: 0, endMs: 3000 },
+        ],
+      },
+    ])
+    expect(manager.snapshot()).toHaveLength(0)
+  })
+
   it('creates transcript events from manual text lines', async () => {
     const adapter = new MockSttAdapter({ sequences: MOCK_TRANSCRIPT_SEQUENCES })
     const result = await adapter.transcribe({

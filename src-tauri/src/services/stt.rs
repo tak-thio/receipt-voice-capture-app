@@ -1,12 +1,18 @@
+use crate::services::api_keys::{resolve_gemini_api_key, resolve_openai_api_key};
+use base64::Engine;
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 pub enum SttMode {
     Mock,
     Local,
+    Openai,
+    Gemini,
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +96,8 @@ impl SttAdapter for MockBackendSttAdapter {
 }
 
 struct LocalPythonSidecarSttAdapter;
+struct OpenAiSttAdapter;
+struct GeminiSttAdapter;
 
 impl SttAdapter for LocalPythonSidecarSttAdapter {
     fn transcribe(
@@ -104,6 +112,62 @@ impl SttAdapter for LocalPythonSidecarSttAdapter {
     }
 }
 
+impl SttAdapter for OpenAiSttAdapter {
+    fn transcribe(
+        &self,
+        request: &SttTranscriptionRequest,
+    ) -> Result<SttTranscriptionPayload, String> {
+        if let Some(seed_text) = request
+            .seed_text
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            return Ok(SttTranscriptionPayload {
+                events: build_events_from_seed_text(seed_text, request.audio_duration_ms),
+                source: "openai-transcribe".to_string(),
+                detected_language: request.stt_language.clone(),
+            });
+        }
+
+        let audio_path = request
+            .audio_path
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| "OpenAI STT requires audioPath or seedText.".to_string())?;
+
+        run_openai_transcription(request, audio_path)
+    }
+}
+
+impl SttAdapter for GeminiSttAdapter {
+    fn transcribe(
+        &self,
+        request: &SttTranscriptionRequest,
+    ) -> Result<SttTranscriptionPayload, String> {
+        if let Some(seed_text) = request
+            .seed_text
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            return Ok(SttTranscriptionPayload {
+                events: build_events_from_seed_text(seed_text, request.audio_duration_ms),
+                source: "gemini-audio".to_string(),
+                detected_language: request.stt_language.clone(),
+            });
+        }
+
+        let audio_path = request
+            .audio_path
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| {
+                "Gemini audio transcription requires audioPath or seedText.".to_string()
+            })?;
+
+        run_gemini_audio_transcription(request, audio_path)
+    }
+}
+
 pub struct SttService;
 
 impl SttService {
@@ -111,6 +175,8 @@ impl SttService {
         match request.mode {
             SttMode::Mock => MockBackendSttAdapter.transcribe(&request),
             SttMode::Local => LocalPythonSidecarSttAdapter.transcribe(&request),
+            SttMode::Openai => OpenAiSttAdapter.transcribe(&request),
+            SttMode::Gemini => GeminiSttAdapter.transcribe(&request),
         }
     }
 
@@ -137,6 +203,189 @@ impl SttService {
             error,
         }
     }
+}
+
+fn run_openai_transcription(
+    request: &SttTranscriptionRequest,
+    audio_path: &str,
+) -> Result<SttTranscriptionPayload, String> {
+    if !Path::new(audio_path).exists() {
+        return Err(format!(
+            "OpenAI STT audio file was not found: {}",
+            audio_path
+        ));
+    }
+
+    let api_key = resolve_openai_api_key()?;
+    let model = request
+        .stt_model
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("gpt-4o-mini-transcribe");
+
+    let mut form = reqwest::blocking::multipart::Form::new()
+        .text("model", model.to_string())
+        .text("response_format", "json".to_string())
+        .file("file", audio_path)
+        .map_err(|error| format!("Failed to attach audio file: {}", error))?;
+
+    if let Some(language) = request
+        .stt_language
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        form = form.text("language", language.clone());
+    }
+
+    let response = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(45))
+        .build()
+        .map_err(|error| format!("OpenAI STT client setup failed: {}", error))?
+        .post("https://api.openai.com/v1/audio/transcriptions")
+        .bearer_auth(api_key)
+        .multipart(form)
+        .send()
+        .map_err(|error| format!("OpenAI STT request failed: {}", error))?;
+
+    let status = response.status();
+    let response_text = response
+        .text()
+        .map_err(|error| format!("OpenAI STT response read failed: {}", error))?;
+
+    if !status.is_success() {
+        return Err(format!("OpenAI STT returned {}: {}", status, response_text));
+    }
+
+    let payload: serde_json::Value = serde_json::from_str(&response_text)
+        .map_err(|error| format!("OpenAI STT response was not JSON: {}", error))?;
+    let transcript = payload
+        .get("text")
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .trim();
+
+    Ok(SttTranscriptionPayload {
+        events: build_events_from_seed_text(transcript, request.audio_duration_ms),
+        source: "openai-transcribe".to_string(),
+        detected_language: payload
+            .get("language")
+            .and_then(|value| value.as_str())
+            .map(|value| value.to_string())
+            .or_else(|| request.stt_language.clone()),
+    })
+}
+
+fn run_gemini_audio_transcription(
+    request: &SttTranscriptionRequest,
+    audio_path: &str,
+) -> Result<SttTranscriptionPayload, String> {
+    let path = Path::new(audio_path);
+    if !path.exists() {
+        return Err(format!("Gemini audio file was not found: {}", audio_path));
+    }
+
+    let api_key = resolve_gemini_api_key()?;
+    let model = request
+        .stt_model
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("gemini-2.5-flash");
+    let audio_bytes =
+        fs::read(path).map_err(|error| format!("Failed to read audio file: {}", error))?;
+    let audio_base64 = base64::engine::general_purpose::STANDARD.encode(audio_bytes);
+    let mime_type = infer_audio_mime_type(path);
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+        model
+    );
+    let body = serde_json::json!({
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {
+                    "text": "この音声を日本語で正確に文字起こししてください。領収書入力の区切り語である「次」「次へ」は、聞こえた場合そのまま残してください。説明や要約は不要です。文字起こし本文だけを返してください。"
+                },
+                {
+                    "inline_data": {
+                        "mime_type": mime_type,
+                        "data": audio_base64
+                    }
+                }
+            ]
+        }]
+    });
+
+    let response = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(45))
+        .build()
+        .map_err(|error| format!("Gemini audio client setup failed: {}", error))?
+        .post(url)
+        .header("x-goog-api-key", api_key)
+        .json(&body)
+        .send()
+        .map_err(|error| format!("Gemini audio request failed: {}", error))?;
+
+    let status = response.status();
+    let response_text = response
+        .text()
+        .map_err(|error| format!("Gemini audio response read failed: {}", error))?;
+
+    if !status.is_success() {
+        return Err(format!(
+            "Gemini audio returned {}: {}",
+            status, response_text
+        ));
+    }
+
+    let payload: serde_json::Value = serde_json::from_str(&response_text)
+        .map_err(|error| format!("Gemini audio response was not JSON: {}", error))?;
+    let transcript = extract_gemini_text(&payload)
+        .ok_or_else(|| "Gemini audio response did not include transcript text.".to_string())?;
+
+    Ok(SttTranscriptionPayload {
+        events: build_events_from_seed_text(transcript.trim(), request.audio_duration_ms),
+        source: "gemini-audio".to_string(),
+        detected_language: request.stt_language.clone(),
+    })
+}
+
+fn infer_audio_mime_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("mp3") => "audio/mpeg",
+        Some("wav") => "audio/wav",
+        Some("m4a") => "audio/mp4",
+        Some("aac") => "audio/aac",
+        Some("ogg") | Some("oga") => "audio/ogg",
+        Some("flac") => "audio/flac",
+        Some("webm") => "audio/webm",
+        _ => "audio/webm",
+    }
+}
+
+fn extract_gemini_text(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("candidates")
+        .and_then(|candidates| candidates.as_array())
+        .into_iter()
+        .flatten()
+        .flat_map(|candidate| {
+            candidate
+                .get("content")
+                .and_then(|content| content.get("parts"))
+                .and_then(|parts| parts.as_array())
+                .into_iter()
+                .flatten()
+        })
+        .find_map(|part| {
+            part.get("text")
+                .and_then(|text| text.as_str())
+                .map(|text| text.to_string())
+        })
 }
 
 fn build_sidecar_request(request: &SttTranscriptionRequest) -> SidecarSttRequest {
@@ -180,13 +429,20 @@ fn resolve_python_executable() -> Result<String, String> {
 }
 
 fn local_venv_python_path() -> Option<String> {
-    let local_venv_python = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../.venv-stt/bin/python");
-    if local_venv_python.exists() {
-        Some(local_venv_python.to_string_lossy().to_string())
-    } else {
-        None
+    let venv_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.venv-stt");
+    let candidates = [
+        venv_root.join("bin/python"),
+        venv_root.join("Scripts/python.exe"),
+        venv_root.join("Scripts/python"),
+    ];
+
+    for candidate in candidates {
+        if candidate.exists() {
+            return Some(candidate.to_string_lossy().to_string());
+        }
     }
+
+    None
 }
 
 fn resolve_sidecar_script_path() -> Result<PathBuf, String> {
@@ -197,8 +453,7 @@ fn resolve_sidecar_script_path() -> Result<PathBuf, String> {
         }
     }
 
-    let candidate = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../scripts/stt_sidecar.py");
+    let candidate = Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/stt_sidecar.py");
     if candidate.exists() {
         return Ok(candidate);
     }
@@ -260,10 +515,11 @@ fn build_events_from_seed_text(
     seed_text: &str,
     duration_ms: Option<u64>,
 ) -> Vec<SttInputEventPayload> {
-    let lines: Vec<&str> = seed_text
+    let lines: Vec<String> = seed_text
         .lines()
         .map(|line| line.trim())
         .filter(|line| !line.is_empty())
+        .flat_map(split_text_by_boundary)
         .collect();
 
     if lines.is_empty() {
@@ -284,7 +540,7 @@ fn build_events_from_seed_text(
 
             SttInputEventPayload {
                 id: format!("evt-{}", uuid::Uuid::new_v4()),
-                text: (*line).to_string(),
+                text: line.to_string(),
                 start_ms,
                 end_ms,
             }
@@ -292,11 +548,43 @@ fn build_events_from_seed_text(
         .collect()
 }
 
+fn split_text_by_boundary(text: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut remaining = text.trim();
+
+    while !remaining.is_empty() {
+        let Some(boundary_end) = find_boundary_end(remaining) else {
+            parts.push(remaining.to_string());
+            break;
+        };
+
+        let (current, rest) = remaining.split_at(boundary_end);
+        let current = current.trim();
+        if !current.is_empty() {
+            parts.push(current.to_string());
+        }
+        remaining = rest.trim();
+    }
+
+    parts
+}
+
+fn find_boundary_end(text: &str) -> Option<usize> {
+    ["次へ", "終了", "次"]
+        .iter()
+        .filter_map(|boundary| {
+            text.find(boundary)
+                .map(|start| (start, start + boundary.len()))
+        })
+        .min_by(|left, right| left.0.cmp(&right.0).then_with(|| right.1.cmp(&left.1)))
+        .map(|(_, end)| end)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        build_sidecar_request, resolve_sidecar_script_path, SidecarSttRequest, SttMode,
-        SttService, SttTranscriptionPayload, SttTranscriptionRequest,
+        build_events_from_seed_text, build_sidecar_request, resolve_sidecar_script_path,
+        SidecarSttRequest, SttMode, SttService, SttTranscriptionPayload, SttTranscriptionRequest,
     };
 
     #[test]
@@ -318,6 +606,22 @@ mod tests {
         assert_eq!(result.events.len(), 3);
         assert_eq!(result.events[0].text, "一件目");
         assert_eq!(result.events[1].start_ms, 1333);
+    }
+
+    #[test]
+    fn splits_inline_transcript_by_receipt_boundary() {
+        let events = build_events_from_seed_text(
+            "5月29日 セブンイレブン 現金 800円 消耗品 次へ 5月29日 タイムズ博多 500円 駐車場代 終了",
+            Some(4000),
+        );
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(
+            events[0].text,
+            "5月29日 セブンイレブン 現金 800円 消耗品 次へ"
+        );
+        assert_eq!(events[1].text, "5月29日 タイムズ博多 500円 駐車場代 終了");
+        assert_eq!(events[1].start_ms, 2000);
     }
 
     #[test]
@@ -376,7 +680,9 @@ mod tests {
     fn resolves_default_sidecar_script_path() {
         let sidecar_path = resolve_sidecar_script_path().expect("sidecar script should exist");
         assert!(sidecar_path.exists());
-        assert!(sidecar_path.to_string_lossy().ends_with("scripts/stt_sidecar.py"));
+        assert!(sidecar_path
+            .to_string_lossy()
+            .ends_with("scripts/stt_sidecar.py"));
     }
 
     #[test]

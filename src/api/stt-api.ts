@@ -2,7 +2,7 @@ import { maybeInvoke } from './tauri'
 import type { SttInputEvent } from '../types/domain'
 
 export interface TranscribeAudioInput {
-  mode: 'mock' | 'local'
+  mode: 'mock' | 'local' | 'openai' | 'gemini'
   audioPath?: string
   audioDurationMs?: number
   seedText?: string
@@ -15,7 +15,7 @@ export interface TranscribeAudioInput {
 
 export interface TranscribeAudioResult {
   events: SttInputEvent[]
-  source: 'mock-backend' | 'local' | 'local-python-sidecar'
+  source: 'mock-backend' | 'local' | 'local-python-sidecar' | 'openai-transcribe' | 'gemini-audio'
   detectedLanguage?: string | null
 }
 

@@ -16,7 +16,7 @@ export default function App() {
   }, [initialize])
 
   if (!isReady) {
-    return <div className="boot-screen">Loading workspace...</div>
+    return <div className="boot-screen">アプリを読み込んでいます...</div>
   }
 
   return (
