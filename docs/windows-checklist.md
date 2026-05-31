@@ -64,6 +64,14 @@ cargo test --manifest-path src-tauri/Cargo.toml
 npm run app:test
 ```
 
+または、Windows用ランチャーをダブルクリックする。
+
+```powershell
+scripts\windows-start.cmd
+```
+
+このランチャーは Visual Studio C++ Build Tools の環境を読み込み、`node_modules` が無い場合は `npm install` を実行してから `npm run app:test` を起動します。
+
 起動後に確認すること:
 
 - [ ] 設定画面が開ける
@@ -77,6 +85,20 @@ npm run app:test
 - [ ] レビュー画面で編集できる
 - [ ] エクスポート画面でCSV保存ダイアログが出る
 - [ ] CSVがWindowsの任意フォルダに保存できる
+
+## デスクトップショートカット
+
+テスターが毎回コマンドを入力しなくてよいように、必要なら次のPowerShellでデスクトップにショートカットを作成する。
+
+```powershell
+$shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) '領収書入力 - 開発起動.lnk'
+$targetPath = (Resolve-Path '.\scripts\windows-start.cmd').Path
+$shell = New-Object -ComObject WScript.Shell
+$shortcut = $shell.CreateShortcut($shortcutPath)
+$shortcut.TargetPath = $targetPath
+$shortcut.WorkingDirectory = (Resolve-Path '.').Path
+$shortcut.Save()
+```
 
 ## 配布ビルド確認
 

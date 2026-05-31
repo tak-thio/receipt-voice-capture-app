@@ -53,6 +53,12 @@ Tauriアプリとして起動:
 npm run app:test
 ```
 
+Windowsでテスターが起動する場合:
+
+```powershell
+scripts\windows-start.cmd
+```
+
 または:
 
 ```bash
