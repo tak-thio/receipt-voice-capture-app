@@ -70,7 +70,11 @@ export function CapturePage() {
   const recordingStartedAtRef = useRef<number | null>(null)
   const captureSnapshotsRef = useRef<CaptureSnapshot[]>([])
 
-  const [selectedSequenceId, setSelectedSequenceId] = useState(MOCK_TRANSCRIPT_SEQUENCES[0]?.id ?? '')
+  const [selectedSequenceId, setSelectedSequenceId] = useState(
+    MOCK_TRANSCRIPT_SEQUENCES.find((sequence) => sequence.id === 'tax-unknown')?.id ??
+      MOCK_TRANSCRIPT_SEQUENCES[0]?.id ??
+      '',
+  )
   const [manualTranscript, setManualTranscript] = useState(
     '3月24日 セブンイレブン\n税込1158円 現金\n文具代 次へ',
   )
@@ -121,7 +125,7 @@ export function CapturePage() {
         : settings.sttMode === 'gemini'
           ? hasSavedAudioClip
             ? '最新録音をGeminiで文字起こし'
-            : '入力内容をGeminiで文字起こし'
+            : 'AI整形'
       : latestAudioClip
         ? '最新録音から文字起こし'
         : '入力内容から文字起こし'
@@ -556,7 +560,7 @@ export function CapturePage() {
               onClick={() => void handleInjectSequenceWithoutRecording()}
               disabled={!selectedSequence || isProcessing}
             >
-              録音なしでシナリオ投入
+              シナリオなしで整形
             </button>
           </div>
           <span className="muted small">
