@@ -35,6 +35,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ocrEnabled: true,
   ocrMode: 'gemini',
   exportTargetDefault: 'mas',
+  customDictionaries: {
+    paymentMethods: [],
+    accountCategories: [],
+    descriptionMappings: [],
+  },
 }
 
 export const LOCAL_STT_RECOMMENDED_SETTINGS = {

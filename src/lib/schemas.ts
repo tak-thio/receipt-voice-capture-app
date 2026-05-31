@@ -46,6 +46,11 @@ export const appSettingsSchema = z.object({
   ocrEnabled: z.boolean(),
   ocrMode: z.enum(['mock', 'local', 'gemini']),
   exportTargetDefault: z.enum(['freee', 'yayoi', 'generic', 'mas']),
+  customDictionaries: dictionaryBundleSchema.optional().default({
+    paymentMethods: [],
+    accountCategories: [],
+    descriptionMappings: [],
+  }),
 })
 
 export const sessionSchema = z.object({

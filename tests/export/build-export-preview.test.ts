@@ -23,6 +23,11 @@ const settingsSnapshot: AppSettings = {
   ocrEnabled: true,
   ocrMode: 'mock',
   exportTargetDefault: 'generic',
+  customDictionaries: {
+    paymentMethods: [],
+    accountCategories: [],
+    descriptionMappings: [],
+  },
 }
 
 function buildSession(): Session {

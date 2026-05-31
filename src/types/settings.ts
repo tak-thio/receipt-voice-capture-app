@@ -1,3 +1,5 @@
+import type { DictionaryBundle } from './dictionaries'
+
 export type AdapterMode = 'mock' | 'local'
 export type AiProvider = 'openai' | 'gemini'
 export type SttMode = AdapterMode | AiProvider
@@ -24,4 +26,5 @@ export interface AppSettings {
   ocrEnabled: boolean
   ocrMode: OcrMode
   exportTargetDefault: 'freee' | 'yayoi' | 'generic' | 'mas'
+  customDictionaries: DictionaryBundle
 }

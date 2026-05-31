@@ -10,9 +10,55 @@ import {
 import { useSessionStore } from '../store/session-store'
 import type { RecordingDeviceOption } from '../types/audio'
 import type { AppSettings } from '../types/settings'
+import type {
+  AccountCategoryDictionaryEntry,
+  DescriptionMappingEntry,
+  PaymentMethodDictionaryEntry,
+} from '../types/dictionaries'
 import type { AiDiagnostics } from '../api/ai-formatter-api'
 import type { SttDiagnostics } from '../api/stt-api'
 import type { OcrDiagnostics } from '../api/ocr-api'
+
+type DictionaryKind = 'paymentMethods' | 'accountCategories' | 'descriptionMappings'
+
+const emptyPaymentMethodDraft: PaymentMethodDictionaryEntry = {
+  id: '',
+  label: '',
+  aliases: [],
+}
+
+const emptyAccountCategoryDraft: AccountCategoryDictionaryEntry = {
+  id: '',
+  name: '',
+  aliases: [],
+  notes: '',
+}
+
+const emptyDescriptionMappingDraft: DescriptionMappingEntry = {
+  pattern: '',
+  accountCategory: '',
+  confidence: 0.9,
+  notes: '',
+}
+
+function parseAliases(value: string): string[] {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function slugifyDictionaryId(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_-]/g, '')
+}
+
+function createDictionaryId(prefix: string, value: string): string {
+  return slugifyDictionaryId(value) || `${prefix}_${Date.now()}`
+}
 
 export function SettingsPage() {
   const settings = useSessionStore((state) => state.settings)
@@ -43,10 +89,135 @@ export function SettingsPage() {
   const [isRefreshingAiDiagnostics, setIsRefreshingAiDiagnostics] = useState(false)
   const [isTestingAiFormatter, setIsTestingAiFormatter] = useState(false)
   const [aiFormatterTestMessage, setAiFormatterTestMessage] = useState('')
+  const [dictionaryKind, setDictionaryKind] = useState<DictionaryKind>('accountCategories')
+  const [paymentMethodDraft, setPaymentMethodDraft] = useState(emptyPaymentMethodDraft)
+  const [paymentMethodAliases, setPaymentMethodAliases] = useState('')
+  const [accountCategoryDraft, setAccountCategoryDraft] = useState(emptyAccountCategoryDraft)
+  const [accountCategoryAliases, setAccountCategoryAliases] = useState('')
+  const [descriptionMappingDraft, setDescriptionMappingDraft] = useState(emptyDescriptionMappingDraft)
   const selectedProviderKeyConfigured =
     draft.aiProvider === 'gemini'
       ? Boolean(aiDiagnostics?.geminiKeyConfigured)
       : Boolean(aiDiagnostics?.openaiKeyConfigured)
+
+  const customDictionaries = draft.customDictionaries
+  const customCounts = {
+    paymentMethods: customDictionaries.paymentMethods.length,
+    accountCategories: customDictionaries.accountCategories.length,
+    descriptionMappings: customDictionaries.descriptionMappings.length,
+  }
+  const customPaymentMethodIds = new Set(customDictionaries.paymentMethods.map((entry) => entry.id))
+  const customAccountCategoryIds = new Set(customDictionaries.accountCategories.map((entry) => entry.id))
+  const customDescriptionMappingKeys = new Set(
+    customDictionaries.descriptionMappings.map((entry) => `${entry.pattern}:${entry.accountCategory}`),
+  )
+  const standardDictionaries = {
+    paymentMethods: dictionaries?.paymentMethods.filter((entry) => !customPaymentMethodIds.has(entry.id)) ?? [],
+    accountCategories: dictionaries?.accountCategories.filter((entry) => !customAccountCategoryIds.has(entry.id)) ?? [],
+    descriptionMappings:
+      dictionaries?.descriptionMappings.filter(
+        (entry) => !customDescriptionMappingKeys.has(`${entry.pattern}:${entry.accountCategory}`),
+      ) ?? [],
+  }
+
+  async function saveDictionarySettings(nextSettings: AppSettings, successMessage: string) {
+    setDraft(nextSettings)
+    await persistSettings(nextSettings)
+    setMessage(successMessage)
+  }
+
+  function removeCustomDictionaryEntry(kind: DictionaryKind, index: number) {
+    const nextSettings = {
+      ...draft,
+      customDictionaries: {
+        ...draft.customDictionaries,
+        [kind]: draft.customDictionaries[kind].filter((_, itemIndex) => itemIndex !== index),
+      },
+    }
+
+    void saveDictionarySettings(nextSettings, '追加辞書から削除しました。')
+  }
+
+  function addPaymentMethod() {
+    const aliases = parseAliases(paymentMethodAliases)
+    const id = paymentMethodDraft.id.trim() || createDictionaryId('payment', paymentMethodDraft.label)
+    const label = paymentMethodDraft.label.trim()
+    if (!label) {
+      setMessage('支払方法は表示名が必要です。')
+      return
+    }
+
+    const nextEntry: PaymentMethodDictionaryEntry = {
+      id,
+      label,
+      aliases: aliases.length ? aliases : [label],
+    }
+    const nextSettings = {
+      ...draft,
+      customDictionaries: {
+        ...draft.customDictionaries,
+        paymentMethods: [...draft.customDictionaries.paymentMethods, nextEntry],
+      },
+    }
+
+    void saveDictionarySettings(nextSettings, '支払方法を追加しました。')
+    setPaymentMethodDraft(emptyPaymentMethodDraft)
+    setPaymentMethodAliases('')
+  }
+
+  function addAccountCategory() {
+    const aliases = parseAliases(accountCategoryAliases)
+    const id = accountCategoryDraft.id.trim() || createDictionaryId('category', accountCategoryDraft.name)
+    const name = accountCategoryDraft.name.trim()
+    if (!name) {
+      setMessage('勘定科目は科目名が必要です。')
+      return
+    }
+
+    const nextEntry: AccountCategoryDictionaryEntry = {
+      id,
+      name,
+      aliases: aliases.length ? aliases : [name],
+      notes: accountCategoryDraft.notes?.trim() || undefined,
+    }
+    const nextSettings = {
+      ...draft,
+      customDictionaries: {
+        ...draft.customDictionaries,
+        accountCategories: [...draft.customDictionaries.accountCategories, nextEntry],
+      },
+    }
+
+    void saveDictionarySettings(nextSettings, '勘定科目を追加しました。')
+    setAccountCategoryDraft(emptyAccountCategoryDraft)
+    setAccountCategoryAliases('')
+  }
+
+  function addDescriptionMapping() {
+    const pattern = descriptionMappingDraft.pattern.trim()
+    const accountCategory = descriptionMappingDraft.accountCategory.trim()
+    if (!pattern || !accountCategory) {
+      setMessage('摘要マッピングはパターンと勘定科目が必要です。')
+      return
+    }
+
+    const nextEntry: DescriptionMappingEntry = {
+      pattern,
+      accountCategory,
+      confidence: descriptionMappingDraft.confidence,
+      notes: descriptionMappingDraft.notes?.trim() || undefined,
+    }
+    const nextSettings = {
+      ...draft,
+      customDictionaries: {
+        ...draft.customDictionaries,
+        descriptionMappings: [...draft.customDictionaries.descriptionMappings, nextEntry],
+      },
+    }
+
+    void saveDictionarySettings(nextSettings, '摘要マッピングを追加しました。')
+    setDescriptionMappingDraft(emptyDescriptionMappingDraft)
+  }
 
   useEffect(() => {
     setDraft(settings)
@@ -565,6 +736,291 @@ export function SettingsPage() {
         </dl>
         <p className="muted small">
           {lastDictionaryError || 'payment-methods.json / account-categories.json / description-mapping.json を利用しています。'}
+        </p>
+      </article>
+
+      <article className="panel">
+        <div className="panel-title-row">
+          <h3>辞書の確認・追加</h3>
+          <span className="status-chip ready">
+            追加 {customCounts.paymentMethods + customCounts.accountCategories + customCounts.descriptionMappings}件
+          </span>
+        </div>
+        <div className="header-actions">
+          <button
+            className={`ghost-button${dictionaryKind === 'paymentMethods' ? ' selected' : ''}`}
+            onClick={() => setDictionaryKind('paymentMethods')}
+          >
+            支払方法
+          </button>
+          <button
+            className={`ghost-button${dictionaryKind === 'accountCategories' ? ' selected' : ''}`}
+            onClick={() => setDictionaryKind('accountCategories')}
+          >
+            勘定科目
+          </button>
+          <button
+            className={`ghost-button${dictionaryKind === 'descriptionMappings' ? ' selected' : ''}`}
+            onClick={() => setDictionaryKind('descriptionMappings')}
+          >
+            摘要マッピング
+          </button>
+        </div>
+
+        {dictionaryKind === 'paymentMethods' ? (
+          <>
+            <div className="field-grid compact-top">
+              <label className="field">
+                <span>ID</span>
+                <input
+                  value={paymentMethodDraft.id}
+                  placeholder="例: company_card"
+                  onChange={(event) => setPaymentMethodDraft({ ...paymentMethodDraft, id: event.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>表示名</span>
+                <input
+                  value={paymentMethodDraft.label}
+                  placeholder="例: 法人カード"
+                  onChange={(event) => setPaymentMethodDraft({ ...paymentMethodDraft, label: event.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>別名</span>
+                <input
+                  value={paymentMethodAliases}
+                  placeholder="カンマ区切り"
+                  onChange={(event) => setPaymentMethodAliases(event.target.value)}
+                />
+              </label>
+              <div className="checkbox-field">
+                <button className="accent-button" onClick={addPaymentMethod}>
+                  支払方法を追加
+                </button>
+              </div>
+            </div>
+            <div className="table-wrap compact-top">
+              <table>
+                <thead>
+                  <tr>
+                    <th>表示名</th>
+                    <th>ID</th>
+                    <th>別名</th>
+                    <th>種別</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {customDictionaries.paymentMethods.map((entry, index) => (
+                    <tr key={`custom-payment-${entry.id}-${index}`}>
+                      <td>{entry.label}</td>
+                      <td>{entry.id}</td>
+                      <td>{entry.aliases.join(', ')}</td>
+                      <td>追加</td>
+                      <td>
+                        <button className="ghost-button" onClick={() => removeCustomDictionaryEntry('paymentMethods', index)}>
+                          削除
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {standardDictionaries.paymentMethods.map((entry) => (
+                    <tr key={`standard-payment-${entry.id}`}>
+                      <td>{entry.label}</td>
+                      <td>{entry.id}</td>
+                      <td>{entry.aliases.join(', ')}</td>
+                      <td>標準</td>
+                      <td />
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : null}
+
+        {dictionaryKind === 'accountCategories' ? (
+          <>
+            <div className="field-grid compact-top">
+              <label className="field">
+                <span>ID</span>
+                <input
+                  value={accountCategoryDraft.id}
+                  placeholder="例: supplies"
+                  onChange={(event) => setAccountCategoryDraft({ ...accountCategoryDraft, id: event.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>科目名</span>
+                <input
+                  value={accountCategoryDraft.name}
+                  placeholder="例: 備品費"
+                  onChange={(event) => setAccountCategoryDraft({ ...accountCategoryDraft, name: event.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>別名</span>
+                <input
+                  value={accountCategoryAliases}
+                  placeholder="カンマ区切り"
+                  onChange={(event) => setAccountCategoryAliases(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>メモ</span>
+                <input
+                  value={accountCategoryDraft.notes ?? ''}
+                  onChange={(event) => setAccountCategoryDraft({ ...accountCategoryDraft, notes: event.target.value })}
+                />
+              </label>
+              <div className="checkbox-field">
+                <button className="accent-button" onClick={addAccountCategory}>
+                  勘定科目を追加
+                </button>
+              </div>
+            </div>
+            <div className="table-wrap compact-top">
+              <table>
+                <thead>
+                  <tr>
+                    <th>科目名</th>
+                    <th>ID</th>
+                    <th>別名</th>
+                    <th>メモ</th>
+                    <th>種別</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {customDictionaries.accountCategories.map((entry, index) => (
+                    <tr key={`custom-category-${entry.id}-${index}`}>
+                      <td>{entry.name}</td>
+                      <td>{entry.id}</td>
+                      <td>{entry.aliases.join(', ')}</td>
+                      <td>{entry.notes ?? ''}</td>
+                      <td>追加</td>
+                      <td>
+                        <button className="ghost-button" onClick={() => removeCustomDictionaryEntry('accountCategories', index)}>
+                          削除
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {standardDictionaries.accountCategories.map((entry) => (
+                    <tr key={`standard-category-${entry.id}`}>
+                      <td>{entry.name}</td>
+                      <td>{entry.id}</td>
+                      <td>{entry.aliases.join(', ')}</td>
+                      <td>{entry.notes ?? ''}</td>
+                      <td>標準</td>
+                      <td />
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : null}
+
+        {dictionaryKind === 'descriptionMappings' ? (
+          <>
+            <div className="field-grid compact-top">
+              <label className="field">
+                <span>摘要パターン</span>
+                <input
+                  value={descriptionMappingDraft.pattern}
+                  placeholder="例: コピー代"
+                  onChange={(event) => setDescriptionMappingDraft({ ...descriptionMappingDraft, pattern: event.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>勘定科目</span>
+                <select
+                  value={descriptionMappingDraft.accountCategory}
+                  onChange={(event) => setDescriptionMappingDraft({ ...descriptionMappingDraft, accountCategory: event.target.value })}
+                >
+                  <option value="">選択してください</option>
+                  {dictionaries?.accountCategories.map((entry) => (
+                    <option key={entry.id} value={entry.name}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>信頼度</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={descriptionMappingDraft.confidence}
+                  onChange={(event) =>
+                    setDescriptionMappingDraft({
+                      ...descriptionMappingDraft,
+                      confidence: Number(event.target.value || 0.9),
+                    })
+                  }
+                />
+              </label>
+              <label className="field">
+                <span>メモ</span>
+                <input
+                  value={descriptionMappingDraft.notes ?? ''}
+                  onChange={(event) => setDescriptionMappingDraft({ ...descriptionMappingDraft, notes: event.target.value })}
+                />
+              </label>
+              <div className="checkbox-field">
+                <button className="accent-button" onClick={addDescriptionMapping}>
+                  摘要マッピングを追加
+                </button>
+              </div>
+            </div>
+            <div className="table-wrap compact-top">
+              <table>
+                <thead>
+                  <tr>
+                    <th>摘要</th>
+                    <th>勘定科目</th>
+                    <th>信頼度</th>
+                    <th>メモ</th>
+                    <th>種別</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {customDictionaries.descriptionMappings.map((entry, index) => (
+                    <tr key={`custom-mapping-${entry.pattern}-${entry.accountCategory}-${index}`}>
+                      <td>{entry.pattern}</td>
+                      <td>{entry.accountCategory}</td>
+                      <td>{entry.confidence}</td>
+                      <td>{entry.notes ?? ''}</td>
+                      <td>追加</td>
+                      <td>
+                        <button className="ghost-button" onClick={() => removeCustomDictionaryEntry('descriptionMappings', index)}>
+                          削除
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {standardDictionaries.descriptionMappings.map((entry, index) => (
+                    <tr key={`standard-mapping-${entry.pattern}-${index}`}>
+                      <td>{entry.pattern}</td>
+                      <td>{entry.accountCategory}</td>
+                      <td>{entry.confidence}</td>
+                      <td>{entry.notes ?? ''}</td>
+                      <td>標準</td>
+                      <td />
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : null}
+        <p className="muted small">
+          追加した辞書はアプリ設定に保存され、標準JSONより優先して読み込まれます。標準辞書そのものは変更しません。
         </p>
       </article>
 

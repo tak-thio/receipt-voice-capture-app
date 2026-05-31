@@ -358,10 +358,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   lastSessionReloadError: null,
   availableSessions: [],
   initialize: async () => {
-    const [settings, dictionaries] = await Promise.all([
-      loadSettings(),
-      loadDictionaries(),
-    ])
+    const settings = await loadSettings()
+    const dictionaries = await loadDictionaries(settings.customDictionaries)
     const [existingSession, availableSessions] = await Promise.all([
       loadCurrentSession(settings.storageRoot),
       listSessions(settings.storageRoot),
@@ -398,7 +396,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   },
   reloadDictionaries: async () => {
     try {
-      const dictionaries = await loadDictionaries()
+      const dictionaries = await loadDictionaries(get().settings.customDictionaries)
       set({
         dictionaries,
         lastDictionaryReloadAt: new Date().toISOString(),
@@ -696,9 +694,13 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   },
   persistSettings: async (settings) => {
     const saved = await saveSettings(settings)
-    const availableSessions = await listSessions(saved.storageRoot)
+    const [availableSessions, dictionaries] = await Promise.all([
+      listSessions(saved.storageRoot),
+      loadDictionaries(saved.customDictionaries),
+    ])
     set((state) => ({
       settings: saved,
+      dictionaries,
       availableSessions,
       session: state.session
         ? {
