@@ -6,6 +6,8 @@ Windowsでこのアプリを確認するときの手順と、失敗時に見る�
 
 GitHubのリポジトリURLをCodexに渡し、Codexにこのチェックリスト順で作業させる想定です。
 実APIキーはリポジトリやチャットログに貼らず、起動後にアプリの設定画面から入力してください。
+テスターへ渡すCodex用の依頼文は `docs/tester-codex-instructions.md` にあります。
+テスト時は `test/windows-local-build` ブランチを使ってください。
 
 推奨 clone 先:
 

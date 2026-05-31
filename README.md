@@ -188,6 +188,9 @@ Windows検証の詳細チェックリストは `docs/windows-checklist.md` を�
 
 ## Windowsで相手に確認してもらうとき
 
+社内テスターにCodexでビルドと確認を依頼する場合は、テスト用ブランチ `test/windows-local-build` と `docs/tester-codex-instructions.md` を渡してください。
+このブランチはWindowsローカルビルド確認用に固定し、開発中の変更を混ぜない運用にします。
+
 相手には以下を依頼すると原因切り分けがしやすくなります。
 
 ```bash
