@@ -1,3 +1,4 @@
+mod app_paths;
 mod commands;
 mod models;
 mod repositories;

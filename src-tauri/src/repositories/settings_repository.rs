@@ -1,3 +1,4 @@
+use crate::app_paths::app_config_dir;
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
@@ -6,12 +7,10 @@ pub struct SettingsRepository;
 
 impl SettingsRepository {
     fn settings_path(storage_root: Option<&str>) -> PathBuf {
-        let base = match storage_root {
-            Some(root) if !root.is_empty() => PathBuf::from(root),
-            _ => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-        };
-
-        base.join("settings.json")
+        storage_root
+            .map(|root| crate::app_paths::resolve_storage_root(Some(root)))
+            .unwrap_or_else(app_config_dir)
+            .join("settings.json")
     }
 
     pub fn load(storage_root: Option<&str>) -> Result<Option<Value>, String> {

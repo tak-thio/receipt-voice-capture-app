@@ -1,3 +1,4 @@
+use crate::app_paths::app_config_dir;
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -74,6 +75,8 @@ fn read_settings_api_key_from_path(path: &Path, settings_key_name: &str) -> Opti
 
 fn settings_file_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
+
+    candidates.push(app_config_dir().join("settings.json"));
 
     if let Ok(current_dir) = std::env::current_dir() {
         candidates.push(current_dir.join("settings.json"));

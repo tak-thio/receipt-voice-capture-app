@@ -43,6 +43,7 @@ GEMINI_API_KEY=your-gemini-api-key
 環境変数が設定されている場合は環境変数を優先し、未設定の場合はアプリ設定に保存されたキーを使います。
 
 注意: `settings.json` と `src-tauri/settings.json` はローカル設定ファイルとして `.gitignore` に入れています。実際のAPIキーはコミットしないでください。
+Windowsでは、アプリ設定と既定の `receipt-sessions` は `%APPDATA%\com.tak.receiptvoicecapture\` 配下に保存されます。
 
 ## 開発起動
 
@@ -83,6 +84,7 @@ npm test
 Rust側の確認:
 
 ```bash
+npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
@@ -190,7 +192,9 @@ cargo --version
 npm install
 npm run typecheck
 npm test
+npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
 npm run app:test
 ```
 

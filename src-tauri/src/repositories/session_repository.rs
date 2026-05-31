@@ -1,3 +1,4 @@
+use crate::app_paths::resolve_storage_root;
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,10 +7,7 @@ pub struct SessionRepository;
 
 impl SessionRepository {
     pub fn base_dir(storage_root: Option<&str>) -> PathBuf {
-        match storage_root {
-            Some(root) if !root.is_empty() => PathBuf::from(root),
-            _ => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-        }
+        resolve_storage_root(storage_root)
     }
 
     pub fn session_dir(storage_root: Option<&str>, session_id: &str) -> PathBuf {
