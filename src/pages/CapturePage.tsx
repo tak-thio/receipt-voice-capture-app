@@ -460,6 +460,48 @@ export function CapturePage() {
         </article>
       </div>
 
+      <article className="panel">
+        <div className="panel-title-row">
+          <h3>最新の録音</h3>
+          <span className="status-chip ready">{latestAudioClip ? formatDuration(latestAudioClip.durationMs) : 'なし'}</span>
+        </div>
+        {latestAudioClip ? (
+          <div className="recording-preview">
+            <audio controls src={latestAudioClip.objectUrl} className="audio-player" />
+            <dl className="meta-grid">
+              <div>
+                <dt>形式</dt>
+                <dd>{latestAudioClip.mimeType}</dd>
+              </div>
+              <div>
+                <dt>サイズ</dt>
+                <dd>{latestAudioClip.size.toLocaleString('ja-JP')} バイト</dd>
+              </div>
+              <div>
+                <dt>開始時刻</dt>
+                <dd>{new Date(latestAudioClip.startedAt).toLocaleTimeString('ja-JP')}</dd>
+              </div>
+              <div>
+                <dt>終了時刻</dt>
+                <dd>{new Date(latestAudioClip.endedAt).toLocaleTimeString('ja-JP')}</dd>
+              </div>
+              <div>
+                <dt>保存先</dt>
+                <dd>{latestAudioClip.filePath ?? '未保存'}</dd>
+              </div>
+              <div>
+                <dt>文字起こし経路</dt>
+                <dd>
+                  {formatSttRoute(settings.sttMode, hasSavedAudioClip)}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        ) : (
+          <div className="empty-state">録音するとここに最新クリップが表示されます。</div>
+        )}
+      </article>
+
       <div className="capture-toolbar panel">
         <div className="toolbar-stack">
           <div className="toolbar-group">
@@ -537,48 +579,6 @@ export function CapturePage() {
           ) : null}
         </div>
       </div>
-
-      <article className="panel">
-        <div className="panel-title-row">
-          <h3>最新の録音</h3>
-          <span className="status-chip ready">{latestAudioClip ? formatDuration(latestAudioClip.durationMs) : 'なし'}</span>
-        </div>
-        {latestAudioClip ? (
-          <div className="recording-preview">
-            <audio controls src={latestAudioClip.objectUrl} className="audio-player" />
-            <dl className="meta-grid">
-              <div>
-                <dt>形式</dt>
-                <dd>{latestAudioClip.mimeType}</dd>
-              </div>
-              <div>
-                <dt>サイズ</dt>
-                <dd>{latestAudioClip.size.toLocaleString('ja-JP')} バイト</dd>
-              </div>
-              <div>
-                <dt>開始時刻</dt>
-                <dd>{new Date(latestAudioClip.startedAt).toLocaleTimeString('ja-JP')}</dd>
-              </div>
-              <div>
-                <dt>終了時刻</dt>
-                <dd>{new Date(latestAudioClip.endedAt).toLocaleTimeString('ja-JP')}</dd>
-              </div>
-              <div>
-                <dt>保存先</dt>
-                <dd>{latestAudioClip.filePath ?? '未保存'}</dd>
-              </div>
-              <div>
-                <dt>文字起こし経路</dt>
-                <dd>
-                  {formatSttRoute(settings.sttMode, hasSavedAudioClip)}
-                </dd>
-              </div>
-            </dl>
-          </div>
-        ) : (
-          <div className="empty-state">録音するとここに最新クリップが表示されます。</div>
-        )}
-      </article>
 
       <article className="panel">
         <div className="panel-title-row">
