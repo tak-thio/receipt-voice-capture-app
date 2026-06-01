@@ -2,6 +2,8 @@
 
 このドキュメントは、社内テスターが各自のWindows PCでCodexに依頼して、リポジトリからアプリをビルドし、音声入力から文字起こし、AI整形、CSV保存まで確認するための指示文です。
 
+新規Codexプロジェクトに貼る短い依頼文だけが必要な場合は、`docs/codex-tester-prompt.md` を使ってください。アプリの操作手順は `docs/manual.md` にまとめています。
+
 ## テスターに渡す情報
 
 - GitHubリポジトリ: https://github.com/tak-thio/receipt-voice-capture-app.git
@@ -25,8 +27,8 @@ test/windows-local-build
 作業方針:
 - clone先は可能なら C:\dev\receipt-voice-capture-app にしてください。
 - APIキーはアプリの設定画面から私が入力します。実キーをファイル、Git、チャットログに残さないでください。
-- ローカルSTT用のPython/faster-whisperは今回の必須確認から外してください。GeminiまたはOpenAI API経由の確認を優先してください。
-- README.md、docs/windows-checklist.md、docs/tester-codex-instructions.md を読んでから進めてください。
+- ローカルSTT用のPython/faster-whisperやTesseractなど、不要な追加インストールは避けてください。GeminiまたはOpenAI API経由の確認を優先してください。
+- README.md、docs/manual.md、docs/windows-checklist.md、docs/tester-codex-instructions.md を読んでから進めてください。
 - Windows固有のエラーが出たら、原因を特定して修正し、再実行してください。
 
 実行してほしい確認:
