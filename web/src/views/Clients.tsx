@@ -10,6 +10,9 @@ const FORMATS = ['generic', 'mas', 'freee', 'yayoi']
 const ROLE_LABEL: Record<string, string> = {
   client_admin: '管理者', client_accountant: '経理担当者', client_user: '一般社員',
 }
+const ROLE_TONE: Record<string, 'brand' | 'info' | 'neutral'> = {
+  client_admin: 'brand', client_accountant: 'info', client_user: 'neutral',
+}
 const ENTITY_LABEL: Record<string, string> = { corporation: '法人', individual: '個人' }
 
 function blankClient(): ClientDetail {
@@ -365,12 +368,7 @@ function ClientUsers({ clientId }: { clientId: string }) {
                 </div>
               </Td>
               <Td className="text-slate-600">{u.login_id || <span className="text-slate-400">アプリ専用</span>}</Td>
-              <Td>
-                <Select value={u.role} className="h-8 text-xs"
-                  onChange={async (e) => { if (await toast.run(() => api.setClientUserRole(clientId, u.user_id, e.target.value), '役割を変更しました')) await reload() }}>
-                  {Object.entries(ROLE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </Select>
-              </Td>
+              <Td><Badge tone={ROLE_TONE[u.role] ?? 'neutral'}>{ROLE_LABEL[u.role] ?? u.role}</Badge></Td>
               <Td>{u.status === 'disabled' ? <Badge tone="danger">無効</Badge> : <Badge tone="success">有効</Badge>}</Td>
               <Td className="text-right">
                 <div className="flex items-center justify-end gap-0.5">
@@ -431,6 +429,7 @@ function UserModal({
         if (name !== (u.name || '')) patch.name = name.trim()
         if (email !== (u.login_id || '')) patch.email = email.trim()
         if (phone !== (u.phone || '')) patch.phone = phone.trim()
+        if (role !== u.role) patch.role = role
         if (password) patch.password = password
         await api.patchClientUser(clientId, u.user_id, patch)
         toast.success('利用者を更新しました')
@@ -469,13 +468,11 @@ function UserModal({
         <Field label="電話">
           <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
         </Field>
-        {!editing && (
-          <Field label="役割" className="sm:col-span-2">
-            <Select value={role} onChange={(e) => setRole(e.target.value)}>
-              {Object.entries(ROLE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </Select>
-          </Field>
-        )}
+        <Field label="役割" className="sm:col-span-2">
+          <Select value={role} onChange={(e) => setRole(e.target.value)}>
+            {Object.entries(ROLE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </Select>
+        </Field>
       </div>
     </Modal>
   )
