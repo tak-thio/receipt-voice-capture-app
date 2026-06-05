@@ -29,12 +29,13 @@ def _build(registry: dict, cfg: dict):
     cls = registry.get(provider)
     if cls is None:
         raise ValueError(f"unsupported provider: {provider!r}")
+    model = cfg.get("model")
     if provider in _SELF_HOSTED:
-        return cls()
+        return cls(model=model)
     key_enc = cfg.get("key_enc")
     if not key_enc:
         raise ValueError(f"provider {provider!r} requires an encrypted key")
-    return cls(decrypt_secret(key_enc))
+    return cls(decrypt_secret(key_enc), model)
 
 
 def stt_for(ai_config: dict) -> SttProvider:
