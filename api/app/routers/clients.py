@@ -47,5 +47,7 @@ async def create_client(
     )
     session.add(client)
     await session.flush()
-    # TODO(Phase 1): copy the firm's account-title template into this client.
+    # No template copy needed: a client inherits the firm's account-title
+    # template (client_id NULL) via the overlay in the masters router, and only
+    # adds rows to override/extend it.
     return {"id": str(client.id)}

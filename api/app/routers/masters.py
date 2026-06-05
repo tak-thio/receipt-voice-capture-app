@@ -28,6 +28,14 @@ class AccountTitleIn(BaseModel):
     override_of: UUID | None = None
 
 
+class PartnerIn(BaseModel):
+    firm_id: UUID
+    client_id: UUID
+    name: str
+    code: str | None = None
+    domain: str | None = None
+
+
 @router.get("/account-titles")
 async def list_account_titles(
     client_id: UUID | None = None,
@@ -85,3 +93,21 @@ async def list_partners(
         stmt = stmt.where(Partner.client_id == client_id)
     rows = await session.scalars(stmt.order_by(Partner.name))
     return [{"id": str(p.id), "code": p.code, "name": p.name, "domain": p.domain} for p in rows]
+
+
+@router.post("/partners", status_code=201)
+async def create_partner(
+    body: PartnerIn,
+    _: Principal = Depends(require_firm_role("firm_owner", "firm_staff", "client_admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    partner = Partner(
+        firm_id=body.firm_id,
+        client_id=body.client_id,
+        name=body.name,
+        code=body.code,
+        domain=body.domain,
+    )
+    session.add(partner)
+    await session.flush()
+    return {"id": str(partner.id)}

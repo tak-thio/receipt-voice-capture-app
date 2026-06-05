@@ -4,10 +4,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
-from ..db import get_session
+from ..db import get_session, set_rls_context
 from ..deps import Principal, get_principal
 from ..models import Firm, Membership, Role, User
 from ..security import hash_password, make_session, verify_password
+from ..seed import seed_firm_template
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -53,6 +54,12 @@ async def register_firm(
         Membership(user_id=user.id, firm_id=firm.id, client_id=None, role=Role.firm_owner.value)
     )
     await session.flush()
+
+    # Bind RLS to the new owner so the template insert passes WITH CHECK, then
+    # seed the firm's default account-title template (client_id = NULL).
+    await set_rls_context(session, user.id)
+    await seed_firm_template(session, firm.id)
+
     _set_cookie(response, str(user.id))
     return {"firm_id": str(firm.id), "user_id": str(user.id)}
 
