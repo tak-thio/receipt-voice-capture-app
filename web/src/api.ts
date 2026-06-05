@@ -58,7 +58,25 @@ export interface MasterRow {
 export interface Suggestion {
   partner_id: string | null
   account_title_id: string | null
-  sub_account_id: string | null
+  sub_account_id?: string | null
+}
+
+export interface QueueItem {
+  id: string
+  vendor: string | null
+  amount_jpy: number | null
+  date: string | null
+  source: string
+  t_number: string | null
+  image_file_id: string | null
+  account_title_id: string | null
+  partner_id: string | null
+  suggestion: Suggestion
+}
+export interface JournalQueue {
+  items: QueueItem[]
+  total: number
+  held_count: number
 }
 
 export const api = {
@@ -81,16 +99,22 @@ export const api = {
   patchReceipt: (id: string, patch: Partial<ReceiptRow>) =>
     req<ReceiptRow>(`/receipts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
 
-  journalQueue: (clientId?: string) =>
-    req<{ id: string; vendor: string | null; amount_jpy: number | null }[]>(
-      `/journal/queue${clientId ? `?client_id=${clientId}` : ''}`,
-    ),
+  journalQueue: (clientId?: string, view: 'queue' | 'held' = 'queue') => {
+    const params = new URLSearchParams({ view })
+    if (clientId) params.set('client_id', clientId)
+    return req<JournalQueue>(`/journal/queue?${params.toString()}`)
+  },
   suggest: (receiptId: string) => req<Suggestion>(`/journal/suggest/${receiptId}`),
   journalize: (
     receiptId: string,
     body: { account_title_id?: string | null; sub_account_id?: string | null; partner_id?: string | null },
   ) => req(`/journal/receipts/${receiptId}`, { method: 'POST', body: JSON.stringify(body) }),
   hold: (receiptId: string) => req(`/journal/receipts/${receiptId}/hold`, { method: 'POST' }),
+  unhold: (receiptId: string) => req(`/journal/receipts/${receiptId}/unhold`, { method: 'POST' }),
+  setApproval: (receiptId: string, status: string) =>
+    req(`/receipts/${receiptId}`, { method: 'PATCH', body: JSON.stringify({ approval_status: status }) }),
+
+  fileUrl: (fileId: string) => `${BASE}/files/${fileId}`,
 
   accountTitles: (clientId?: string) =>
     req<MasterRow[]>(`/masters/account-titles${clientId ? `?client_id=${clientId}` : ''}`),
