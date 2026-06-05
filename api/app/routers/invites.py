@@ -15,7 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..db import get_session
-from ..deps import Principal, can_admin_client, firm_id_of, get_principal, is_firm_owner
+from ..deps import (
+    Principal,
+    can_admin_client,
+    firm_id_of,
+    get_principal,
+    is_firm_owner,
+    require_firm_role,
+)
 from ..models import Client, Invite, Membership, Role, User
 from ..security import hash_password, hash_token, make_session, new_token
 
@@ -82,7 +89,7 @@ async def create_invite(
 
 @router.get("")
 async def list_invites(
-    principal: Principal = Depends(get_principal),
+    principal: Principal = Depends(require_firm_role()),
     session: AsyncSession = Depends(get_session),
 ):
     firm_id = firm_id_of(principal)
@@ -106,7 +113,7 @@ async def list_invites(
 @router.delete("/{invite_id}")
 async def revoke_invite(
     invite_id: UUID,
-    principal: Principal = Depends(get_principal),
+    principal: Principal = Depends(require_firm_role()),
     session: AsyncSession = Depends(get_session),
 ):
     invite = await session.get(Invite, invite_id)

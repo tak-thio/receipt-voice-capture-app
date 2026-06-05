@@ -42,7 +42,7 @@ async def _owner_count(session: AsyncSession, firm_id) -> int:
 
 @router.get("")
 async def list_members(
-    principal: Principal = Depends(get_principal),
+    principal: Principal = Depends(require_firm_role()),
     session: AsyncSession = Depends(get_session),
 ):
     firm_id = firm_id_of(principal)

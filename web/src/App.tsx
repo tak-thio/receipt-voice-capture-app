@@ -4,15 +4,39 @@ import { ReceiptsView } from './views/Receipts'
 import { JournalView } from './views/Journal'
 import { MastersView } from './views/Masters'
 import { ClientsView } from './views/Clients'
+import { SettingsView } from './views/Settings'
+import { InviteRedeem } from './views/InviteRedeem'
 
 export function App() {
   const [me, setMe] = useState<Me | null>(null)
   const [loading, setLoading] = useState(true)
+  const [inviteToken, setInviteToken] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search)
+    return window.location.pathname.includes('/invite') ? params.get('token') : null
+  })
 
+  function refreshMe() {
+    return api.me().then(setMe).catch(() => setMe(null))
+  }
   useEffect(() => {
-    api.me().then(setMe).catch(() => setMe(null)).finally(() => setLoading(false))
-  }, [])
+    if (inviteToken) {
+      setLoading(false)
+      return
+    }
+    refreshMe().finally(() => setLoading(false))
+  }, [inviteToken])
 
+  if (inviteToken) {
+    return (
+      <InviteRedeem
+        token={inviteToken}
+        onDone={() => {
+          setInviteToken(null)
+          void refreshMe()
+        }}
+      />
+    )
+  }
   if (loading) return <div className="p-8 text-stone-500">読み込み中...</div>
   return me ? <Dashboard me={me} onLogout={() => setMe(null)} /> : <Login onLogin={setMe} />
 }
@@ -48,12 +72,13 @@ function Login({ onLogin }: { onLogin: (me: Me) => void }) {
   )
 }
 
-type Tab = 'receipts' | 'journal' | 'masters' | 'clients'
+type Tab = 'receipts' | 'journal' | 'masters' | 'clients' | 'settings'
 const TABS: { id: Tab; label: string }[] = [
   { id: 'receipts', label: '受信箱' },
   { id: 'journal', label: '仕分け' },
   { id: 'masters', label: 'マスタ' },
   { id: 'clients', label: '顧問先' },
+  { id: 'settings', label: '設定' },
 ]
 
 function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
@@ -64,6 +89,10 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [clients, setClients] = useState<ClientRow[]>([])
   const [clientId, setClientId] = useState<string>('')
   const [tab, setTab] = useState<Tab>('receipts')
+  const isFirmStaff = me.memberships.some(
+    (m) => m.client_id === null && (m.role === 'firm_owner' || m.role === 'firm_staff'),
+  )
+  const visibleTabs = TABS.filter((t) => t.id !== 'settings' || isFirmStaff)
 
   async function reloadClients() {
     const rows = await api.clients()
@@ -95,7 +124,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
       </header>
 
       <nav className="flex gap-1 border-b bg-white px-4">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`px-4 py-2 text-sm ${tab === t.id ? 'border-b-2 border-stone-800 font-semibold' : 'text-stone-500'}`}>
             {t.label}
@@ -108,6 +137,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
         {tab === 'journal' && <JournalView clientId={clientId} />}
         {tab === 'masters' && <MastersView clientId={clientId} firmId={firmId} />}
         {tab === 'clients' && <ClientsView onChanged={reloadClients} />}
+        {tab === 'settings' && <SettingsView firmId={firmId} />}
       </main>
     </div>
   )

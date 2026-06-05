@@ -131,6 +131,65 @@ export const api = {
       body: JSON.stringify({ client_id: clientId, name }),
     }),
 
+  // --- firm settings / AI config ---
+  firm: () => req<FirmInfo>('/firm'),
+  patchFirm: (name: string) =>
+    req('/firm', { method: 'PATCH', body: JSON.stringify({ name }) }),
+  setAiConfig: (cfg: AiConfigPatch) =>
+    req<{ ai_config: FirmInfo['ai_config'] }>('/firm/ai-config', {
+      method: 'PATCH',
+      body: JSON.stringify(cfg),
+    }),
+
+  // --- firm staff / members ---
+  members: () => req<MemberRow[]>('/members'),
+  setMemberRole: (userId: string, role: string) =>
+    req(`/members/${userId}`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+  removeMember: (userId: string) => req(`/members/${userId}`, { method: 'DELETE' }),
+
+  // --- client users ---
+  clientUsers: (clientId: string) => req<MemberRow[]>(`/clients/${clientId}/users`),
+  setClientUserRole: (clientId: string, userId: string, role: string) =>
+    req(`/clients/${clientId}/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+  removeClientUser: (clientId: string, userId: string) =>
+    req(`/clients/${clientId}/users/${userId}`, { method: 'DELETE' }),
+
+  // --- invites ---
+  invites: () => req<InviteRow[]>('/invites'),
+  createInvite: (body: { role: string; client_id?: string; email?: string }) =>
+    req<{ token: string; redeem_path: string }>('/invites', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  revokeInvite: (id: string) => req(`/invites/${id}`, { method: 'DELETE' }),
+  redeemInvite: (body: { token: string; email: string; password: string; name: string }) =>
+    req<{ user_id: string }>('/invites/redeem', { method: 'POST', body: JSON.stringify(body) }),
+
   exportUrl: (clientId: string, format: string) =>
     `${BASE}/export?client_id=${clientId}&format=${format}`,
+}
+
+export interface FirmInfo {
+  id: string
+  name: string
+  plan: string
+  ai_config: Record<string, { provider: string; model: string | null; key_set: boolean }>
+}
+export interface MemberRow {
+  user_id: string
+  email: string
+  name: string
+  role: string
+}
+export interface InviteRow {
+  id: string
+  role: string
+  client_id: string | null
+  email: string | null
+  expires_at: string
+}
+export interface AiConfigPatch {
+  stt?: { provider: string; key?: string; model?: string }
+  ocr?: { provider: string; key?: string; model?: string }
+  format?: { provider: string; key?: string; model?: string }
 }
