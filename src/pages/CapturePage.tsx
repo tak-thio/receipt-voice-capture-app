@@ -38,12 +38,29 @@ function formatDuration(durationMs: number): string {
 }
 
 type TranscriptionMode = 'sequence' | 'manual'
+type CameraStatus = 'idle' | 'ready' | 'fallback'
 
 interface CaptureSnapshot {
   imageDataUrl: string
   width: number
   height: number
   capturedAtMs: number
+}
+
+function formatMediaError(error: unknown): string {
+  if (error instanceof DOMException) {
+    const labels: Record<string, string> = {
+      NotAllowedError: 'カメラ権限が許可されていません。Windowsのカメラ許可とアプリへの許可を確認してください。',
+      NotFoundError: '利用できるカメラが見つかりません。',
+      NotReadableError: 'カメラを開始できません。他のアプリが使用中の可能性があります。',
+      OverconstrainedError: '保存済みのカメラ指定が現在の端末と一致しません。',
+      SecurityError: 'この実行環境ではカメラ利用がセキュリティ設定で制限されています。',
+    }
+
+    return labels[error.name] ?? `カメラを開始できませんでした。${error.name}: ${error.message}`
+  }
+
+  return error instanceof Error ? error.message : 'カメラを開始できませんでした。'
 }
 
 function formatSttRoute(settingsMode: string, hasSavedAudioClip: boolean): string {
@@ -79,7 +96,8 @@ export function CapturePage() {
     '3月24日 セブンイレブン\n税込1158円 現金\n文具代 次へ',
   )
   const [transcriptionMode, setTranscriptionMode] = useState<TranscriptionMode>('sequence')
-  const [cameraStatus, setCameraStatus] = useState<'idle' | 'ready' | 'fallback'>('idle')
+  const [cameraStatus, setCameraStatus] = useState<CameraStatus>('idle')
+  const [cameraError, setCameraError] = useState('')
   const [cameraDevices, setCameraDevices] = useState<RecordingDeviceOption[]>([])
   const [audioDevices, setAudioDevices] = useState<RecordingDeviceOption[]>([])
   const [latestAudioClip, setLatestAudioClip] = useState<RecordedAudioClip | null>(null)
@@ -151,25 +169,40 @@ export function CapturePage() {
       if (!navigator.mediaDevices?.getUserMedia || !videoRef.current) {
         if (isMounted) {
           setCameraStatus('fallback')
+          setCameraError('この実行環境ではカメラ API (`navigator.mediaDevices.getUserMedia`) が利用できません。')
         }
         return
       }
 
       try {
-        currentStream = await navigator.mediaDevices.getUserMedia({
+        const preferredConstraints: MediaStreamConstraints = {
           video: settings.preferredCameraId
             ? { deviceId: { exact: settings.preferredCameraId } }
             : { facingMode: 'environment' },
           audio: false,
-        })
+        }
+        try {
+          currentStream = await navigator.mediaDevices.getUserMedia(preferredConstraints)
+        } catch (preferredError) {
+          if (!settings.preferredCameraId) {
+            throw preferredError
+          }
+
+          currentStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          })
+        }
         if (!isMounted || !videoRef.current) {
           return
         }
         videoRef.current.srcObject = currentStream
         setCameraStatus('ready')
-      } catch {
+        setCameraError('')
+      } catch (error) {
         if (isMounted) {
           setCameraStatus('fallback')
+          setCameraError(formatMediaError(error))
         }
       }
     }
@@ -363,6 +396,7 @@ export function CapturePage() {
             <span className={`status-chip ${cameraStatus}`}>{cameraStatus === 'ready' ? '使用中' : '代替表示'}</span>
           </div>
           <video ref={videoRef} className="camera-surface" autoPlay muted playsInline />
+          {cameraError ? <p className="muted small">{cameraError}</p> : null}
           <div className="field-grid compact-top">
             <label className="field">
               <span>入力カメラ</span>
