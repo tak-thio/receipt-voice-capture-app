@@ -63,8 +63,8 @@ services:
     depends_on:
       - api
     ports:
-      - "8080:80"
-      - "8443:443"
+      - "8088:80"
+      - "8444:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - ./web/dist:/srv
