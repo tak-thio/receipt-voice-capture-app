@@ -172,6 +172,11 @@ export const api = {
   clientUsers: (clientId: string) => req<MemberRow[]>(`/clients/${clientId}/users`),
   setClientUserRole: (clientId: string, userId: string, role: string) =>
     req(`/clients/${clientId}/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+  patchClientUser: (
+    clientId: string,
+    userId: string,
+    patch: { role?: string; status?: string; name?: string; phone?: string },
+  ) => req(`/clients/${clientId}/users/${userId}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   removeClientUser: (clientId: string, userId: string) =>
     req(`/clients/${clientId}/users/${userId}`, { method: 'DELETE' }),
 
@@ -201,6 +206,8 @@ export interface MemberRow {
   email: string
   name: string
   role: string
+  phone?: string | null
+  status?: string
 }
 export interface InviteRow {
   id: string

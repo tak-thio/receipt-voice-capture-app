@@ -69,6 +69,8 @@ async def login(body: Login, response: Response, session: AsyncSession = Depends
     user = await session.scalar(select(User).where(User.email == body.email))
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
+    if user.status == "disabled":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "account disabled")
     _set_cookie(response, str(user.id))
     return {"user_id": str(user.id)}
 

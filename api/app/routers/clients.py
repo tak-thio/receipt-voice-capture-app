@@ -49,6 +49,13 @@ class RolePatch(BaseModel):
     role: str
 
 
+class UserPatch(BaseModel):
+    role: str | None = None
+    status: str | None = None  # active | disabled
+    name: str | None = None
+    phone: str | None = None
+
+
 class NewClientUser(BaseModel):
     name: str
     email: str | None = None
@@ -159,7 +166,14 @@ async def list_client_users(
         .order_by(User.email)
     )
     return [
-        {"user_id": str(u.id), "email": u.email, "name": u.name, "role": m.role}
+        {
+            "user_id": str(u.id),
+            "email": u.email,
+            "name": u.name,
+            "role": m.role,
+            "phone": u.phone,
+            "status": u.status,
+        }
         for u, m in rows.all()
     ]
 
@@ -192,16 +206,15 @@ async def create_client_user(
 
 
 @router.patch("/{client_id}/users/{user_id}")
-async def set_client_user_role(
+async def patch_client_user(
     client_id: UUID,
     user_id: UUID,
-    body: RolePatch,
+    body: UserPatch,
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
+    """Update a client user: role and/or profile (name/phone) and 有効/無効."""
     _guard_client(principal, client_id)
-    if body.role not in CLIENT_ROLES:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid client role")
     m = await session.scalar(
         select(Membership).where(
             Membership.client_id == client_id, Membership.user_id == user_id
@@ -209,7 +222,20 @@ async def set_client_user_role(
     )
     if not m:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "client user not found")
-    m.role = body.role
+    if body.role is not None:
+        if body.role not in CLIENT_ROLES:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid client role")
+        m.role = body.role
+    if body.status is not None or body.name is not None or body.phone is not None:
+        user = await session.get(User, user_id)
+        if body.status is not None:
+            if body.status not in ("active", "disabled"):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid status")
+            user.status = body.status
+        if body.name is not None:
+            user.name = body.name
+        if body.phone is not None:
+            user.phone = body.phone
     return {"ok": True}
 
 

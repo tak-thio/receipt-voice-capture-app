@@ -134,13 +134,23 @@ export function ClientsView({ onChanged }: { onChanged: () => Promise<void> | vo
                 {users.map((u) => (
                   <li key={u.user_id} className="py-2">
                     <div className="flex items-center justify-between">
-                      <span>{u.name || u.email} <span className="text-stone-400 text-xs">{u.role}</span></span>
+                      <span>
+                        {u.name || u.email}
+                        {u.phone && <span className="ml-1 text-xs text-stone-400">{u.phone}</span>}
+                        {u.status === 'disabled' && (
+                          <span className="ml-1 rounded bg-stone-200 px-1.5 text-xs text-stone-600">無効</span>
+                        )}
+                      </span>
                       <div className="flex items-center gap-2">
                         <button className="rounded border px-2 py-1 text-xs hover:bg-stone-100" onClick={() => void issueQr(u.user_id)}>QR発行</button>
                         <select className="rounded border px-1.5 py-0.5 text-xs" value={u.role}
                           onChange={async (e) => { await api.setClientUserRole(detail.id, u.user_id, e.target.value); setUsers(await api.clientUsers(detail.id)) }}>
                           <option value="client_admin">管理者</option><option value="client_user">入力者</option>
                         </select>
+                        <button className="text-xs text-stone-600 hover:underline"
+                          onClick={async () => { await api.patchClientUser(detail.id, u.user_id, { status: u.status === 'disabled' ? 'active' : 'disabled' }); setUsers(await api.clientUsers(detail.id)) }}>
+                          {u.status === 'disabled' ? '有効化' : '無効化'}
+                        </button>
                         <button className="text-xs text-red-600 hover:underline"
                           onClick={async () => { await api.removeClientUser(detail.id, u.user_id); setUsers(await api.clientUsers(detail.id)) }}>削除</button>
                       </div>

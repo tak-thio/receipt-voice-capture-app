@@ -63,6 +63,8 @@ async def get_principal(
     user = await session.get(User, user_id)
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "unknown user")
+    if user.status == "disabled":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "account disabled")
 
     memberships = list(
         await session.scalars(select(Membership).where(Membership.user_id == user_id))
