@@ -142,6 +142,29 @@ class DeviceSession(Base, TimestampMixin):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class Invite(Base, TimestampMixin):
+    """Invite to join a firm (as staff) or a client (as 事務員/入力者) via a link.
+
+    The invitee opens the link and sets their own email + password — no email
+    delivery required (the admin shares the link). Looked up by token at redeem,
+    so (like pairing_tokens) it is not RLS-bound.
+    """
+
+    __tablename__ = "invites"
+
+    id: Mapped[UUID] = _uuid_pk()
+    firm_id: Mapped[UUID] = mapped_column(ForeignKey("firms.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=True
+    )
+    role: Mapped[str] = mapped_column(String(30))
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    token_hash: Mapped[str] = mapped_column(String(255), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+
 # --- files / receipts ------------------------------------------------------
 
 class File(Base, TimestampMixin):

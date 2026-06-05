@@ -14,8 +14,11 @@ from .routers import (
     clients,
     export,
     files,
+    firm,
+    invites,
     journal,
     masters,
+    members,
     pairing,
     receipts,
 )
@@ -53,5 +56,8 @@ async def health():
     return {"ok": True}
 
 
-for r in (auth, pairing, clients, captures, receipts, masters, journal, export, files):
+for r in (
+    auth, pairing, invites, firm, members, clients,
+    captures, receipts, masters, journal, export, files,
+):
     app.include_router(r.router)

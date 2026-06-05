@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import get_session, set_rls_context
-from .models import DeviceSession, Membership, User
+from .models import DeviceSession, Membership, Role, User
 from .security import hash_token, read_session
 
 
@@ -80,3 +80,36 @@ def require_firm_role(*roles: str):
         return principal
 
     return _dep
+
+
+# --- tenancy/role helpers --------------------------------------------------
+
+def firm_id_of(principal: Principal) -> UUID | None:
+    """The firm the principal acts in (firm-level membership preferred)."""
+    firm = next((m for m in principal.memberships if m.client_id is None), None)
+    if firm:
+        return firm.firm_id
+    return principal.memberships[0].firm_id if principal.memberships else None
+
+
+def is_firm_owner(principal: Principal) -> bool:
+    return any(
+        m.client_id is None and m.role == Role.firm_owner.value for m in principal.memberships
+    )
+
+
+def is_firm_staff(principal: Principal) -> bool:
+    return any(
+        m.client_id is None and m.role in (Role.firm_owner.value, Role.firm_staff.value)
+        for m in principal.memberships
+    )
+
+
+def can_admin_client(principal: Principal, client_id: UUID) -> bool:
+    """Firm staff (any client) or the client's own admin."""
+    if is_firm_staff(principal):
+        return True
+    return any(
+        m.client_id == client_id and m.role == Role.client_admin.value
+        for m in principal.memberships
+    )
