@@ -106,8 +106,8 @@ export const api = {
     const qs = params.toString()
     return req<ClientRow[]>(`/clients${qs ? `?${qs}` : ''}`)
   },
-  createClient: (name: string, code?: string) =>
-    req<{ id: string }>('/clients', { method: 'POST', body: JSON.stringify({ name, code }) }),
+  createClient: (body: Partial<ClientDetail> & { name: string }) =>
+    req<{ id: string }>('/clients', { method: 'POST', body: JSON.stringify(body) }),
   client: (id: string) => req<ClientDetail>(`/clients/${id}`),
   patchClient: (id: string, patch: Partial<ClientDetail>) =>
     req<ClientDetail>(`/clients/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),

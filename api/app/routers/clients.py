@@ -35,6 +35,14 @@ class ClientIn(BaseModel):
     name: str
     code: str | None = None
     export_default: str = "generic"
+    entity_type: str | None = None  # corporation | individual
+    t_number: str | None = None
+    address: str | None = None
+    phone: str | None = None
+    contact_name: str | None = None
+    fiscal_month: int | None = None
+    industry: str | None = None
+    memo: str | None = None
 
 
 class ClientPatch(BaseModel):
@@ -145,12 +153,10 @@ async def create_client(
     firm_membership = next((m for m in principal.memberships if m.client_id is None), None)
     if not firm_membership:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "no firm-level membership")
-    client = Client(
-        firm_id=firm_membership.firm_id,
-        name=body.name,
-        code=body.code,
-        export_default=body.export_default,
-    )
+    client = Client(firm_id=firm_membership.firm_id, name=body.name)
+    for field, value in body.model_dump(exclude_unset=True).items():
+        if field in EDITABLE:
+            setattr(client, field, value)
     session.add(client)
     await session.flush()
     # No template copy needed: a client inherits the firm's account-title

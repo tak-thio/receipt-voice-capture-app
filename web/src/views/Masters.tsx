@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react'
 import { api, type MasterRow } from '../api'
+import {
+  Badge, Button, Card, EmptyState, Field, Icon, IconButton, Input, Modal,
+  PageHeader, Section, Table, Tbody, Td, Th, Thead, Tr,
+} from '../ui'
+import { useToast } from '../ui/toast'
+
+type TitleModal = { mode: 'add' } | { mode: 'edit'; row: MasterRow } | null
+type PartnerModal = { mode: 'add' } | { mode: 'edit'; row: MasterRow } | null
 
 export function MastersView({ clientId, firmId }: { clientId: string; firmId: string }) {
+  const toast = useToast()
   const [titles, setTitles] = useState<MasterRow[]>([])
   const [partners, setPartners] = useState<MasterRow[]>([])
-  const [atCode, setAtCode] = useState('')
-  const [atName, setAtName] = useState('')
-  const [pName, setPName] = useState('')
-  const [pDomain, setPDomain] = useState('')
-  const [editId, setEditId] = useState<string | null>(null)
-  const [editTitle, setEditTitle] = useState({ code: '', name: '' })
-  const [editPartner, setEditPartner] = useState({ name: '', domain: '' })
-  const [err, setErr] = useState('')
+  const [titleModal, setTitleModal] = useState<TitleModal>(null)
+  const [partnerModal, setPartnerModal] = useState<PartnerModal>(null)
 
   async function load() {
     if (!clientId) return
@@ -23,123 +26,189 @@ export function MastersView({ clientId, firmId }: { clientId: string; firmId: st
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId])
 
-  async function addTitle() {
-    if (!atCode || !atName) return
-    await api.createAccountTitle({ firm_id: firmId, client_id: clientId, code: atCode, name: atName })
-    setAtCode('')
-    setAtName('')
-    await load()
-  }
-  async function saveTitle(id: string) {
-    try {
-      await api.patchAccountTitle(id, { code: editTitle.code, name: editTitle.name })
-      setEditId(null)
-      await load()
-    } catch (e) {
-      setErr(String(e))
-    }
-  }
   async function delTitle(t: MasterRow) {
     if (!window.confirm(`勘定科目「${t.name}」を削除しますか?`)) return
-    await api.deleteAccountTitle(t.id)
-    await load()
-  }
-
-  async function addPartner() {
-    if (!pName) return
-    await api.createPartner({ firm_id: firmId, client_id: clientId, name: pName, domain: pDomain || undefined })
-    setPName('')
-    setPDomain('')
-    await load()
-  }
-  async function savePartner(id: string) {
-    try {
-      await api.patchPartner(id, { name: editPartner.name, domain: editPartner.domain || undefined })
-      setEditId(null)
-      await load()
-    } catch (e) {
-      setErr(String(e))
-    }
+    if (await toast.run(() => api.deleteAccountTitle(t.id), '勘定科目を削除しました')) await load()
   }
   async function delPartner(p: MasterRow) {
     if (!window.confirm(`取引先「${p.name}」を削除しますか?`)) return
-    await api.deletePartner(p.id)
-    await load()
+    if (await toast.run(() => api.deletePartner(p.id), '取引先を削除しました')) await load()
   }
 
-  const F = 'rounded-lg border px-2 py-1.5 text-sm'
-  if (!clientId) return <p className="text-stone-400">顧問先を選択してください。</p>
+  if (!clientId) {
+    return (
+      <>
+        <PageHeader title="マスタ" description="勘定科目・取引先を管理します。" />
+        <Card><EmptyState icon={<Icon.Database />} title="顧問先を選択してください" /></Card>
+      </>
+    )
+  }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      {err && <p className="text-sm text-red-600 lg:col-span-2">{err}</p>}
-      <section className="rounded-xl bg-white p-4 shadow">
-        <h3 className="mb-2 font-semibold">勘定科目(テンプレ＋顧問先上書き)</h3>
-        <div className="mb-3 flex gap-2">
-          <input className={`w-24 ${F}`} placeholder="コード" value={atCode} onChange={(e) => setAtCode(e.target.value)} />
-          <input className={`flex-1 ${F}`} placeholder="科目名" value={atName} onChange={(e) => setAtName(e.target.value)} />
-          <button className="rounded-lg bg-stone-800 px-3 py-1.5 text-sm text-white" onClick={() => void addTitle()}>追加</button>
-        </div>
-        <ul className="divide-y text-sm">
-          {titles.map((t) => (
-            <li key={t.id} className="py-1.5">
-              {editId === t.id ? (
-                <div className="flex items-center gap-2">
-                  <input className={`w-24 ${F}`} value={editTitle.code} onChange={(e) => setEditTitle({ ...editTitle, code: e.target.value })} />
-                  <input className={`flex-1 ${F}`} value={editTitle.name} onChange={(e) => setEditTitle({ ...editTitle, name: e.target.value })} />
-                  <button className="rounded bg-stone-800 px-2 py-1 text-xs text-white" onClick={() => void saveTitle(t.id)}>保存</button>
-                  <button className="text-xs text-stone-500 hover:underline" onClick={() => setEditId(null)}>取消</button>
-                </div>
-              ) : (
-                <div className="group flex items-center justify-between">
-                  <span><span className="text-stone-400">{t.code}</span> {t.name}</span>
-                  <span className="flex items-center gap-2">
-                    <span className="text-xs text-stone-400">{t.scope === 'client' ? '顧問先' : 'テンプレ'}</span>
-                    <button className="hidden text-xs text-stone-600 hover:underline group-hover:inline"
-                      onClick={() => { setEditId(t.id); setEditTitle({ code: t.code ?? '', name: t.name }) }}>編集</button>
-                    <button className="hidden text-xs text-red-600 hover:underline group-hover:inline" onClick={() => void delTitle(t)}>削除</button>
-                  </span>
-                </div>
-              )}
-            </li>
-          ))}
-          {titles.length === 0 && <li className="py-2 text-stone-400">なし</li>}
-        </ul>
-      </section>
+    <>
+      <PageHeader title="マスタ" description="勘定科目(テンプレ＋顧問先上書き)と取引先を管理します。" />
 
-      <section className="rounded-xl bg-white p-4 shadow">
-        <h3 className="mb-2 font-semibold">取引先</h3>
-        <div className="mb-3 flex gap-2">
-          <input className={`flex-1 ${F}`} placeholder="取引先名" value={pName} onChange={(e) => setPName(e.target.value)} />
-          <input className={`w-40 ${F}`} placeholder="ドメイン(任意)" value={pDomain} onChange={(e) => setPDomain(e.target.value)} />
-          <button className="rounded-lg bg-stone-800 px-3 py-1.5 text-sm text-white" onClick={() => void addPartner()}>追加</button>
-        </div>
-        <ul className="divide-y text-sm">
-          {partners.map((p) => (
-            <li key={p.id} className="py-1.5">
-              {editId === p.id ? (
-                <div className="flex items-center gap-2">
-                  <input className={`flex-1 ${F}`} value={editPartner.name} onChange={(e) => setEditPartner({ ...editPartner, name: e.target.value })} />
-                  <input className={`w-40 ${F}`} value={editPartner.domain} onChange={(e) => setEditPartner({ ...editPartner, domain: e.target.value })} />
-                  <button className="rounded bg-stone-800 px-2 py-1 text-xs text-white" onClick={() => void savePartner(p.id)}>保存</button>
-                  <button className="text-xs text-stone-500 hover:underline" onClick={() => setEditId(null)}>取消</button>
-                </div>
-              ) : (
-                <div className="group flex items-center justify-between">
-                  <span>{p.name}</span>
-                  <span className="flex items-center gap-2">
-                    <span className="text-xs text-stone-400">{p.domain ?? ''}</span>
-                    <button className="hidden text-xs text-stone-600 hover:underline group-hover:inline"
-                      onClick={() => { setEditId(p.id); setEditPartner({ name: p.name, domain: p.domain ?? '' }) }}>編集</button>
-                    <button className="hidden text-xs text-red-600 hover:underline group-hover:inline" onClick={() => void delPartner(p)}>削除</button>
-                  </span>
-                </div>
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Section
+          title="勘定科目"
+          description="事務所テンプレートに顧問先固有の科目を上書き・追加できます。"
+          actions={<Button variant="primary" size="sm" onClick={() => setTitleModal({ mode: 'add' })}><Icon.Plus /> 追加</Button>}
+          bodyClassName="p-0"
+        >
+          <Table>
+            <Thead>
+              <tr>
+                <Th className="w-24">コード</Th>
+                <Th>科目名</Th>
+                <Th className="w-24">区分</Th>
+                <Th className="w-px text-right">操作</Th>
+              </tr>
+            </Thead>
+            <Tbody>
+              {titles.map((t) => (
+                <Tr key={t.id}>
+                  <Td className="font-mono text-xs text-slate-500">{t.code}</Td>
+                  <Td className="font-medium text-slate-800">{t.name}</Td>
+                  <Td>{t.scope === 'client' ? <Badge tone="brand">顧問先</Badge> : <Badge>テンプレ</Badge>}</Td>
+                  <Td className="text-right">
+                    <div className="flex items-center justify-end gap-0.5">
+                      <IconButton label="編集" onClick={() => setTitleModal({ mode: 'edit', row: t })}><Icon.Pencil /></IconButton>
+                      <IconButton label="削除" className="hover:!text-red-600" onClick={() => void delTitle(t)}><Icon.Trash /></IconButton>
+                    </div>
+                  </Td>
+                </Tr>
+              ))}
+              {titles.length === 0 && (
+                <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-400">勘定科目がありません</td></tr>
               )}
-            </li>
-          ))}
-          {partners.length === 0 && <li className="py-2 text-stone-400">なし</li>}
-        </ul>
-      </section>
-    </div>
+            </Tbody>
+          </Table>
+        </Section>
+
+        <Section
+          title="取引先"
+          actions={<Button variant="primary" size="sm" onClick={() => setPartnerModal({ mode: 'add' })}><Icon.Plus /> 追加</Button>}
+          bodyClassName="p-0"
+        >
+          <Table>
+            <Thead>
+              <tr>
+                <Th>取引先名</Th>
+                <Th className="w-48">ドメイン</Th>
+                <Th className="w-px text-right">操作</Th>
+              </tr>
+            </Thead>
+            <Tbody>
+              {partners.map((p) => (
+                <Tr key={p.id}>
+                  <Td className="font-medium text-slate-800">{p.name}</Td>
+                  <Td className="text-slate-500">{p.domain ?? <span className="text-slate-300">—</span>}</Td>
+                  <Td className="text-right">
+                    <div className="flex items-center justify-end gap-0.5">
+                      <IconButton label="編集" onClick={() => setPartnerModal({ mode: 'edit', row: p })}><Icon.Pencil /></IconButton>
+                      <IconButton label="削除" className="hover:!text-red-600" onClick={() => void delPartner(p)}><Icon.Trash /></IconButton>
+                    </div>
+                  </Td>
+                </Tr>
+              ))}
+              {partners.length === 0 && (
+                <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">取引先がありません</td></tr>
+              )}
+            </Tbody>
+          </Table>
+        </Section>
+      </div>
+
+      {titleModal && (
+        <TitleEditor firmId={firmId} clientId={clientId} modal={titleModal}
+          onClose={() => setTitleModal(null)} onSaved={async () => { setTitleModal(null); await load() }} />
+      )}
+      {partnerModal && (
+        <PartnerEditor firmId={firmId} clientId={clientId} modal={partnerModal}
+          onClose={() => setPartnerModal(null)} onSaved={async () => { setPartnerModal(null); await load() }} />
+      )}
+    </>
+  )
+}
+
+function TitleEditor({
+  firmId, clientId, modal, onClose, onSaved,
+}: {
+  firmId: string; clientId: string
+  modal: { mode: 'add' } | { mode: 'edit'; row: MasterRow }
+  onClose: () => void; onSaved: () => void | Promise<void>
+}) {
+  const toast = useToast()
+  const editing = modal.mode === 'edit'
+  const [code, setCode] = useState(editing ? modal.row.code ?? '' : '')
+  const [name, setName] = useState(editing ? modal.row.name : '')
+  const [busy, setBusy] = useState(false)
+
+  async function submit() {
+    if (!code.trim() || !name.trim()) {
+      toast.error('コードと科目名は必須です。')
+      return
+    }
+    setBusy(true)
+    const ok = await toast.run(async () => {
+      if (editing) await api.patchAccountTitle(modal.row.id, { code: code.trim(), name: name.trim() })
+      else await api.createAccountTitle({ firm_id: firmId, client_id: clientId, code: code.trim(), name: name.trim() })
+    }, editing ? '勘定科目を更新しました' : '勘定科目を追加しました')
+    setBusy(false)
+    if (ok) await onSaved()
+  }
+
+  return (
+    <Modal open onClose={onClose} title={editing ? '勘定科目を編集' : '勘定科目を追加'} size="sm"
+      footer={<>
+        <Button onClick={onClose}>キャンセル</Button>
+        <Button variant="primary" onClick={() => void submit()} disabled={busy}>{editing ? '保存' : '追加'}</Button>
+      </>}>
+      <div className="space-y-4">
+        <Field label="コード" required><Input autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder="758" /></Field>
+        <Field label="科目名" required><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="旅費交通費" /></Field>
+      </div>
+    </Modal>
+  )
+}
+
+function PartnerEditor({
+  firmId, clientId, modal, onClose, onSaved,
+}: {
+  firmId: string; clientId: string
+  modal: { mode: 'add' } | { mode: 'edit'; row: MasterRow }
+  onClose: () => void; onSaved: () => void | Promise<void>
+}) {
+  const toast = useToast()
+  const editing = modal.mode === 'edit'
+  const [name, setName] = useState(editing ? modal.row.name : '')
+  const [domain, setDomain] = useState(editing ? modal.row.domain ?? '' : '')
+  const [busy, setBusy] = useState(false)
+
+  async function submit() {
+    if (!name.trim()) {
+      toast.error('取引先名は必須です。')
+      return
+    }
+    setBusy(true)
+    const ok = await toast.run(async () => {
+      if (editing) await api.patchPartner(modal.row.id, { name: name.trim(), domain: domain.trim() || undefined })
+      else await api.createPartner({ firm_id: firmId, client_id: clientId, name: name.trim(), domain: domain.trim() || undefined })
+    }, editing ? '取引先を更新しました' : '取引先を追加しました')
+    setBusy(false)
+    if (ok) await onSaved()
+  }
+
+  return (
+    <Modal open onClose={onClose} title={editing ? '取引先を編集' : '取引先を追加'} size="sm"
+      footer={<>
+        <Button onClick={onClose}>キャンセル</Button>
+        <Button variant="primary" onClick={() => void submit()} disabled={busy}>{editing ? '保存' : '追加'}</Button>
+      </>}>
+      <div className="space-y-4">
+        <Field label="取引先名" required><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label="ドメイン" hint="メール取込時の自動引当に使用します。"><Input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="example.co.jp" /></Field>
+      </div>
+    </Modal>
   )
 }

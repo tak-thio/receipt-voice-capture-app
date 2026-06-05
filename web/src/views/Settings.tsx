@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
 import { api, type ClientRow, type FirmInfo, type MemberRow } from '../api'
+import {
+  Button, Field, Icon, Input, Modal, PageHeader, Section,
+  Select, Table, Tbody, Td, Th, Thead, Tr,
+} from '../ui'
+import { useToast } from '../ui/toast'
 
 const PROVIDERS: Record<string, string[]> = {
   stt: ['openai', 'gemini', 'whisper', 'mock'],
@@ -12,15 +17,16 @@ const SELF_HOSTED = new Set(['ollama', 'whisper', 'mock'])
 type Cap = { provider: string; key: string; model: string }
 
 export function SettingsView({ firmId }: { firmId: string }) {
+  const toast = useToast()
   const [firm, setFirm] = useState<FirmInfo | null>(null)
   const [name, setName] = useState('')
   const [caps, setCaps] = useState<Record<string, Cap>>({})
   const [members, setMembers] = useState<MemberRow[]>([])
   const [clients, setClients] = useState<ClientRow[]>([])
-  const [assignFor, setAssignFor] = useState<string | null>(null)
+  const [assignFor, setAssignFor] = useState<MemberRow | null>(null)
   const [assigned, setAssigned] = useState<Set<string>>(new Set())
-  const [invite, setInvite] = useState('')
-  const [msg, setMsg] = useState('')
+  const [invite, setInvite] = useState<string | null>(null)
+  void firmId
 
   async function load() {
     const f = await api.firm()
@@ -35,32 +41,28 @@ export function SettingsView({ firmId }: { firmId: string }) {
     setMembers(await api.members())
     setClients(await api.clients())
   }
+  useEffect(() => {
+    load().catch((e) => toast.error(String(e)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  async function openAssign(userId: string) {
-    if (assignFor === userId) {
-      setAssignFor(null)
-      return
-    }
-    const { client_ids } = await api.assignedClients(userId)
+  async function openAssign(m: MemberRow) {
+    const { client_ids } = await api.assignedClients(m.user_id)
     setAssigned(new Set(client_ids))
-    setAssignFor(userId)
+    setAssignFor(m)
   }
-  async function toggleAssign(userId: string, clientId: string) {
+  async function toggleAssign(clientId: string) {
+    if (!assignFor) return
     const next = new Set(assigned)
     if (next.has(clientId)) next.delete(clientId)
     else next.add(clientId)
     setAssigned(next)
-    await api.setAssignedClients(userId, [...next])
+    await toast.run(() => api.setAssignedClients(assignFor.user_id, [...next]))
   }
-  useEffect(() => {
-    load().catch((e) => setMsg(String(e)))
-  }, [])
 
   async function saveName() {
-    await api.patchFirm(name)
-    setMsg('事務所名を保存しました。')
+    await toast.run(() => api.patchFirm(name), '事務所名を保存しました')
   }
-
   async function saveAi() {
     const body: Record<string, { provider: string; key?: string; model?: string }> = {}
     for (const [cap, c] of Object.entries(caps)) {
@@ -68,121 +70,163 @@ export function SettingsView({ firmId }: { firmId: string }) {
       if (c.key) body[cap].key = c.key
       if (c.model) body[cap].model = c.model
     }
-    await api.setAiConfig(body)
-    setMsg('AI設定を保存しました。')
-    await load()
+    if (await toast.run(() => api.setAiConfig(body), 'AI設定を保存しました')) await load()
   }
-
   async function inviteStaff() {
-    const r = await api.createInvite({ role: 'firm_staff' })
-    setInvite(`${window.location.origin}${r.redeem_path}`)
+    try {
+      const r = await api.createInvite({ role: 'firm_staff' })
+      setInvite(`${window.location.origin}${r.redeem_path}`)
+    } catch (e) {
+      toast.error(String(e))
+    }
   }
-
   function updateCap(cap: string, patch: Partial<Cap>) {
     setCaps((prev) => ({ ...prev, [cap]: { ...prev[cap], ...patch } }))
   }
 
-  if (!firm) return <p className="text-stone-400">読み込み中...</p>
-  void firmId
+  if (!firm) return <p className="text-slate-400">読み込み中…</p>
 
   return (
-    <div className="max-w-3xl space-y-6">
-      {msg && <p className="text-sm text-green-700">{msg}</p>}
+    <>
+      <PageHeader title="設定" description="事務所・AIプロバイダ・職員を管理します。" />
 
-      <section className="rounded-xl bg-white p-4 shadow">
-        <h3 className="mb-3 font-semibold">事務所設定</h3>
-        <div className="flex items-center gap-2">
-          <input className="flex-1 rounded-lg border px-3 py-1.5 text-sm" value={name}
-            onChange={(e) => setName(e.target.value)} />
-          <button className="rounded-lg bg-stone-800 px-3 py-1.5 text-sm text-white" onClick={() => void saveName()}>
-            保存
-          </button>
-        </div>
-      </section>
-
-      <section className="rounded-xl bg-white p-4 shadow">
-        <h3 className="mb-1 font-semibold">AIプロバイダ(事務所負担)</h3>
-        <p className="mb-3 text-xs text-stone-500">
-          能力ごとに選択。ollama/whisper/mock は自前(キー不要)、openai/gemini はキーを保存(暗号化)。
-        </p>
-        <div className="space-y-3">
-          {Object.keys(PROVIDERS).map((cap) => {
-            const c = caps[cap]
-            const needsKey = c && !SELF_HOSTED.has(c.provider)
-            const keySet = firm.ai_config[cap]?.key_set
-            return (
-              <div key={cap} className="grid grid-cols-12 items-center gap-2">
-                <span className="col-span-2 text-sm text-stone-600">{CAP_LABEL[cap]}</span>
-                <select className="col-span-3 rounded-lg border px-2 py-1.5 text-sm" value={c?.provider}
-                  onChange={(e) => updateCap(cap, { provider: e.target.value })}>
-                  {PROVIDERS[cap].map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
-                <input className="col-span-3 rounded-lg border px-2 py-1.5 text-sm" placeholder="model(任意)"
-                  value={c?.model} onChange={(e) => updateCap(cap, { model: e.target.value })} />
-                <input className="col-span-4 rounded-lg border px-2 py-1.5 text-sm" type="password"
-                  placeholder={needsKey ? (keySet ? '設定済み(変更時のみ入力)' : 'APIキー') : 'キー不要'}
-                  disabled={!needsKey}
-                  value={c?.key} onChange={(e) => updateCap(cap, { key: e.target.value })} />
-              </div>
-            )
-          })}
-        </div>
-        <button className="mt-3 rounded-lg bg-stone-800 px-4 py-1.5 text-sm text-white" onClick={() => void saveAi()}>
-          AI設定を保存
-        </button>
-      </section>
-
-      <section className="rounded-xl bg-white p-4 shadow">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="font-semibold">職員</h3>
-          <button className="rounded-lg border px-3 py-1.5 text-sm hover:bg-stone-100" onClick={() => void inviteStaff()}>
-            職員を招待
-          </button>
-        </div>
-        {invite && (
-          <div className="mb-3 rounded border border-blue-200 bg-blue-50 p-2 text-xs">
-            招待リンク(72時間有効・共有してください):<br />
-            <span className="break-all font-mono">{invite}</span>
+      <div className="mx-auto max-w-4xl space-y-5">
+        <Section title="事務所">
+          <div className="flex items-end gap-2">
+            <Field label="事務所名" className="flex-1">
+              <Input value={name} onChange={(e) => setName(e.target.value)} />
+            </Field>
+            <Button variant="primary" onClick={() => void saveName()}>保存</Button>
           </div>
-        )}
-        <ul className="divide-y text-sm">
-          {members.map((m) => (
-            <li key={m.user_id} className="py-2">
-              <div className="flex items-center justify-between">
-                <span>{m.email} <span className="text-stone-400">{m.name}</span></span>
-                <div className="flex items-center gap-2">
-                  {m.role === 'firm_staff' && (
-                    <button className="rounded border px-2 py-1 text-xs hover:bg-stone-100"
-                      onClick={() => void openAssign(m.user_id)}>担当顧問先</button>
-                  )}
-                  <select className="rounded border px-2 py-1 text-sm" value={m.role}
-                    onChange={async (e) => { await api.setMemberRole(m.user_id, e.target.value); await load() }}>
-                    <option value="firm_owner">管理者</option>
-                    <option value="firm_staff">一般社員</option>
-                  </select>
-                  <button className="text-xs text-red-600 hover:underline"
-                    onClick={async () => { await api.removeMember(m.user_id); await load() }}>削除</button>
-                </div>
-              </div>
-              {assignFor === m.user_id && (
-                <div className="mt-2 rounded border bg-stone-50 p-2">
-                  <p className="mb-1 text-xs text-stone-500">担当する顧問先(チェックで即時保存):</p>
-                  <div className="flex flex-wrap gap-3">
-                    {clients.map((c) => (
-                      <label key={c.id} className="flex items-center gap-1 text-sm">
-                        <input type="checkbox" checked={assigned.has(c.id)}
-                          onChange={() => void toggleAssign(m.user_id, c.id)} />
-                        {c.name}
-                      </label>
-                    ))}
-                    {clients.length === 0 && <span className="text-xs text-stone-400">顧問先がありません</span>}
+        </Section>
+
+        <Section
+          title="AIプロバイダ"
+          description="費用は事務所負担。ollama / whisper / mock は自前(キー不要)、openai / gemini はキーを暗号化保存します。"
+          actions={<Button variant="primary" size="sm" onClick={() => void saveAi()}>AI設定を保存</Button>}
+        >
+          <div className="space-y-3">
+            <div className="hidden grid-cols-12 gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400 sm:grid">
+              <span className="col-span-2">能力</span>
+              <span className="col-span-3">プロバイダ</span>
+              <span className="col-span-3">モデル</span>
+              <span className="col-span-4">APIキー</span>
+            </div>
+            {Object.keys(PROVIDERS).map((cap) => {
+              const c = caps[cap]
+              const needsKey = c && !SELF_HOSTED.has(c.provider)
+              const keySet = firm.ai_config[cap]?.key_set
+              return (
+                <div key={cap} className="grid grid-cols-1 items-center gap-2 sm:grid-cols-12">
+                  <span className="text-sm font-medium text-slate-600 sm:col-span-2">{CAP_LABEL[cap]}</span>
+                  <div className="sm:col-span-3">
+                    <Select value={c?.provider} onChange={(e) => updateCap(cap, { provider: e.target.value })}>
+                      {PROVIDERS[cap].map((p) => <option key={p} value={p}>{p}</option>)}
+                    </Select>
+                  </div>
+                  <div className="sm:col-span-3">
+                    <Input placeholder="モデル(任意)" value={c?.model} onChange={(e) => updateCap(cap, { model: e.target.value })} />
+                  </div>
+                  <div className="sm:col-span-4">
+                    <Input type="password" disabled={!needsKey}
+                      placeholder={needsKey ? (keySet ? '設定済み(変更時のみ入力)' : 'APIキー') : 'キー不要'}
+                      value={c?.key} onChange={(e) => updateCap(cap, { key: e.target.value })} />
                   </div>
                 </div>
+              )
+            })}
+          </div>
+        </Section>
+
+        <Section
+          title="職員"
+          description="職員のロールと担当顧問先を管理します。"
+          actions={<Button size="sm" onClick={() => void inviteStaff()}><Icon.Link /> 職員を招待</Button>}
+          bodyClassName="p-0"
+        >
+          <Table>
+            <Thead>
+              <tr>
+                <Th>職員</Th>
+                <Th className="w-40">ロール</Th>
+                <Th className="w-px text-right">操作</Th>
+              </tr>
+            </Thead>
+            <Tbody>
+              {members.map((m) => (
+                <Tr key={m.user_id}>
+                  <Td>
+                    <div className="font-medium text-slate-800">{m.name || m.email}</div>
+                    {m.name && <div className="text-xs text-slate-400">{m.email}</div>}
+                  </Td>
+                  <Td>
+                    <Select value={m.role} className="h-8 text-xs"
+                      onChange={async (e) => { if (await toast.run(() => api.setMemberRole(m.user_id, e.target.value), 'ロールを変更しました')) await load() }}>
+                      <option value="firm_owner">管理者</option>
+                      <option value="firm_staff">一般社員</option>
+                    </Select>
+                  </Td>
+                  <Td className="text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      {m.role === 'firm_staff' && (
+                        <Button size="sm" variant="secondary" onClick={() => void openAssign(m)}>
+                          <Icon.Building /> 担当顧問先
+                        </Button>
+                      )}
+                      <IconBtnDelete onClick={async () => {
+                        if (!window.confirm(`${m.name || m.email} を削除しますか?`)) return
+                        if (await toast.run(() => api.removeMember(m.user_id), '職員を削除しました')) await load()
+                      }} />
+                    </div>
+                  </Td>
+                </Tr>
+              ))}
+              {members.length === 0 && (
+                <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">職員がいません</td></tr>
               )}
-            </li>
+            </Tbody>
+          </Table>
+        </Section>
+      </div>
+
+      {/* 担当顧問先 assignment */}
+      <Modal open={!!assignFor} onClose={() => setAssignFor(null)} title="担当顧問先の割当"
+        description={assignFor ? `${assignFor.name || assignFor.email} が担当する顧問先(チェックで即時保存)` : undefined}
+        footer={<Button variant="primary" onClick={() => setAssignFor(null)}>完了</Button>}>
+        <div className="space-y-1">
+          {clients.map((c) => (
+            <label key={c.id} className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-slate-50">
+              <input type="checkbox" className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                checked={assigned.has(c.id)} onChange={() => void toggleAssign(c.id)} />
+              <span className="text-sm text-slate-700">{c.name}</span>
+            </label>
           ))}
-        </ul>
-      </section>
-    </div>
+          {clients.length === 0 && <p className="px-2 py-6 text-center text-sm text-slate-400">顧問先がありません</p>}
+        </div>
+      </Modal>
+
+      {/* invite link */}
+      <Modal open={!!invite} onClose={() => setInvite(null)} title="職員の招待リンク" size="sm"
+        description="72時間有効。このリンクを職員に共有してください。"
+        footer={<>
+          <Button onClick={() => { if (invite) void navigator.clipboard?.writeText(invite).then(() => toast.success('コピーしました')) }}>
+            <Icon.Link /> コピー
+          </Button>
+          <Button variant="primary" onClick={() => setInvite(null)}>閉じる</Button>
+        </>}>
+        <div className="break-all rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-xs text-slate-700">
+          {invite}
+        </div>
+      </Modal>
+    </>
+  )
+}
+
+function IconBtnDelete({ onClick }: { onClick: () => void }) {
+  return (
+    <button title="削除" aria-label="削除" onClick={onClick}
+      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600">
+      <Icon.Trash />
+    </button>
   )
 }

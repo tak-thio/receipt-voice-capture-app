@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
 import { api, type ReceiptRow } from '../api'
+import {
+  Badge, Button, Card, EmptyState, Icon, Input, PageHeader,
+  Table, Tbody, Td, Th, Thead, Tr,
+} from '../ui'
 
 const FORMATS = ['generic', 'mas', 'freee', 'yayoi']
 
@@ -25,69 +29,80 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId])
 
-  if (!clientId) return <p className="text-stone-400">顧問先を選択してください。</p>
+  if (!clientId) {
+    return (
+      <>
+        <PageHeader title="受信箱" description="顧問先に届いた領収書の一覧です。" />
+        <Card><EmptyState icon={<Icon.Inbox />} title="顧問先を選択してください" /></Card>
+      </>
+    )
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          className="rounded-lg border px-3 py-1.5 text-sm"
-          placeholder="検索(支払先 / 番号)"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && void load()}
-        />
-        <button className="rounded-lg border px-3 py-1.5 text-sm" onClick={() => void load()}>
-          検索
-        </button>
-        <span className="text-sm text-stone-500">{rows.length}件</span>
-        <span className="ml-auto text-sm text-stone-500">CSV出力:</span>
-        {FORMATS.map((f) => (
-          <a
-            key={f}
-            className="rounded-lg border px-3 py-1.5 text-sm hover:bg-stone-100"
-            href={api.exportUrl(clientId, f)}
-          >
-            {f}
-          </a>
-        ))}
+    <>
+      <PageHeader
+        title="受信箱"
+        description="顧問先に届いた領収書の一覧です。"
+        actions={
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400">CSV出力</span>
+            {FORMATS.map((f) => (
+              <a key={f} href={api.exportUrl(clientId, f)}
+                className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                <Icon.Download /> {f}
+              </a>
+            ))}
+          </div>
+        }
+      />
+
+      <div className="mb-4 flex items-center gap-2">
+        <div className="relative w-72 max-w-full">
+          <Icon.Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Input className="pl-9" placeholder="支払先 / 登録番号で検索" value={q}
+            onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void load()} />
+        </div>
+        <Button onClick={() => void load()}>検索</Button>
+        <span className="ml-1 text-sm text-slate-500">{rows.length}件</span>
       </div>
 
-      <table className="w-full overflow-hidden rounded-xl bg-white text-sm shadow">
-        <thead className="bg-stone-100 text-stone-600">
-          <tr>
-            <th className="px-3 py-2 text-left">日付</th>
-            <th className="px-3 py-2 text-left">支払先</th>
-            <th className="px-3 py-2 text-right">金額</th>
-            <th className="px-3 py-2 text-left">区分</th>
-            <th className="px-3 py-2 text-left">状態</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id} className="border-t">
-              <td className="px-3 py-2">{r.captured_at?.slice(0, 10) ?? '—'}</td>
-              <td className="px-3 py-2">{r.vendor ?? '—'}</td>
-              <td className="px-3 py-2 text-right">{r.amount_jpy?.toLocaleString() ?? '—'}</td>
-              <td className="px-3 py-2 text-stone-500">{r.source}</td>
-              <td className="px-3 py-2">
-                {r.journalized_at ? (
-                  <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">仕分済</span>
-                ) : (
-                  <span className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-700">未仕分</span>
-                )}
-              </td>
-            </tr>
-          ))}
-          {rows.length === 0 && (
+      <Card>
+        <Table>
+          <Thead>
             <tr>
-              <td colSpan={5} className="px-3 py-8 text-center text-stone-400">
-                {loading ? '読み込み中...' : '領収書がありません'}
-              </td>
+              <Th className="w-28">日付</Th>
+              <Th>支払先</Th>
+              <Th className="text-right">金額</Th>
+              <Th className="w-24">区分</Th>
+              <Th className="w-24">状態</Th>
             </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
+          </Thead>
+          <Tbody>
+            {rows.map((r) => (
+              <Tr key={r.id}>
+                <Td className="text-slate-500">{r.captured_at?.slice(0, 10) ?? '—'}</Td>
+                <Td className="font-medium text-slate-800">{r.vendor ?? '—'}</Td>
+                <Td className="text-right font-medium tabular-nums">
+                  {r.amount_jpy != null ? `¥${r.amount_jpy.toLocaleString()}` : '—'}
+                </Td>
+                <Td className="text-slate-500">{r.source}</Td>
+                <Td>
+                  {r.journalized_at
+                    ? <Badge tone="success">仕分済</Badge>
+                    : <Badge tone="warning">未仕分</Badge>}
+                </Td>
+              </Tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-400">
+                  {loading ? '読み込み中…' : '領収書がありません'}
+                </td>
+              </tr>
+            )}
+          </Tbody>
+        </Table>
+      </Card>
+    </>
   )
 }
