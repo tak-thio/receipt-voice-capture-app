@@ -26,3 +26,15 @@ settings.json
 src-tauri/settings.json
 *.command
 scripts/dev-tauri-gemini.sh
+
+# Backend (api/) — Python
+api/.env
+api/.venv
+.venv
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Web SPA (web/) build output (node_modules already ignored above)
+web/dist
