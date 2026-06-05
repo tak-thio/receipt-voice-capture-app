@@ -31,6 +31,9 @@ export interface ClientRow {
   code: string | null
   export_default: string
   status?: string
+  entity_type?: string | null
+  fiscal_month?: number | null
+  industry?: string | null
 }
 
 export interface ClientDetail extends ClientRow {

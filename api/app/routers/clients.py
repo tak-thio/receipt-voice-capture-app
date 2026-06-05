@@ -127,6 +127,9 @@ async def list_clients(
             "code": c.code,
             "export_default": c.export_default,
             "status": c.status,
+            "entity_type": c.entity_type,
+            "fiscal_month": c.fiscal_month,
+            "industry": c.industry,
         }
         for c in rows
     ]
