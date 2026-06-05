@@ -13,6 +13,11 @@ const ROLE_LABEL: Record<string, string> = {
 const ROLE_TONE: Record<string, 'brand' | 'info' | 'neutral'> = {
   client_admin: 'brand', client_accountant: 'info', client_user: 'neutral',
 }
+// 役職 (organizational title) suggestions — free text; these are just hints.
+const JOB_TITLES = [
+  '代表取締役', '取締役', '監査役', '執行役員', '部長', '次長',
+  '課長', '係長', '主任', '経理担当', '総務担当', '担当',
+]
 const ENTITY_LABEL: Record<string, string> = { corporation: '法人', individual: '個人' }
 
 function blankClient(): ClientDetail {
@@ -351,8 +356,9 @@ function ClientUsers({ clientId }: { clientId: string }) {
         <Thead>
           <tr>
             <Th>氏名</Th>
+            <Th className="w-36">役職</Th>
             <Th>ログインID</Th>
-            <Th className="w-36">役割</Th>
+            <Th className="w-28">役割</Th>
             <Th className="w-20">状態</Th>
             <Th className="w-px text-right">操作</Th>
           </tr>
@@ -367,6 +373,7 @@ function ClientUsers({ clientId }: { clientId: string }) {
                   {u.phone && <span className="text-xs text-slate-400">{u.phone}</span>}
                 </div>
               </Td>
+              <Td className="text-slate-600">{u.job_title || <span className="text-slate-300">—</span>}</Td>
               <Td className="text-slate-600">{u.login_id || <span className="text-slate-400">アプリ専用</span>}</Td>
               <Td><Badge tone={ROLE_TONE[u.role] ?? 'neutral'}>{ROLE_LABEL[u.role] ?? u.role}</Badge></Td>
               <Td>{u.status === 'disabled' ? <Badge tone="danger">無効</Badge> : <Badge tone="success">有効</Badge>}</Td>
@@ -381,7 +388,7 @@ function ClientUsers({ clientId }: { clientId: string }) {
             </Tr>
           ))}
           {users.length === 0 && (
-            <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">利用者がいません</td></tr>
+            <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">利用者がいません</td></tr>
           )}
         </Tbody>
       </Table>
@@ -416,6 +423,7 @@ function UserModal({
   const [name, setName] = useState(u?.name ?? '')
   const [email, setEmail] = useState(u?.login_id ?? '')
   const [phone, setPhone] = useState(u?.phone ?? '')
+  const [jobTitle, setJobTitle] = useState(u?.job_title ?? '')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState(u?.role ?? 'client_user')
   const [busy, setBusy] = useState(false)
@@ -429,6 +437,7 @@ function UserModal({
         if (name !== (u.name || '')) patch.name = name.trim()
         if (email !== (u.login_id || '')) patch.email = email.trim()
         if (phone !== (u.phone || '')) patch.phone = phone.trim()
+        if (jobTitle !== (u.job_title || '')) patch.job_title = jobTitle.trim()
         if (role !== u.role) patch.role = role
         if (password) patch.password = password
         await api.patchClientUser(clientId, u.user_id, patch)
@@ -436,7 +445,8 @@ function UserModal({
       } else {
         await api.createClientUser(clientId, {
           name: name.trim(), email: email.trim() || undefined,
-          phone: phone.trim() || undefined, password: password || undefined, role,
+          phone: phone.trim() || undefined, job_title: jobTitle.trim() || undefined,
+          password: password || undefined, role,
         })
         toast.success('利用者を追加しました')
       }
@@ -462,13 +472,19 @@ function UserModal({
         <Field label="ログインID(メール)" hint="PC利用時のみ。未設定でQR連携可。" className="sm:col-span-2">
           <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@example.com" />
         </Field>
-        <Field label={editing ? '新パスワード(変更時のみ)' : 'パスワード(PC利用時)'}>
-          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+        <Field label="役職" hint="例: 代表取締役 / 部長">
+          <Input list="client-user-titles" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="代表取締役" />
+          <datalist id="client-user-titles">
+            {JOB_TITLES.map((t) => <option key={t} value={t} />)}
+          </datalist>
         </Field>
         <Field label="電話">
           <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
         </Field>
-        <Field label="役割" className="sm:col-span-2">
+        <Field label={editing ? '新パスワード(変更時のみ)' : 'パスワード(PC利用時)'}>
+          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+        </Field>
+        <Field label="役割(システム権限)" hint="管理者 / 経理担当者 / 一般社員">
           <Select value={role} onChange={(e) => setRole(e.target.value)}>
             {Object.entries(ROLE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </Select>

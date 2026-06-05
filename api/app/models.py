@@ -89,6 +89,7 @@ class User(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(200), default="")
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    job_title: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 役職 (代表取締役/部長 等)
     status: Mapped[str] = mapped_column(String(20), default="active")  # active | disabled
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

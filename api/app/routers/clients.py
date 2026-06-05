@@ -70,6 +70,7 @@ class UserPatch(BaseModel):
     status: str | None = None  # active | disabled
     name: str | None = None
     phone: str | None = None
+    job_title: str | None = None  # 役職 (代表取締役/部長 等)
     email: str | None = None  # login ID (PC web login)
     password: str | None = None  # set/reset web password
 
@@ -78,6 +79,7 @@ class NewClientUser(BaseModel):
     name: str
     email: str | None = None  # login ID; omit for app-only (QR) users
     phone: str | None = None
+    job_title: str | None = None  # 役職 (代表取締役/部長 等)
     role: str = Role.client_user.value
     password: str | None = None  # set if this user logs in on PC web
 
@@ -224,6 +226,7 @@ async def list_client_users(
             "name": u.name,
             "role": m.role,
             "phone": u.phone,
+            "job_title": u.job_title,
             "status": u.status,
             # Placeholder logins (app-only QR users) aren't real login IDs.
             "login_id": None if u.email.endswith("@app.local") else u.email,
@@ -256,6 +259,7 @@ async def create_client_user(
         email=email,
         name=body.name,
         phone=body.phone,
+        job_title=body.job_title,
         password_hash=hash_password(body.password) if body.password else None,
     )
     session.add(user)
@@ -287,7 +291,7 @@ async def patch_client_user(
         if body.role not in CLIENT_ROLES:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid client role")
         m.role = body.role
-    user_fields = (body.status, body.name, body.phone, body.email, body.password)
+    user_fields = (body.status, body.name, body.phone, body.job_title, body.email, body.password)
     if any(v is not None for v in user_fields):
         user = await session.get(User, user_id)
         if body.status is not None:
@@ -298,6 +302,8 @@ async def patch_client_user(
             user.name = body.name
         if body.phone is not None:
             user.phone = body.phone
+        if body.job_title is not None:
+            user.job_title = body.job_title
         if body.email is not None:
             email = body.email.strip()
             if not email:

@@ -117,7 +117,7 @@ export const api = {
   deleteClient: (id: string) => req(`/clients/${id}`, { method: 'DELETE' }),
   createClientUser: (
     clientId: string,
-    body: { name: string; email?: string; phone?: string; role?: string; password?: string },
+    body: { name: string; email?: string; phone?: string; job_title?: string; role?: string; password?: string },
   ) =>
     req<{ user_id: string; email: string }>(`/clients/${clientId}/users`, {
       method: 'POST',
@@ -200,7 +200,7 @@ export const api = {
   patchClientUser: (
     clientId: string,
     userId: string,
-    patch: { role?: string; status?: string; name?: string; phone?: string; email?: string; password?: string },
+    patch: { role?: string; status?: string; name?: string; phone?: string; job_title?: string; email?: string; password?: string },
   ) => req(`/clients/${clientId}/users/${userId}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   removeClientUser: (clientId: string, userId: string) =>
     req(`/clients/${clientId}/users/${userId}`, { method: 'DELETE' }),
@@ -232,6 +232,7 @@ export interface MemberRow {
   name: string
   role: string
   phone?: string | null
+  job_title?: string | null
   status?: string
   login_id?: string | null
   password_set?: boolean
