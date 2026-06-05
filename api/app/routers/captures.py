@@ -9,7 +9,9 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
+from .. import storage
 from ..db import get_session
 from ..deps import Principal, get_principal
 from ..models import Client, File, Job, Receipt, ReceiptFile, ReceiptSource
@@ -20,8 +22,8 @@ router = APIRouter(prefix="/captures", tags=["captures"])
 async def _store_file(session, firm_id, client_id, upload: UploadFile, kind: str, uploaded_by):
     data = await upload.read()
     sha = hashlib.sha256(data).hexdigest()
-    # TODO(Phase 1): upload bytes to object storage (S3/MinIO) at this key.
     path = f"{firm_id}/{client_id}/{sha}"
+    await run_in_threadpool(storage.put, path, data, upload.content_type or "application/octet-stream")
     f = File(
         firm_id=firm_id,
         client_id=client_id,
