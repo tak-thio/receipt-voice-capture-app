@@ -30,6 +30,7 @@ export interface ClientRow {
   name: string
   code: string | null
   export_default: string
+  status?: string
 }
 
 export interface ClientDetail extends ClientRow {
@@ -98,13 +99,23 @@ export const api = {
     req('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   logout: () => req('/auth/logout', { method: 'POST' }),
 
-  clients: () => req<ClientRow[]>('/clients'),
+  clients: (q?: string, includeArchived = false) => {
+    const params = new URLSearchParams()
+    if (q) params.set('q', q)
+    if (includeArchived) params.set('include_archived', 'true')
+    const qs = params.toString()
+    return req<ClientRow[]>(`/clients${qs ? `?${qs}` : ''}`)
+  },
   createClient: (name: string, code?: string) =>
     req<{ id: string }>('/clients', { method: 'POST', body: JSON.stringify({ name, code }) }),
   client: (id: string) => req<ClientDetail>(`/clients/${id}`),
   patchClient: (id: string, patch: Partial<ClientDetail>) =>
     req<ClientDetail>(`/clients/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
-  createClientUser: (clientId: string, body: { name: string; email?: string; phone?: string; role?: string }) =>
+  deleteClient: (id: string) => req(`/clients/${id}`, { method: 'DELETE' }),
+  createClientUser: (
+    clientId: string,
+    body: { name: string; email?: string; phone?: string; role?: string; password?: string },
+  ) =>
     req<{ user_id: string; email: string }>(`/clients/${clientId}/users`, {
       method: 'POST',
       body: JSON.stringify(body),
@@ -141,10 +152,17 @@ export const api = {
     req<MasterRow[]>(`/masters/account-titles${clientId ? `?client_id=${clientId}` : ''}`),
   createAccountTitle: (body: { firm_id: string; client_id?: string | null; code: string; name: string }) =>
     req<{ id: string }>('/masters/account-titles', { method: 'POST', body: JSON.stringify(body) }),
+  patchAccountTitle: (id: string, patch: { code?: string; name?: string; sort_order?: number }) =>
+    req(`/masters/account-titles/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteAccountTitle: (id: string) =>
+    req(`/masters/account-titles/${id}`, { method: 'DELETE' }),
   partners: (clientId?: string) =>
     req<MasterRow[]>(`/masters/partners${clientId ? `?client_id=${clientId}` : ''}`),
   createPartner: (body: { firm_id: string; client_id: string; name: string; domain?: string }) =>
     req<{ id: string }>('/masters/partners', { method: 'POST', body: JSON.stringify(body) }),
+  patchPartner: (id: string, patch: { name?: string; code?: string; domain?: string }) =>
+    req(`/masters/partners/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deletePartner: (id: string) => req(`/masters/partners/${id}`, { method: 'DELETE' }),
 
   issuePairing: (clientId: string, userId?: string) =>
     req<{ token: string; qr_png_base64: string; expires_in_min: number }>('/pairing/issue', {
@@ -179,7 +197,7 @@ export const api = {
   patchClientUser: (
     clientId: string,
     userId: string,
-    patch: { role?: string; status?: string; name?: string; phone?: string },
+    patch: { role?: string; status?: string; name?: string; phone?: string; email?: string; password?: string },
   ) => req(`/clients/${clientId}/users/${userId}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   removeClientUser: (clientId: string, userId: string) =>
     req(`/clients/${clientId}/users/${userId}`, { method: 'DELETE' }),
@@ -212,6 +230,8 @@ export interface MemberRow {
   role: string
   phone?: string | null
   status?: string
+  login_id?: string | null
+  password_set?: boolean
 }
 export interface InviteRow {
   id: string

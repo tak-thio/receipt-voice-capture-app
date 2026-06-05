@@ -5,34 +5,60 @@ const FORMATS = ['generic', 'mas', 'freee', 'yayoi']
 
 export function ClientsView({ onChanged }: { onChanged: () => Promise<void> | void }) {
   const [clients, setClients] = useState<ClientRow[]>([])
-  const [newName, setNewName] = useState('')
+  const [search, setSearch] = useState('')
+  const [showNew, setShowNew] = useState(false)
+  const [newClient, setNewClient] = useState({ name: '', code: '' })
   const [detail, setDetail] = useState<ClientDetail | null>(null)
   const [users, setUsers] = useState<MemberRow[]>([])
   const [qr, setQr] = useState<{ userId: string; png: string } | null>(null)
-  const [nu, setNu] = useState({ name: '', email: '', phone: '' })
+  const [editUser, setEditUser] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', password: '' })
+  const [nu, setNu] = useState({ name: '', email: '', phone: '', password: '', role: 'client_user' })
   const [msg, setMsg] = useState('')
+  const [err, setErr] = useState('')
 
   async function loadClients() {
-    setClients(await api.clients())
+    setClients(await api.clients(search.trim() || undefined))
   }
   useEffect(() => {
-    void loadClients()
-  }, [])
+    const t = setTimeout(() => void loadClients(), 200)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search])
 
   async function select(id: string) {
     setQr(null)
     setMsg('')
+    setErr('')
+    setEditUser(null)
     setDetail(await api.client(id))
     setUsers(await api.clientUsers(id).catch(() => []))
   }
 
   async function addClient() {
-    if (!newName) return
-    const r = await api.createClient(newName)
-    setNewName('')
-    await loadClients()
-    await onChanged()
-    await select(r.id)
+    if (!newClient.name.trim()) return
+    try {
+      const r = await api.createClient(newClient.name.trim(), newClient.code.trim() || undefined)
+      setNewClient({ name: '', code: '' })
+      setShowNew(false)
+      await loadClients()
+      await onChanged()
+      await select(r.id)
+    } catch (e) {
+      setErr(String(e))
+    }
+  }
+
+  async function removeClient(c: ClientRow) {
+    if (!window.confirm(`顧問先「${c.name}」を削除(アーカイブ)しますか?`)) return
+    try {
+      await api.deleteClient(c.id)
+      if (detail?.id === c.id) setDetail(null)
+      await loadClients()
+      await onChanged()
+    } catch (e) {
+      setErr(String(e))
+    }
   }
 
   function set<K extends keyof ClientDetail>(k: K, v: ClientDetail[K]) {
@@ -40,22 +66,64 @@ export function ClientsView({ onChanged }: { onChanged: () => Promise<void> | vo
   }
   async function saveDetail() {
     if (!detail) return
-    await api.patchClient(detail.id, detail)
-    setMsg('顧問先情報を保存しました。')
-    await loadClients()
-    await onChanged()
+    try {
+      await api.patchClient(detail.id, detail)
+      setMsg('顧問先情報を保存しました。')
+      setErr('')
+      await loadClients()
+      await onChanged()
+    } catch (e) {
+      setErr(String(e))
+    }
+  }
+
+  async function reloadUsers() {
+    if (detail) setUsers(await api.clientUsers(detail.id))
   }
 
   async function addUser() {
-    if (!detail || !nu.name) return
-    await api.createClientUser(detail.id, {
-      name: nu.name,
-      email: nu.email || undefined,
-      phone: nu.phone || undefined,
-    })
-    setNu({ name: '', email: '', phone: '' })
-    setUsers(await api.clientUsers(detail.id))
+    if (!detail || !nu.name.trim()) return
+    try {
+      await api.createClientUser(detail.id, {
+        name: nu.name.trim(),
+        email: nu.email.trim() || undefined,
+        phone: nu.phone.trim() || undefined,
+        password: nu.password || undefined,
+        role: nu.role,
+      })
+      setNu({ name: '', email: '', phone: '', password: '', role: 'client_user' })
+      setErr('')
+      await reloadUsers()
+    } catch (e) {
+      setErr(String(e))
+    }
   }
+
+  function openEdit(u: MemberRow) {
+    if (editUser === u.user_id) {
+      setEditUser(null)
+      return
+    }
+    setEditUser(u.user_id)
+    setEditForm({ name: u.name || '', email: u.login_id || '', phone: u.phone || '', password: '' })
+  }
+  async function saveEdit(u: MemberRow) {
+    if (!detail) return
+    const patch: { name?: string; email?: string; phone?: string; password?: string } = {}
+    if (editForm.name !== (u.name || '')) patch.name = editForm.name
+    if (editForm.email !== (u.login_id || '')) patch.email = editForm.email.trim()
+    if (editForm.phone !== (u.phone || '')) patch.phone = editForm.phone.trim()
+    if (editForm.password) patch.password = editForm.password
+    try {
+      await api.patchClientUser(detail.id, u.user_id, patch)
+      setEditUser(null)
+      setErr('')
+      await reloadUsers()
+    } catch (e) {
+      setErr(String(e))
+    }
+  }
+
   async function issueQr(userId: string) {
     if (!detail) return
     const r = await api.issuePairing(detail.id, userId)
@@ -67,23 +135,40 @@ export function ClientsView({ onChanged }: { onChanged: () => Promise<void> | vo
   return (
     <div className="grid gap-6 lg:grid-cols-3">
       <section className="rounded-xl bg-white p-4 shadow">
-        <h3 className="mb-2 font-semibold">顧問先</h3>
-        <div className="mb-3 flex gap-2">
-          <input className={`flex-1 ${F}`} placeholder="新規顧問先名" value={newName}
-            onChange={(e) => setNewName(e.target.value)} />
-          <button className="rounded-lg bg-stone-800 px-3 py-1.5 text-sm text-white" onClick={() => void addClient()}>追加</button>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="font-semibold">顧問先</h3>
+          <button className="rounded-lg border px-2 py-1 text-xs hover:bg-stone-100"
+            onClick={() => setShowNew((s) => !s)}>{showNew ? '閉じる' : '＋新規'}</button>
         </div>
+        <input className={`mb-3 w-full ${F}`} placeholder="検索(名称・コード)" value={search}
+          onChange={(e) => setSearch(e.target.value)} />
+        {showNew && (
+          <div className="mb-3 space-y-2 rounded-lg border bg-stone-50 p-2">
+            <input className={`w-full ${F}`} placeholder="顧問先名 *" value={newClient.name}
+              onChange={(e) => setNewClient({ ...newClient, name: e.target.value })} />
+            <input className={`w-full ${F}`} placeholder="コード(任意)" value={newClient.code}
+              onChange={(e) => setNewClient({ ...newClient, code: e.target.value })} />
+            <button className="w-full rounded-lg bg-stone-800 px-3 py-1.5 text-sm text-white"
+              onClick={() => void addClient()}>登録</button>
+          </div>
+        )}
         <ul className="divide-y text-sm">
           {clients.map((c) => (
-            <li key={c.id} onClick={() => void select(c.id)}
-              className={`cursor-pointer py-2 ${detail?.id === c.id ? 'font-semibold text-blue-700' : 'hover:bg-stone-50'}`}>
-              {c.name} <span className="text-stone-400">{c.code ?? ''}</span>
+            <li key={c.id}
+              className={`group flex items-center justify-between py-2 ${detail?.id === c.id ? 'font-semibold text-blue-700' : ''}`}>
+              <span className="flex-1 cursor-pointer hover:underline" onClick={() => void select(c.id)}>
+                {c.name} <span className="text-stone-400">{c.code ?? ''}</span>
+              </span>
+              <button className="ml-2 hidden text-xs text-red-600 hover:underline group-hover:inline"
+                onClick={() => void removeClient(c)}>削除</button>
             </li>
           ))}
+          {clients.length === 0 && <li className="py-2 text-stone-400">該当なし</li>}
         </ul>
       </section>
 
       <section className="space-y-4 lg:col-span-2">
+        {err && <p className="text-sm text-red-600">{err}</p>}
         {!detail ? (
           <div className="rounded-xl bg-white p-6 text-stone-400 shadow">顧問先を選択してください。</div>
         ) : (
@@ -123,40 +208,65 @@ export function ClientsView({ onChanged }: { onChanged: () => Promise<void> | vo
             </div>
 
             <div className="rounded-xl bg-white p-4 shadow">
-              <h3 className="mb-3 font-semibold">利用者</h3>
-              <div className="mb-3 flex flex-wrap gap-2">
-                <input className={F} placeholder="氏名" value={nu.name} onChange={(e) => setNu({ ...nu, name: e.target.value })} />
-                <input className={F} placeholder="メール(任意)" value={nu.email} onChange={(e) => setNu({ ...nu, email: e.target.value })} />
+              <h3 className="mb-1 font-semibold">利用者</h3>
+              <p className="mb-3 text-xs text-stone-500">
+                PCで確認する人は<strong>ログインID(メール)+パスワード</strong>を設定。スマホアプリだけ使う人はIDなしで作成しQRで連携。
+              </p>
+              <div className="mb-3 grid grid-cols-2 gap-2 rounded-lg border bg-stone-50 p-2 sm:grid-cols-3">
+                <input className={F} placeholder="氏名 *" value={nu.name} onChange={(e) => setNu({ ...nu, name: e.target.value })} />
+                <input className={F} placeholder="ログインID(メール・任意)" value={nu.email} onChange={(e) => setNu({ ...nu, email: e.target.value })} />
+                <input className={F} type="password" placeholder="パスワード(PC利用時)" value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} />
                 <input className={F} placeholder="電話(任意)" value={nu.phone} onChange={(e) => setNu({ ...nu, phone: e.target.value })} />
+                <select className={F} value={nu.role} onChange={(e) => setNu({ ...nu, role: e.target.value })}>
+                  <option value="client_admin">管理者</option>
+                  <option value="client_accountant">経理担当者</option>
+                  <option value="client_user">一般社員</option>
+                </select>
                 <button className="rounded-lg bg-stone-800 px-3 py-1.5 text-sm text-white" onClick={() => void addUser()}>利用者を追加</button>
               </div>
               <ul className="divide-y text-sm">
                 {users.map((u) => (
                   <li key={u.user_id} className="py-2">
-                    <div className="flex items-center justify-between">
-                      <span>
-                        {u.name || u.email}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="min-w-0">
+                        <span className="font-medium">{u.name || '(無名)'}</span>
+                        <span className="ml-2 text-xs text-stone-400">
+                          {u.login_id ? u.login_id : 'アプリ専用'}
+                        </span>
+                        {u.password_set && <span className="ml-1 rounded bg-blue-100 px-1 text-xs text-blue-700">PCログイン可</span>}
                         {u.phone && <span className="ml-1 text-xs text-stone-400">{u.phone}</span>}
                         {u.status === 'disabled' && (
                           <span className="ml-1 rounded bg-stone-200 px-1.5 text-xs text-stone-600">無効</span>
                         )}
                       </span>
-                      <div className="flex items-center gap-2">
-                        <button className="rounded border px-2 py-1 text-xs hover:bg-stone-100" onClick={() => void issueQr(u.user_id)}>QR発行</button>
+                      <div className="flex flex-shrink-0 items-center gap-2">
+                        <button className="rounded border px-2 py-1 text-xs hover:bg-stone-100" onClick={() => void issueQr(u.user_id)}>QR</button>
                         <select className="rounded border px-1.5 py-0.5 text-xs" value={u.role}
-                          onChange={async (e) => { await api.setClientUserRole(detail.id, u.user_id, e.target.value); setUsers(await api.clientUsers(detail.id)) }}>
+                          onChange={async (e) => { await api.setClientUserRole(detail.id, u.user_id, e.target.value); await reloadUsers() }}>
                           <option value="client_admin">管理者</option>
                           <option value="client_accountant">経理担当者</option>
                           <option value="client_user">一般社員</option>
                         </select>
+                        <button className="text-xs text-stone-600 hover:underline" onClick={() => openEdit(u)}>
+                          {editUser === u.user_id ? '取消' : '編集'}
+                        </button>
                         <button className="text-xs text-stone-600 hover:underline"
-                          onClick={async () => { await api.patchClientUser(detail.id, u.user_id, { status: u.status === 'disabled' ? 'active' : 'disabled' }); setUsers(await api.clientUsers(detail.id)) }}>
+                          onClick={async () => { await api.patchClientUser(detail.id, u.user_id, { status: u.status === 'disabled' ? 'active' : 'disabled' }); await reloadUsers() }}>
                           {u.status === 'disabled' ? '有効化' : '無効化'}
                         </button>
                         <button className="text-xs text-red-600 hover:underline"
-                          onClick={async () => { await api.removeClientUser(detail.id, u.user_id); setUsers(await api.clientUsers(detail.id)) }}>削除</button>
+                          onClick={async () => { if (window.confirm(`${u.name || u.email} を削除しますか?`)) { await api.removeClientUser(detail.id, u.user_id); await reloadUsers() } }}>削除</button>
                       </div>
                     </div>
+                    {editUser === u.user_id && (
+                      <div className="mt-2 grid grid-cols-2 gap-2 rounded-lg border bg-stone-50 p-2 sm:grid-cols-4">
+                        <input className={F} placeholder="氏名" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+                        <input className={F} placeholder="ログインID(メール)" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+                        <input className={F} placeholder="電話" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} />
+                        <input className={F} type="password" placeholder="新パスワード(変更時)" value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} />
+                        <button className="col-span-2 rounded-lg bg-stone-800 px-3 py-1.5 text-sm text-white sm:col-span-4" onClick={() => void saveEdit(u)}>保存</button>
+                      </div>
+                    )}
                     {qr?.userId === u.user_id && (
                       <img alt="qr" className="mt-2 h-40 w-40 border" src={`data:image/png;base64,${qr.png}`} />
                     )}

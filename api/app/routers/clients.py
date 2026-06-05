@@ -4,12 +4,20 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
-from ..deps import Principal, can_admin_client, get_principal, require_firm_role
+from ..deps import (
+    Principal,
+    can_admin_client,
+    firm_id_of,
+    get_principal,
+    is_firm_owner,
+    require_firm_role,
+)
 from ..models import Client, Membership, Role, User
+from ..security import hash_password
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
@@ -54,13 +62,16 @@ class UserPatch(BaseModel):
     status: str | None = None  # active | disabled
     name: str | None = None
     phone: str | None = None
+    email: str | None = None  # login ID (PC web login)
+    password: str | None = None  # set/reset web password
 
 
 class NewClientUser(BaseModel):
     name: str
-    email: str | None = None
+    email: str | None = None  # login ID; omit for app-only (QR) users
     phone: str | None = None
     role: str = Role.client_user.value
+    password: str | None = None  # set if this user logs in on PC web
 
 
 async def _guard_client(session: AsyncSession, principal: Principal, client_id: UUID) -> None:
@@ -89,12 +100,26 @@ def _client_dict(c: Client) -> dict:
 
 @router.get("")
 async def list_clients(
+    q: str | None = None,
+    include_archived: bool = False,
     _: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
-    rows = await session.scalars(select(Client).order_by(Client.name))
+    stmt = select(Client)
+    if not include_archived:
+        stmt = stmt.where(Client.status != "archived")
+    if q:
+        like = f"%{q.strip()}%"
+        stmt = stmt.where(or_(Client.name.ilike(like), Client.code.ilike(like)))
+    rows = await session.scalars(stmt.order_by(Client.name))
     return [
-        {"id": str(c.id), "name": c.name, "code": c.code, "export_default": c.export_default}
+        {
+            "id": str(c.id),
+            "name": c.name,
+            "code": c.code,
+            "export_default": c.export_default,
+            "status": c.status,
+        }
         for c in rows
     ]
 
@@ -152,6 +177,24 @@ async def patch_client(
     return _client_dict(c)
 
 
+@router.delete("/{client_id}")
+async def delete_client(
+    client_id: UUID,
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """Soft-delete (archive) a client. firm_owner only — receipts/users are kept
+    but the client drops out of lists. Restore by PATCH status='active'."""
+    if not is_firm_owner(principal):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "only a firm owner can delete a client")
+    c = await session.get(Client, client_id)
+    if not c or c.firm_id != firm_id_of(principal):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
+    c.status = "archived"
+    await session.flush()
+    return {"ok": True}
+
+
 @router.get("/{client_id}/users")
 async def list_client_users(
     client_id: UUID,
@@ -173,6 +216,9 @@ async def list_client_users(
             "role": m.role,
             "phone": u.phone,
             "status": u.status,
+            # Placeholder logins (app-only QR users) aren't real login IDs.
+            "login_id": None if u.email.endswith("@app.local") else u.email,
+            "password_set": u.password_hash is not None,
         }
         for u, m in rows.all()
     ]
@@ -185,18 +231,24 @@ async def create_client_user(
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
-    """Create a named client user directly (app-input person; no password —
-    they use the mobile app via a pairing QR issued for this user)."""
+    """Create a named client user. Provide email+password for someone who logs
+    in on PC web (e.g. 経理担当者); omit them for an app-only person who pairs a
+    device via QR (a placeholder login ID is generated)."""
     await _guard_client(session, principal, client_id)
     if body.role not in CLIENT_ROLES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid client role")
     client = await session.get(Client, client_id)
     if not client:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
-    email = body.email or f"app-{uuid4().hex[:12]}@app.local"
+    email = (body.email or "").strip() or f"app-{uuid4().hex[:12]}@app.local"
     if await session.scalar(select(User).where(User.email == email)):
         raise HTTPException(status.HTTP_409_CONFLICT, "email already registered")
-    user = User(email=email, name=body.name, phone=body.phone)
+    user = User(
+        email=email,
+        name=body.name,
+        phone=body.phone,
+        password_hash=hash_password(body.password) if body.password else None,
+    )
     session.add(user)
     await session.flush()
     session.add(
@@ -226,7 +278,8 @@ async def patch_client_user(
         if body.role not in CLIENT_ROLES:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid client role")
         m.role = body.role
-    if body.status is not None or body.name is not None or body.phone is not None:
+    user_fields = (body.status, body.name, body.phone, body.email, body.password)
+    if any(v is not None for v in user_fields):
         user = await session.get(User, user_id)
         if body.status is not None:
             if body.status not in ("active", "disabled"):
@@ -236,6 +289,18 @@ async def patch_client_user(
             user.name = body.name
         if body.phone is not None:
             user.phone = body.phone
+        if body.email is not None:
+            email = body.email.strip()
+            if not email:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "email cannot be empty")
+            clash = await session.scalar(
+                select(User).where(User.email == email, User.id != user_id)
+            )
+            if clash:
+                raise HTTPException(status.HTTP_409_CONFLICT, "email already registered")
+            user.email = email
+        if body.password:
+            user.password_hash = hash_password(body.password)
     return {"ok": True}
 
 

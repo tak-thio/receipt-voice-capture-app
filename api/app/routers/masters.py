@@ -7,7 +7,7 @@ referenced template row.
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,8 @@ from ..deps import Principal, get_principal, require_firm_role
 from ..models import AccountTitle, Partner
 
 router = APIRouter(prefix="/masters", tags=["masters"])
+
+MASTER_EDITORS = ("firm_owner", "firm_staff", "client_admin")
 
 
 class AccountTitleIn(BaseModel):
@@ -28,10 +30,22 @@ class AccountTitleIn(BaseModel):
     override_of: UUID | None = None
 
 
+class AccountTitlePatch(BaseModel):
+    code: str | None = None
+    name: str | None = None
+    sort_order: int | None = None
+
+
 class PartnerIn(BaseModel):
     firm_id: UUID
     client_id: UUID
     name: str
+    code: str | None = None
+    domain: str | None = None
+
+
+class PartnerPatch(BaseModel):
+    name: str | None = None
     code: str | None = None
     domain: str | None = None
 
@@ -82,6 +96,36 @@ async def create_account_title(
     return {"id": str(at.id)}
 
 
+@router.patch("/account-titles/{title_id}")
+async def patch_account_title(
+    title_id: UUID,
+    body: AccountTitlePatch,
+    _: Principal = Depends(require_firm_role(*MASTER_EDITORS)),
+    session: AsyncSession = Depends(get_session),
+):
+    at = await session.get(AccountTitle, title_id)  # RLS scopes to the firm
+    if not at:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "account title not found")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(at, field, value)
+    await session.flush()
+    return {"id": str(at.id), "code": at.code, "name": at.name}
+
+
+@router.delete("/account-titles/{title_id}")
+async def delete_account_title(
+    title_id: UUID,
+    _: Principal = Depends(require_firm_role(*MASTER_EDITORS)),
+    session: AsyncSession = Depends(get_session),
+):
+    at = await session.get(AccountTitle, title_id)
+    if not at:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "account title not found")
+    at.active = False  # soft-delete: keep journal history intact
+    await session.flush()
+    return {"ok": True}
+
+
 @router.get("/partners")
 async def list_partners(
     client_id: UUID | None = None,
@@ -111,3 +155,33 @@ async def create_partner(
     session.add(partner)
     await session.flush()
     return {"id": str(partner.id)}
+
+
+@router.patch("/partners/{partner_id}")
+async def patch_partner(
+    partner_id: UUID,
+    body: PartnerPatch,
+    _: Principal = Depends(require_firm_role(*MASTER_EDITORS)),
+    session: AsyncSession = Depends(get_session),
+):
+    p = await session.get(Partner, partner_id)  # RLS scopes to the firm
+    if not p:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "partner not found")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(p, field, value)
+    await session.flush()
+    return {"id": str(p.id), "code": p.code, "name": p.name, "domain": p.domain}
+
+
+@router.delete("/partners/{partner_id}")
+async def delete_partner(
+    partner_id: UUID,
+    _: Principal = Depends(require_firm_role(*MASTER_EDITORS)),
+    session: AsyncSession = Depends(get_session),
+):
+    p = await session.get(Partner, partner_id)
+    if not p:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "partner not found")
+    p.active = False  # soft-delete: keep partner history / aliases intact
+    await session.flush()
+    return {"ok": True}
