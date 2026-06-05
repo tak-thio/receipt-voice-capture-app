@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MATCH_STATUS_LABELS, TAX_MODE_LABELS } from '../lib/constants'
+import { uploadCapture } from '../api/server-api'
 import { revokeRecordedClip } from '../services/adapters/mock-stt-adapter'
 import {
   MediaRecorderService,
@@ -82,6 +83,8 @@ export function CapturePage() {
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0)
   const [captureSnapshotCount, setCaptureSnapshotCount] = useState(0)
   const [recordingError, setRecordingError] = useState('')
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadMessage, setUploadMessage] = useState('')
 
   const session = useSessionStore((state) => state.session)
   const settings = useSessionStore((state) => state.settings)
@@ -211,6 +214,28 @@ export function CapturePage() {
     }
   }
 
+  async function handleServerUpload() {
+    if (!settings.serverUrl || !settings.serverDeviceToken) {
+      setUploadMessage('設定画面で「サーバ連携」を接続してください。')
+      return
+    }
+    setIsUploading(true)
+    setUploadMessage('サーバへアップロード中...')
+    try {
+      const frame = captureFrame()
+      const result = await uploadCapture(settings.serverUrl, settings.serverDeviceToken, {
+        imageDataUrl: frame.imageDataUrl,
+        audio: latestAudioClip?.blob,
+        capturedAt: new Date().toISOString(),
+      })
+      setUploadMessage(`サーバに送信しました(受領ID: ${result.receipt_id.slice(0, 8)}…)。事務所側で処理されます。`)
+    } catch (error) {
+      setUploadMessage(error instanceof Error ? error.message : 'アップロードに失敗しました。')
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
   function captureSnapshot(): CaptureSnapshot {
     const frame = captureFrame()
     const capturedAtMs = recordingStartedAtRef.current
@@ -337,11 +362,25 @@ export function CapturePage() {
           <p className="eyebrow">入力</p>
           <h2>領収書の入力</h2>
           <p className="muted">録音した内容を文字起こしし、領収書データとして取り込みます。</p>
+          {settings.appMode === 'linked' && (
+            <p className="muted small">
+              {uploadMessage || 'サーバ連携モード:撮影してサーバへ送信すると、事務所側でAI処理されます。'}
+            </p>
+          )}
         </div>
         <div className="header-actions">
           <button className="ghost-button" onClick={() => void startNewSession()}>
             新しいセッション
           </button>
+          {settings.appMode === 'linked' && (
+            <button
+              className="accent-button"
+              onClick={() => void handleServerUpload()}
+              disabled={isUploading}
+            >
+              {isUploading ? '送信中...' : 'サーバへ送信'}
+            </button>
+          )}
           <button
             className={`accent-button${isRecording ? ' danger' : ''}`}
             onClick={() => void (isRecording ? handleStopRecording() : handleStartRecording())}

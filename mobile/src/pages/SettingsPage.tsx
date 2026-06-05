@@ -4,13 +4,15 @@ import { getSttDiagnostics } from '../api/stt-api'
 import { useEffect, useState } from 'react'
 import { LOCAL_STT_RECOMMENDED_SETTINGS } from '../lib/constants'
 import { isMobilePlatform } from '../lib/platform'
+import { pairDevice } from '../api/server-api'
+import { isQrScanSupported, scanQrOnce } from '../lib/qr-scan'
 import {
   listAudioInputDevices,
   listVideoInputDevices,
 } from '../services/audio/media-recorder-service'
 import { useSessionStore } from '../store/session-store'
 import type { RecordingDeviceOption } from '../types/audio'
-import type { AppSettings } from '../types/settings'
+import type { AppMode, AppSettings } from '../types/settings'
 import type { AiDiagnostics } from '../api/ai-formatter-api'
 import type { SttDiagnostics } from '../api/stt-api'
 import type { OcrDiagnostics } from '../api/ocr-api'
@@ -44,6 +46,50 @@ export function SettingsPage() {
   const [isRefreshingAiDiagnostics, setIsRefreshingAiDiagnostics] = useState(false)
   const [isTestingAiFormatter, setIsTestingAiFormatter] = useState(false)
   const [aiFormatterTestMessage, setAiFormatterTestMessage] = useState('')
+  const [pairingToken, setPairingToken] = useState('')
+  const [isConnecting, setIsConnecting] = useState(false)
+  const [serverMessage, setServerMessage] = useState('')
+  const qrSupported = isQrScanSupported()
+
+  async function handleScanQr() {
+    setServerMessage('QRを読み取り中...')
+    try {
+      const value = await scanQrOnce()
+      if (value) {
+        setPairingToken(value)
+        setServerMessage('QRを読み取りました。「接続」を押してください。')
+      } else {
+        setServerMessage('QRを読み取れませんでした。トークンを手入力してください。')
+      }
+    } catch {
+      setServerMessage('カメラを起動できませんでした。')
+    }
+  }
+
+  async function handleConnect() {
+    if (!draft.serverUrl || !pairingToken) {
+      setServerMessage('サーバURLとペアリングトークンを入力してください。')
+      return
+    }
+    setIsConnecting(true)
+    try {
+      const result = await pairDevice(draft.serverUrl, pairingToken)
+      const next: AppSettings = {
+        ...draft,
+        appMode: 'linked',
+        serverDeviceToken: result.access_token,
+        serverClientId: result.client_id,
+      }
+      setDraft(next)
+      await persistSettings(next)
+      setPairingToken('')
+      setServerMessage('サーバに接続しました。撮影画面からアップロードできます。')
+    } catch (error) {
+      setServerMessage(error instanceof Error ? error.message : '接続に失敗しました。')
+    } finally {
+      setIsConnecting(false)
+    }
+  }
   const selectedProviderKeyConfigured =
     draft.aiProvider === 'gemini'
       ? Boolean(aiDiagnostics?.geminiKeyConfigured)
@@ -113,6 +159,67 @@ export function SettingsPage() {
       </header>
 
       <article className="panel">
+        <div className="panel-title-row">
+          <h3>動作モード</h3>
+          <span className={`status-chip ${draft.appMode === 'linked' ? 'ready' : 'idle'}`}>
+            {draft.appMode === 'linked' ? 'サーバ連携' : 'スタンドアロン'}
+          </span>
+        </div>
+        <div className="field-grid">
+          <label className="field">
+            <span>モード</span>
+            <select
+              value={draft.appMode}
+              onChange={(event) => setDraft({ ...draft, appMode: event.target.value as AppMode })}
+            >
+              <option value="standalone">スタンドアロン(端末完結)</option>
+              <option value="linked">サーバ連携(税理士事務所)</option>
+            </select>
+          </label>
+          {draft.appMode === 'linked' && (
+            <>
+              <label className="field">
+                <span>サーバURL</span>
+                <input
+                  value={draft.serverUrl}
+                  placeholder="https://example.com/api"
+                  onChange={(event) => setDraft({ ...draft, serverUrl: event.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>ペアリングトークン(QRの中身)</span>
+                <input value={pairingToken} onChange={(event) => setPairingToken(event.target.value)} />
+              </label>
+            </>
+          )}
+        </div>
+        {draft.appMode === 'linked' && (
+          <>
+            <div className="header-actions">
+              {qrSupported && (
+                <button className="ghost-button" onClick={() => void handleScanQr()}>
+                  QRスキャン
+                </button>
+              )}
+              <button
+                className="accent-button"
+                disabled={isConnecting}
+                onClick={() => void handleConnect()}
+              >
+                {isConnecting ? '接続中...' : '接続'}
+              </button>
+            </div>
+            <p className="muted small">
+              {serverMessage ||
+                (draft.serverClientId
+                  ? `接続中の顧問先ID: ${draft.serverClientId}`
+                  : '事務所が発行したQR(またはトークン)で接続します。AIはサーバ側(事務所)で実行されます。')}
+            </p>
+          </>
+        )}
+      </article>
+
+      <article className="panel">
         <div className="field-grid">
           {!isMobile && (
             <label className="field">
@@ -178,24 +285,28 @@ export function SettingsPage() {
               <option value="gemini">Gemini</option>
             </select>
           </label>
-          <label className="field">
-            <span>OpenAI APIキー</span>
-            <input
-              type="password"
-              value={draft.openaiApiKey}
-              autoComplete="off"
-              onChange={(event) => setDraft({ ...draft, openaiApiKey: event.target.value })}
-            />
-          </label>
-          <label className="field">
-            <span>Gemini APIキー</span>
-            <input
-              type="password"
-              value={draft.geminiApiKey}
-              autoComplete="off"
-              onChange={(event) => setDraft({ ...draft, geminiApiKey: event.target.value })}
-            />
-          </label>
+          {draft.appMode === 'standalone' && (
+            <>
+              <label className="field">
+                <span>OpenAI APIキー</span>
+                <input
+                  type="password"
+                  value={draft.openaiApiKey}
+                  autoComplete="off"
+                  onChange={(event) => setDraft({ ...draft, openaiApiKey: event.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>Gemini APIキー</span>
+                <input
+                  type="password"
+                  value={draft.geminiApiKey}
+                  autoComplete="off"
+                  onChange={(event) => setDraft({ ...draft, geminiApiKey: event.target.value })}
+                />
+              </label>
+            </>
+          )}
           <label className="field">
             <span>STTモデル</span>
             <input value={draft.sttModel} onChange={(event) => setDraft({ ...draft, sttModel: event.target.value })} />

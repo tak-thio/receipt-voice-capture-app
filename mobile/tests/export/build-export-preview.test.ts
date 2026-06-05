@@ -4,6 +4,10 @@ import type { Session } from '../../src/types/domain'
 import type { AppSettings } from '../../src/types/settings'
 
 const settingsSnapshot: AppSettings = {
+  appMode: 'standalone',
+  serverUrl: '',
+  serverDeviceToken: '',
+  serverClientId: '',
   storageRoot: '/tmp/receipt-app',
   preferredCameraId: '',
   preferredMicrophoneId: '',

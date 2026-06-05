@@ -27,6 +27,10 @@ export const dictionaryBundleSchema = z.object({
 })
 
 export const appSettingsSchema = z.object({
+  appMode: z.enum(['standalone', 'linked']).default('standalone'),
+  serverUrl: z.string().default(''),
+  serverDeviceToken: z.string().default(''),
+  serverClientId: z.string().default(''),
   storageRoot: z.string(),
   preferredCameraId: z.string(),
   preferredMicrophoneId: z.string(),

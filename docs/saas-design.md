@@ -324,6 +324,7 @@ PostgreSQL の **Row Level Security** で強制。接続時に `SET app.current_
 - **設計**: 撮影UIは共通。`Backend` インターフェースを `LocalBackend`(既存)/`ServerBackend`(新規)で差し替え。`src/api/session-api.ts` 等が継ぎ目。
 - **モード判定**: 初回選択 or **QRスキャンで自動的に連携モードへ**。設定画面はモードでキー欄/接続先表示を出し分け。
 - **注意**: 撮影フローとBackend I/Fは1本に保つ。モード切替時のデータは v1 では非移行(別物として扱う)。
+- **実装済み(scaffold)**: 設定のモード切替、サーバURL+QR/トークンでのペアリング接続(`mobile/src/api/server-api.ts`・`lib/qr-scan.ts`)、サーバ連携モードでの撮影→`/captures` アップロード。残: ローカル/サーバの完全な Backend 統一、オフライン送信キュー、音声STTのサーバ実装(faster-whisper)。
 
 ## 18. Phase 1 進捗(scaffold 済み・検証済み)
 

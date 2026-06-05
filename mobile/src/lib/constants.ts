@@ -16,6 +16,10 @@ export const MATCH_STATUS_LABELS: Record<MatchStatus, string> = {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  appMode: 'standalone',
+  serverUrl: '',
+  serverDeviceToken: '',
+  serverClientId: '',
   storageRoot: 'receipt-sessions',
   preferredCameraId: '',
   preferredMicrophoneId: '',
