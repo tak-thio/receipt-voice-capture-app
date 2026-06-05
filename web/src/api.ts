@@ -167,6 +167,10 @@ export const api = {
   setMemberRole: (userId: string, role: string) =>
     req(`/members/${userId}`, { method: 'PATCH', body: JSON.stringify({ role }) }),
   removeMember: (userId: string) => req(`/members/${userId}`, { method: 'DELETE' }),
+  assignedClients: (userId: string) =>
+    req<{ client_ids: string[] }>(`/members/${userId}/clients`),
+  setAssignedClients: (userId: string, clientIds: string[]) =>
+    req(`/members/${userId}/clients`, { method: 'PUT', body: JSON.stringify({ client_ids: clientIds }) }),
 
   // --- client users ---
   clientUsers: (clientId: string) => req<MemberRow[]>(`/clients/${clientId}/users`),

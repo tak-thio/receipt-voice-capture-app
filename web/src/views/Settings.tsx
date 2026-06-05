@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, type FirmInfo, type MemberRow } from '../api'
+import { api, type ClientRow, type FirmInfo, type MemberRow } from '../api'
 
 const PROVIDERS: Record<string, string[]> = {
   stt: ['openai', 'gemini', 'whisper', 'mock'],
@@ -16,6 +16,9 @@ export function SettingsView({ firmId }: { firmId: string }) {
   const [name, setName] = useState('')
   const [caps, setCaps] = useState<Record<string, Cap>>({})
   const [members, setMembers] = useState<MemberRow[]>([])
+  const [clients, setClients] = useState<ClientRow[]>([])
+  const [assignFor, setAssignFor] = useState<string | null>(null)
+  const [assigned, setAssigned] = useState<Set<string>>(new Set())
   const [invite, setInvite] = useState('')
   const [msg, setMsg] = useState('')
 
@@ -30,6 +33,24 @@ export function SettingsView({ firmId }: { firmId: string }) {
     }
     setCaps(next)
     setMembers(await api.members())
+    setClients(await api.clients())
+  }
+
+  async function openAssign(userId: string) {
+    if (assignFor === userId) {
+      setAssignFor(null)
+      return
+    }
+    const { client_ids } = await api.assignedClients(userId)
+    setAssigned(new Set(client_ids))
+    setAssignFor(userId)
+  }
+  async function toggleAssign(userId: string, clientId: string) {
+    const next = new Set(assigned)
+    if (next.has(clientId)) next.delete(clientId)
+    else next.add(clientId)
+    setAssigned(next)
+    await api.setAssignedClients(userId, [...next])
   }
   useEffect(() => {
     load().catch((e) => setMsg(String(e)))
@@ -126,19 +147,38 @@ export function SettingsView({ firmId }: { firmId: string }) {
         )}
         <ul className="divide-y text-sm">
           {members.map((m) => (
-            <li key={m.user_id} className="flex items-center justify-between py-2">
-              <span>{m.email} <span className="text-stone-400">{m.name}</span></span>
-              <div className="flex items-center gap-2">
-                <select className="rounded border px-2 py-1 text-sm" value={m.role}
-                  onChange={async (e) => { await api.setMemberRole(m.user_id, e.target.value); await load() }}>
-                  <option value="firm_owner">オーナー</option>
-                  <option value="firm_staff">職員</option>
-                </select>
-                <button className="text-xs text-red-600 hover:underline"
-                  onClick={async () => { await api.removeMember(m.user_id); await load() }}>
-                  削除
-                </button>
+            <li key={m.user_id} className="py-2">
+              <div className="flex items-center justify-between">
+                <span>{m.email} <span className="text-stone-400">{m.name}</span></span>
+                <div className="flex items-center gap-2">
+                  {m.role === 'firm_staff' && (
+                    <button className="rounded border px-2 py-1 text-xs hover:bg-stone-100"
+                      onClick={() => void openAssign(m.user_id)}>担当顧問先</button>
+                  )}
+                  <select className="rounded border px-2 py-1 text-sm" value={m.role}
+                    onChange={async (e) => { await api.setMemberRole(m.user_id, e.target.value); await load() }}>
+                    <option value="firm_owner">管理者</option>
+                    <option value="firm_staff">一般社員</option>
+                  </select>
+                  <button className="text-xs text-red-600 hover:underline"
+                    onClick={async () => { await api.removeMember(m.user_id); await load() }}>削除</button>
+                </div>
               </div>
+              {assignFor === m.user_id && (
+                <div className="mt-2 rounded border bg-stone-50 p-2">
+                  <p className="mb-1 text-xs text-stone-500">担当する顧問先(チェックで即時保存):</p>
+                  <div className="flex flex-wrap gap-3">
+                    {clients.map((c) => (
+                      <label key={c.id} className="flex items-center gap-1 text-sm">
+                        <input type="checkbox" checked={assigned.has(c.id)}
+                          onChange={() => void toggleAssign(m.user_id, c.id)} />
+                        {c.name}
+                      </label>
+                    ))}
+                    {clients.length === 0 && <span className="text-xs text-stone-400">顧問先がありません</span>}
+                  </div>
+                </div>
+              )}
             </li>
           ))}
         </ul>

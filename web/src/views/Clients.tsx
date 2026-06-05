@@ -145,7 +145,9 @@ export function ClientsView({ onChanged }: { onChanged: () => Promise<void> | vo
                         <button className="rounded border px-2 py-1 text-xs hover:bg-stone-100" onClick={() => void issueQr(u.user_id)}>QR発行</button>
                         <select className="rounded border px-1.5 py-0.5 text-xs" value={u.role}
                           onChange={async (e) => { await api.setClientUserRole(detail.id, u.user_id, e.target.value); setUsers(await api.clientUsers(detail.id)) }}>
-                          <option value="client_admin">管理者</option><option value="client_user">入力者</option>
+                          <option value="client_admin">管理者</option>
+                          <option value="client_accountant">経理担当者</option>
+                          <option value="client_user">一般社員</option>
                         </select>
                         <button className="text-xs text-stone-600 hover:underline"
                           onClick={async () => { await api.patchClientUser(detail.id, u.user_id, { status: u.status === 'disabled' ? 'active' : 'disabled' }); setUsers(await api.clientUsers(detail.id)) }}>
