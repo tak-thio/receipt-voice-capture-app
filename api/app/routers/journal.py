@@ -120,7 +120,14 @@ async def journalize(
     receipt.journalized_at = datetime.now(timezone.utc)
     receipt.journal_hold = False
 
-    await journaling.learn_partner(session, receipt, body.partner_id)
+    # Learn: vendor -> account rule + partner alias (per 顧問先).
+    await journaling.learn(
+        session,
+        receipt,
+        account_title_id=body.account_title_id,
+        sub_account_id=body.sub_account_id,
+        partner_id=body.partner_id,
+    )
     await session.flush()
     return {"id": str(receipt.id), "journalized_at": receipt.journalized_at.isoformat()}
 

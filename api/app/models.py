@@ -268,6 +268,8 @@ class JournalRule(Base, TimestampMixin):
 
     id: Mapped[UUID] = _uuid_pk()
     client_id: Mapped[UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    # Mobile receipts learn by normalized vendor; gmail/card by from_addr/subject.
+    vendor_key: Mapped[str | None] = mapped_column(String(300), nullable=True)
     from_addr: Mapped[str | None] = mapped_column(String(320), nullable=True)
     subject_keyword: Mapped[str | None] = mapped_column(String(200), nullable=True)
     account_title_id: Mapped[UUID | None] = mapped_column(ForeignKey("account_titles.id"), nullable=True)
