@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import Principal, firm_id_of, get_principal, require_firm_role
-from ..models import Membership, Role, User
+from ..models import Client, Membership, Role, StaffClient, User
 
 router = APIRouter(prefix="/members", tags=["members"])
 
@@ -18,6 +18,10 @@ FIRM_ROLES = {Role.firm_owner.value, Role.firm_staff.value}
 
 class RolePatch(BaseModel):
     role: str
+
+
+class AssignClients(BaseModel):
+    client_ids: list[UUID]
 
 
 async def _firm_membership(session: AsyncSession, firm_id, user_id) -> Membership | None:
@@ -92,3 +96,50 @@ async def remove_member(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "cannot remove the last owner")
     await session.delete(m)
     return {"ok": True}
+
+
+@router.get("/{user_id}/clients")
+async def list_assigned_clients(
+    user_id: UUID,
+    principal: Principal = Depends(require_firm_role()),
+    session: AsyncSession = Depends(get_session),
+):
+    """担当顧問先 (client_ids) a firm staff is assigned to."""
+    firm_id = firm_id_of(principal)
+    rows = await session.scalars(
+        select(StaffClient.client_id).where(
+            StaffClient.firm_id == firm_id, StaffClient.user_id == user_id
+        )
+    )
+    return {"client_ids": [str(c) for c in rows]}
+
+
+@router.put("/{user_id}/clients")
+async def set_assigned_clients(
+    user_id: UUID,
+    body: AssignClients,
+    principal: Principal = Depends(require_firm_role("firm_owner")),
+    session: AsyncSession = Depends(get_session),
+):
+    """Replace a firm staff's 担当顧問先 assignments (firm_owner only)."""
+    firm_id = firm_id_of(principal)
+    member = await _firm_membership(session, firm_id, user_id)
+    if not member:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "member not found")
+
+    existing = list(
+        await session.scalars(
+            select(StaffClient).where(
+                StaffClient.firm_id == firm_id, StaffClient.user_id == user_id
+            )
+        )
+    )
+    for row in existing:
+        await session.delete(row)
+    await session.flush()
+
+    for cid in body.client_ids:
+        client = await session.get(Client, cid)  # RLS: only this firm's clients
+        if client and client.firm_id == firm_id:
+            session.add(StaffClient(firm_id=firm_id, user_id=user_id, client_id=cid))
+    return {"client_ids": [str(c) for c in body.client_ids]}

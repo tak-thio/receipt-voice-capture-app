@@ -30,7 +30,7 @@ router = APIRouter(prefix="/invites", tags=["invites"])
 settings = get_settings()
 
 FIRM_ROLES = {Role.firm_owner.value, Role.firm_staff.value}
-CLIENT_ROLES = {Role.client_admin.value, Role.client_user.value}
+CLIENT_ROLES = {Role.client_admin.value, Role.client_accountant.value, Role.client_user.value}
 
 
 class InviteIn(BaseModel):
@@ -65,7 +65,7 @@ async def create_invite(
     elif body.role in CLIENT_ROLES:
         if body.client_id is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "client role needs client_id")
-        if not can_admin_client(principal, body.client_id):
+        if not await can_admin_client(session, principal, body.client_id):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "cannot manage this client")
         if not await session.get(Client, body.client_id):  # RLS-scoped existence check
             raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")

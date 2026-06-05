@@ -13,7 +13,7 @@ from ..models import Client, Membership, Role, User
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
-CLIENT_ROLES = {Role.client_admin.value, Role.client_user.value}
+CLIENT_ROLES = {Role.client_admin.value, Role.client_accountant.value, Role.client_user.value}
 
 # Editable extended master fields on a client.
 EDITABLE = (
@@ -63,8 +63,8 @@ class NewClientUser(BaseModel):
     role: str = Role.client_user.value
 
 
-def _guard_client(principal: Principal, client_id: UUID) -> None:
-    if not can_admin_client(principal, client_id):
+async def _guard_client(session: AsyncSession, principal: Principal, client_id: UUID) -> None:
+    if not await can_admin_client(session, principal, client_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "cannot manage this client")
 
 
@@ -141,7 +141,7 @@ async def patch_client(
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
-    _guard_client(principal, client_id)
+    await _guard_client(session, principal, client_id)
     c = await session.get(Client, client_id)
     if not c:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
@@ -158,7 +158,7 @@ async def list_client_users(
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
-    _guard_client(principal, client_id)
+    await _guard_client(session, principal, client_id)
     rows = await session.execute(
         select(User, Membership)
         .join(Membership, Membership.user_id == User.id)
@@ -187,7 +187,7 @@ async def create_client_user(
 ):
     """Create a named client user directly (app-input person; no password —
     they use the mobile app via a pairing QR issued for this user)."""
-    _guard_client(principal, client_id)
+    await _guard_client(session, principal, client_id)
     if body.role not in CLIENT_ROLES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid client role")
     client = await session.get(Client, client_id)
@@ -214,7 +214,7 @@ async def patch_client_user(
     session: AsyncSession = Depends(get_session),
 ):
     """Update a client user: role and/or profile (name/phone) and 有効/無効."""
-    _guard_client(principal, client_id)
+    await _guard_client(session, principal, client_id)
     m = await session.scalar(
         select(Membership).where(
             Membership.client_id == client_id, Membership.user_id == user_id
@@ -246,7 +246,7 @@ async def remove_client_user(
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
-    _guard_client(principal, client_id)
+    await _guard_client(session, principal, client_id)
     m = await session.scalar(
         select(Membership).where(
             Membership.client_id == client_id, Membership.user_id == user_id

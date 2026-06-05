@@ -45,7 +45,7 @@ async def issue(
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
-    if not can_admin_client(principal, body.client_id):
+    if not await can_admin_client(session, principal, body.client_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "cannot manage this client")
     # RLS ensures the actor can only target clients in their own firm.
     client = await session.get(Client, body.client_id)

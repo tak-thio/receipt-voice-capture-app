@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import get_session, set_rls_context
-from .models import DeviceSession, Membership, Role, User
+from .models import DeviceSession, Membership, Role, StaffClient, User
 from .security import hash_token, read_session
 
 
@@ -107,11 +107,21 @@ def is_firm_staff(principal: Principal) -> bool:
     )
 
 
-def can_admin_client(principal: Principal, client_id: UUID) -> bool:
-    """Firm staff (any client) or the client's own admin."""
-    if is_firm_staff(principal):
+async def can_admin_client(session, principal: Principal, client_id: UUID) -> bool:
+    """Who may manage a client: firm_owner (any), the client's own admin, or a
+    firm_staff assigned to that client (staff_clients)."""
+    if is_firm_owner(principal):
         return True
-    return any(
+    if any(
         m.client_id == client_id and m.role == Role.client_admin.value
         for m in principal.memberships
-    )
+    ):
+        return True
+    if is_firm_staff(principal):
+        assigned = await session.scalar(
+            select(StaffClient).where(
+                StaffClient.user_id == principal.user.id, StaffClient.client_id == client_id
+            )
+        )
+        return assigned is not None
+    return False

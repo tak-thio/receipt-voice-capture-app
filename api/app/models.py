@@ -31,10 +31,11 @@ from .db import Base
 # --- enums -----------------------------------------------------------------
 
 class Role(str, enum.Enum):
-    firm_owner = "firm_owner"     # 事務所オーナー: 顧問先/職員/AIキー/課金
-    firm_staff = "firm_staff"     # 職員: 担当顧問先を横断
-    client_admin = "client_admin"  # 顧問先管理者
-    client_user = "client_user"   # 顧問先入力者(スマホ中心)
+    firm_owner = "firm_owner"      # 管理者(職員): 全顧問先・事務所管理
+    firm_staff = "firm_staff"      # 一般社員(職員): 担当顧問先のみ(staff_clients で割当)
+    client_admin = "client_admin"  # 管理者(利用者): 自顧問先の全データ + ユーザー管理
+    client_accountant = "client_accountant"  # 経理担当者: 自顧問先の全データ閲覧
+    client_user = "client_user"    # 一般社員(利用者): 自分が登録したデータのみ
 
 
 class ReceiptSource(str, enum.Enum):
@@ -115,6 +116,22 @@ class Client(Base, TimestampMixin):
     staff_user_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )  # 担当職員
+
+
+class StaffClient(Base, TimestampMixin):
+    """n:n assignment of a firm staff (一般社員) to the 顧問先 they handle.
+
+    firm_owner sees all clients; a firm_staff sees only their assigned clients
+    (enforced by app_client_access() in RLS).
+    """
+
+    __tablename__ = "staff_clients"
+    __table_args__ = (UniqueConstraint("user_id", "client_id"),)
+
+    id: Mapped[UUID] = _uuid_pk()
+    firm_id: Mapped[UUID] = mapped_column(ForeignKey("firms.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
 
 
 class Membership(Base, TimestampMixin):
