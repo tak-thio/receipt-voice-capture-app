@@ -8,7 +8,7 @@ isolation is enforced by Postgres RLS (see alembic 0001), not by app code.
 from __future__ import annotations
 
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -58,8 +58,12 @@ def _uuid_pk() -> Mapped[UUID]:
 
 
 class TimestampMixin:
+    # Python-side default (not server_default) so INSERTs don't need a RETURNING,
+    # which would otherwise be filtered by the SELECT RLS policy and reject a
+    # freshly-inserted row that the actor can't yet see (e.g. a new user before
+    # its membership exists).
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
 
@@ -83,6 +87,8 @@ class User(Base, TimestampMixin):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(200), default="")
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active | disabled
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -97,6 +103,18 @@ class Client(Base, TimestampMixin):
     code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     export_default: Mapped[str] = mapped_column(String(50), default="generic")
     status: Mapped[str] = mapped_column(String(50), default="active")
+    # Extended master fields.
+    entity_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # corporation | individual
+    t_number: Mapped[str | None] = mapped_column(String(20), nullable=True)  # インボイス登録番号
+    address: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    contact_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 先方担当者
+    fiscal_month: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 決算月 1-12
+    industry: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    memo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    staff_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )  # 担当職員
 
 
 class Membership(Base, TimestampMixin):

@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session, set_rls_context
-from ..deps import Principal, require_firm_role
+from ..deps import Principal, can_admin_client, get_principal
 from ..models import Client, DeviceSession, Membership, PairingToken, Role, User
 from ..security import hash_token, new_token
 
@@ -30,6 +30,7 @@ PAIRING_TTL_MIN = 15
 
 class IssueBody(BaseModel):
     client_id: UUID
+    user_id: UUID | None = None  # pair a specific named user (preferred)
     email: str | None = None
     name: str = "顧問先ユーザー"
 
@@ -41,37 +42,50 @@ class RedeemBody(BaseModel):
 @router.post("/issue")
 async def issue(
     body: IssueBody,
-    principal: Principal = Depends(require_firm_role()),
+    principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
+    if not can_admin_client(principal, body.client_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "cannot manage this client")
     # RLS ensures the actor can only target clients in their own firm.
     client = await session.get(Client, body.client_id)
     if not client:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
 
-    # Find or create the client_user this device will act as.
-    email = body.email or f"device-{uuid4().hex[:12]}@devices.local"
-    user = await session.scalar(select(User).where(User.email == email))
-    if not user:
-        user = User(email=email, name=body.name)
-        session.add(user)
-        await session.flush()
-    membership = await session.scalar(
-        select(Membership).where(
-            Membership.user_id == user.id,
-            Membership.firm_id == client.firm_id,
-            Membership.client_id == client.id,
-        )
-    )
-    if not membership:
-        session.add(
-            Membership(
-                user_id=user.id,
-                firm_id=client.firm_id,
-                client_id=client.id,
-                role=Role.client_user.value,
+    if body.user_id:
+        # Pair a specific, already-registered named user of this client.
+        user = await session.get(User, body.user_id)
+        membership = await session.scalar(
+            select(Membership).where(
+                Membership.user_id == body.user_id, Membership.client_id == client.id
             )
         )
+        if not user or not membership:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "client user not found")
+    else:
+        # Fallback: find or create a user by email (anonymous device if omitted).
+        email = body.email or f"device-{uuid4().hex[:12]}@devices.local"
+        user = await session.scalar(select(User).where(User.email == email))
+        if not user:
+            user = User(email=email, name=body.name)
+            session.add(user)
+            await session.flush()
+        membership = await session.scalar(
+            select(Membership).where(
+                Membership.user_id == user.id,
+                Membership.firm_id == client.firm_id,
+                Membership.client_id == client.id,
+            )
+        )
+        if not membership:
+            session.add(
+                Membership(
+                    user_id=user.id,
+                    firm_id=client.firm_id,
+                    client_id=client.id,
+                    role=Role.client_user.value,
+                )
+            )
 
     token = new_token()
     session.add(
