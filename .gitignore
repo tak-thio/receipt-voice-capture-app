@@ -1,40 +1,18 @@
+# Root ignores shared by all packages. App-specific ignores live in
+# mobile/.gitignore and api/.gitignore.
+
+# OS / editors
+.DS_Store
+tmp
+
+# Node (any package: mobile/, web/)
 node_modules
 dist
-tmp
-.DS_Store
-src-tauri/target
-receipt-sessions
-src-tauri/receipt-sessions
-.venv-stt
+
+# Python (any package: api/)
 __pycache__
-
-# Mobile build outputs (keep the generated gen/android + gen/apple sources,
-# ignore only the heavy build artifacts).
-src-tauri/gen/android/.gradle
-src-tauri/gen/android/build
-src-tauri/gen/android/app/build
-src-tauri/gen/android/app/.cxx
-src-tauri/gen/android/local.properties
-src-tauri/gen/android/app/src/main/jniLibs
-src-tauri/gen/apple/build
-src-tauri/gen/apple/Pods
-src-tauri/gen/apple/Externals
-src-tauri/gen/apple/*.xcworkspace/xcuserdata
-src-tauri/gen/apple/*.xcodeproj/xcuserdata
-src-tauri/gen/apple/*.xcodeproj/project.xcworkspace/xcuserdata
-settings.json
-src-tauri/settings.json
-*.command
-scripts/dev-tauri-gemini.sh
-
-# Backend (api/) — Python
-api/.env
-api/.venv
-.venv
 *.pyc
+.venv
 .pytest_cache
 .mypy_cache
 .ruff_cache
-
-# Web SPA (web/) build output (node_modules already ignored above)
-web/dist
