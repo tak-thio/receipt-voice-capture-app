@@ -111,6 +111,31 @@ class GeminiFormat(FormatProvider):
         raise NotImplementedError("Gemini format not wired yet (Phase 1)")
 
 
+# --- mock (no external deps; for dev/testing the pipeline) ------------------
+
+class MockStt(SttProvider):
+    async def transcribe(self, audio: bytes, mime: str, language: str = "ja") -> str:
+        return "テスト商店で打ち合わせ 千五百円 現金"
+
+
+class MockOcr(OcrProvider):
+    async def extract_text(self, image: bytes, mime: str) -> str:
+        return "領収書 テスト商店 ¥1,500 現金"
+
+
+class MockFormat(FormatProvider):
+    async def to_fields(self, text: str) -> ExtractedReceipt:
+        return _to_extracted(
+            {
+                "vendor": "テスト商店",
+                "amount_jpy": 1500,
+                "tax_mode": "inclusive",
+                "payment_method": "cash",
+                "date": "2026-06-05",
+            }
+        )
+
+
 def _to_extracted(data: dict) -> ExtractedReceipt:
     amount = data.get("amount_jpy")
     try:

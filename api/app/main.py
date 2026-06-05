@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -6,6 +7,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import storage
 from .config import get_settings
+from .worker import run_worker
 from .routers import (
     auth,
     captures,
@@ -27,7 +29,11 @@ async def lifespan(_: FastAPI):
         await run_in_threadpool(storage.ensure_bucket)
     except Exception as exc:  # storage may not be ready yet; don't block startup
         print(f"[startup] object storage not ready: {exc}")
-    yield
+    worker = asyncio.create_task(run_worker())
+    try:
+        yield
+    finally:
+        worker.cancel()
 
 
 app = FastAPI(title="Receipt SaaS API", version="0.1.0", lifespan=lifespan)

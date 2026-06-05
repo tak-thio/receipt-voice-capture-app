@@ -14,11 +14,14 @@ from ..security import decrypt_secret
 from .base import FormatProvider, OcrProvider, SttProvider
 from . import providers as p
 
-_STT = {"openai": p.OpenAiStt, "gemini": p.GeminiStt, "whisper": p.WhisperStt}
-_OCR = {"ollama": p.OllamaOcr, "openai": p.OpenAiOcr, "gemini": p.GeminiOcr}
-_FORMAT = {"ollama": p.OllamaFormat, "openai": p.OpenAiFormat, "gemini": p.GeminiFormat}
+_STT = {"openai": p.OpenAiStt, "gemini": p.GeminiStt, "whisper": p.WhisperStt, "mock": p.MockStt}
+_OCR = {"ollama": p.OllamaOcr, "openai": p.OpenAiOcr, "gemini": p.GeminiOcr, "mock": p.MockOcr}
+_FORMAT = {
+    "ollama": p.OllamaFormat, "openai": p.OpenAiFormat, "gemini": p.GeminiFormat, "mock": p.MockFormat,
+}
 
-_SELF_HOSTED = {"ollama", "whisper"}
+# Providers that need no external API key.
+_SELF_HOSTED = {"ollama", "whisper", "mock"}
 
 
 def _build(registry: dict, cfg: dict):
