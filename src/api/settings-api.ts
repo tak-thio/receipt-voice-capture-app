@@ -1,15 +1,38 @@
 import { DEFAULT_SETTINGS } from '../lib/constants'
+import { isMobilePlatform } from '../lib/platform'
 import { appSettingsSchema } from '../lib/schemas'
 import { maybeInvoke } from './tauri'
 import type { AppSettings } from '../types/settings'
 
 const SETTINGS_KEY = 'receipt-app:settings'
 
+/**
+ * Mobile (iOS/Android) cannot run the Python STT / Tesseract OCR sidecars and has
+ * no user-writable cwd. Force cloud STT/OCR and clear storageRoot so the Rust side
+ * resolves the app data dir. Applied at the single normalization choke point so it
+ * also covers values baked into each session's settingsSnapshot.
+ */
+function applyMobileConstraints(settings: AppSettings): AppSettings {
+  if (!isMobilePlatform()) {
+    return settings
+  }
+
+  return {
+    ...settings,
+    storageRoot: '',
+    sttMode: settings.sttMode === 'local' ? 'gemini' : settings.sttMode,
+    ocrMode: settings.ocrMode === 'local' ? 'gemini' : settings.ocrMode,
+    aiFormatMode: settings.aiFormatMode === 'local' ? 'gemini' : settings.aiFormatMode,
+  }
+}
+
 function normalizeSettings(input: unknown): AppSettings {
-  return appSettingsSchema.parse({
-    ...DEFAULT_SETTINGS,
-    ...(typeof input === 'object' && input ? input : {}),
-  })
+  return applyMobileConstraints(
+    appSettingsSchema.parse({
+      ...DEFAULT_SETTINGS,
+      ...(typeof input === 'object' && input ? input : {}),
+    }),
+  )
 }
 
 export async function loadSettings(): Promise<AppSettings> {
@@ -19,7 +42,7 @@ export async function loadSettings(): Promise<AppSettings> {
   }
 
   const raw = localStorage.getItem(SETTINGS_KEY)
-  return raw ? normalizeSettings(JSON.parse(raw)) : DEFAULT_SETTINGS
+  return normalizeSettings(raw ? JSON.parse(raw) : {})
 }
 
 export async function saveSettings(settings: AppSettings): Promise<AppSettings> {

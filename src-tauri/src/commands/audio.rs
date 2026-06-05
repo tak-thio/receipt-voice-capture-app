@@ -5,6 +5,7 @@ use std::fs;
 
 #[tauri::command]
 pub fn save_audio_clip(
+    app: tauri::AppHandle,
     session_id: String,
     audio_data_url: String,
     mime_type: String,
@@ -14,6 +15,7 @@ pub fn save_audio_clip(
     suggested_file_name: Option<String>,
     storage_root: Option<String>,
 ) -> Result<SavedAudioClipMeta, String> {
+    let storage_root = crate::commands::resolve_storage_root(&app, storage_root)?;
     SessionRepository::create_directories(storage_root.as_deref(), &session_id)?;
 
     let extension = if mime_type.contains("mp4") || mime_type.contains("mpeg") {

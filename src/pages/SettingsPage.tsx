@@ -3,6 +3,7 @@ import { getOcrDiagnostics } from '../api/ocr-api'
 import { getSttDiagnostics } from '../api/stt-api'
 import { useEffect, useState } from 'react'
 import { LOCAL_STT_RECOMMENDED_SETTINGS } from '../lib/constants'
+import { isMobilePlatform } from '../lib/platform'
 import {
   listAudioInputDevices,
   listVideoInputDevices,
@@ -99,6 +100,8 @@ export function SettingsPage() {
       })
   }, [])
 
+  const isMobile = isMobilePlatform()
+
   return (
     <section className="page">
       <header className="page-header">
@@ -111,10 +114,12 @@ export function SettingsPage() {
 
       <article className="panel">
         <div className="field-grid">
-          <label className="field">
-            <span>保存先ルート</span>
-            <input value={draft.storageRoot} onChange={(event) => setDraft({ ...draft, storageRoot: event.target.value })} />
-          </label>
+          {!isMobile && (
+            <label className="field">
+              <span>保存先ルート</span>
+              <input value={draft.storageRoot} onChange={(event) => setDraft({ ...draft, storageRoot: event.target.value })} />
+            </label>
+          )}
           <label className="field">
             <span>カメラID</span>
             <select
@@ -147,7 +152,7 @@ export function SettingsPage() {
             <span>STTモード</span>
             <select value={draft.sttMode} onChange={(event) => setDraft({ ...draft, sttMode: event.target.value as AppSettings['sttMode'] })}>
               <option value="mock">テスト</option>
-              <option value="local">ローカル</option>
+              {!isMobile && <option value="local">ローカル</option>}
               <option value="openai">OpenAI</option>
               <option value="gemini">Gemini</option>
             </select>
@@ -238,7 +243,7 @@ export function SettingsPage() {
               <option value="rule">ルールベース</option>
               <option value="openai">OpenAI</option>
               <option value="gemini">Gemini</option>
-              <option value="local">ローカル</option>
+              {!isMobile && <option value="local">ローカル</option>}
             </select>
           </label>
           <label className="field">
@@ -249,7 +254,7 @@ export function SettingsPage() {
             <span>OCRモード</span>
             <select value={draft.ocrMode} onChange={(event) => setDraft({ ...draft, ocrMode: event.target.value as AppSettings['ocrMode'] })}>
               <option value="mock">テスト</option>
-              <option value="local">ローカル</option>
+              {!isMobile && <option value="local">ローカル</option>}
               <option value="gemini">Gemini</option>
             </select>
           </label>
@@ -291,19 +296,21 @@ export function SettingsPage() {
           >
             保存
           </button>
-          <button
-            className="ghost-button"
-            onClick={() => {
-              setDraft({
-                ...draft,
-                ...LOCAL_STT_RECOMMENDED_SETTINGS,
-                sttMode: 'local',
-              })
-              setMessage('軽量 local STT 推奨値をフォームへ反映しました。')
-            }}
-          >
-            ローカル推奨値を適用
-          </button>
+          {!isMobile && (
+            <button
+              className="ghost-button"
+              onClick={() => {
+                setDraft({
+                  ...draft,
+                  ...LOCAL_STT_RECOMMENDED_SETTINGS,
+                  sttMode: 'local',
+                })
+                setMessage('軽量 local STT 推奨値をフォームへ反映しました。')
+              }}
+            >
+              ローカル推奨値を適用
+            </button>
+          )}
           <button
             className="ghost-button"
             onClick={() => {
@@ -438,6 +445,8 @@ export function SettingsPage() {
         ) : null}
       </article>
 
+      {!isMobile && (
+        <>
       <article className="panel">
         <div className="panel-title-row">
           <h3>ローカル文字起こし診断</h3>
@@ -533,6 +542,8 @@ export function SettingsPage() {
             'Gemini OCR は設定画面または GEMINI_API_KEY のAPIキーを使い、ローカルOCRは Tesseract CLI を前提にします。OCR失敗時はエラーとして扱います。'}
         </p>
       </article>
+        </>
+      )}
 
       <article className="panel">
         <div className="panel-title-row">

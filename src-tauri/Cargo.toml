@@ -3,6 +3,10 @@ name = "receipt_voice_capture"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "receipt_voice_capture_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -13,7 +17,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
-reqwest = { version = "0.12", features = ["blocking", "json", "multipart"] }
+tauri-plugin-os = "2"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
 [features]

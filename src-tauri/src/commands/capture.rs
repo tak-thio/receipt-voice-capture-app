@@ -5,6 +5,7 @@ use std::fs;
 
 #[tauri::command]
 pub fn save_capture_image(
+    app: tauri::AppHandle,
     session_id: String,
     image_data_url: String,
     width: u32,
@@ -12,6 +13,7 @@ pub fn save_capture_image(
     suggested_file_name: Option<String>,
     storage_root: Option<String>,
 ) -> Result<CaptureImageMeta, String> {
+    let storage_root = crate::commands::resolve_storage_root(&app, storage_root)?;
     SessionRepository::create_directories(storage_root.as_deref(), &session_id)?;
 
     let captures_dir = SessionRepository::captures_dir(storage_root.as_deref(), &session_id);

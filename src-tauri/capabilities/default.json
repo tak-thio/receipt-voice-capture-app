@@ -1,10 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default desktop permissions for the receipt input app.",
-  "windows": ["main"],
+  "description": "Default permissions for the receipt input app (desktop + mobile).",
+  "platforms": ["linux", "macOS", "windows", "android", "iOS"],
   "permissions": [
     "core:default",
+    "os:default",
     "dialog:default",
     "dialog:allow-save"
   ]

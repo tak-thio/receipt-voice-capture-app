@@ -2,10 +2,35 @@ import { useMemo, useState } from 'react'
 import { save } from '@tauri-apps/plugin-dialog'
 import { exportCsv } from '../api/export-api'
 import { isTauriRuntime } from '../api/tauri'
+import { isMobilePlatform } from '../lib/platform'
 import { buildExportPreview } from '../services/export/build-export-preview'
 import { useSessionStore } from '../store/session-store'
 import type { ExportScope, ExportTarget } from '../types/export'
 import type { Session } from '../types/domain'
+
+/**
+ * Best-effort OS share sheet for mobile. Returns true when the CSV was handed off
+ * to the system share UI. Falls back to false (caller shows the saved path) when
+ * the WebView does not expose a usable Web Share API.
+ */
+async function tryShareCsv(fileName: string, csvContent: string): Promise<boolean> {
+  try {
+    const nav = navigator as Navigator & {
+      canShare?: (data: ShareData) => boolean
+    }
+    if (typeof nav.share !== 'function') {
+      return false
+    }
+    const file = new File([csvContent], fileName, { type: 'text/csv' })
+    if (nav.canShare && !nav.canShare({ files: [file] })) {
+      return false
+    }
+    await nav.share({ files: [file], title: fileName })
+    return true
+  } catch {
+    return false
+  }
+}
 
 function filterSessionForExport(session: Session, scope: ExportScope): Session {
   if (scope === 'confirmed') {
@@ -51,6 +76,21 @@ export function ExportPage() {
     setIsExporting(true)
 
     try {
+      if (isMobilePlatform()) {
+        // Mobile has no native "save to arbitrary path" dialog. Persist into the
+        // app's exports dir, then offer the OS share sheet to send the CSV out.
+        const result = await exportCsv(exportSession, target)
+        const shared = await tryShareCsv(result.fileName, result.csvContent)
+        setLastExportMessage(
+          shared
+            ? `CSVを共有しました（${result.fileName}）。`
+            : result.savedTo
+              ? `CSVを保存しました: ${result.savedTo}`
+              : `${result.fileName} を生成しました。`,
+        )
+        return
+      }
+
       if (isTauriRuntime()) {
         const destinationPath = await save({
           title: 'CSVの保存先を選択',
