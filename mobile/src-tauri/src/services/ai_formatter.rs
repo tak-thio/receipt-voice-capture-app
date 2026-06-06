@@ -2,13 +2,26 @@ use crate::services::api_keys::{
     gemini_api_key_is_configured, openai_api_key_is_configured, resolve_gemini_api_key,
     resolve_openai_api_key,
 };
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::fs;
+use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct AiFormatterRequest {
     pub raw_text: String,
     pub provider: Option<String>,
+    pub model: Option<String>,
+    pub reference_date: Option<String>,
+    pub dictionaries: serde_json::Value,
+}
+
+/// 画像中心モデル: 領収書画像 + 補足の音声文字起こしから構造化フィールドを抽出する。
+#[derive(Debug, Clone)]
+pub struct ImageVoiceExtractRequest {
+    pub image_path: String,
+    pub transcript: String,
     pub model: Option<String>,
     pub reference_date: Option<String>,
     pub dictionaries: serde_json::Value,
@@ -55,6 +68,13 @@ impl AiFormatterService {
             "gemini" => format_with_gemini(&request),
             _ => format_with_openai(&request),
         }
+    }
+
+    pub fn extract_from_image_and_voice(
+        request: ImageVoiceExtractRequest,
+    ) -> Result<AiFormatterResponsePayload, String> {
+        // 画像中心モデルは現状 Gemini vision のみ対応。
+        extract_image_voice_with_gemini(&request)
     }
 
     pub fn diagnostics() -> AiDiagnosticsPayload {
@@ -147,6 +167,119 @@ fn format_with_gemini(request: &AiFormatterRequest) -> Result<AiFormatterRespons
         .map_err(|error| format!("Gemini formatter output did not match schema: {}", error))?;
     parsed.source = "gemini-structured-output".to_string();
     Ok(parsed)
+}
+
+fn extract_image_voice_with_gemini(
+    request: &ImageVoiceExtractRequest,
+) -> Result<AiFormatterResponsePayload, String> {
+    let image_path = request.image_path.trim();
+    if image_path.is_empty() {
+        return Err("imagePath is required for image+voice extraction.".to_string());
+    }
+    if !Path::new(image_path).exists() {
+        return Err(format!("Receipt image file was not found: {}", image_path));
+    }
+
+    let api_key = resolve_gemini_api_key()?;
+    let image_bytes =
+        fs::read(image_path).map_err(|error| format!("Failed to read receipt image file: {}", error))?;
+    let image_data = base64::engine::general_purpose::STANDARD.encode(image_bytes);
+    let model = request
+        .model
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("gemini-2.5-flash");
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+        model
+    );
+    let body = build_image_voice_gemini_request_body(request, &image_data, image_path);
+
+    let response = reqwest::blocking::Client::new()
+        .post(url)
+        .header("x-goog-api-key", api_key)
+        .json(&body)
+        .send()
+        .map_err(|error| format!("Gemini image extraction request failed: {}", error))?;
+
+    let status = response.status();
+    let response_text = response
+        .text()
+        .map_err(|error| format!("Gemini image extraction response read failed: {}", error))?;
+
+    if !status.is_success() {
+        return Err(format!(
+            "Gemini image extraction returned {}: {}",
+            status, response_text
+        ));
+    }
+
+    let value: serde_json::Value = serde_json::from_str(&response_text)
+        .map_err(|error| format!("Gemini image extraction response was not JSON: {}", error))?;
+    let output_text = extract_gemini_text(&value).ok_or_else(|| {
+        "Gemini image extraction response did not include output text.".to_string()
+    })?;
+
+    let mut parsed: AiFormatterResponsePayload = serde_json::from_str(&output_text)
+        .map_err(|error| format!("Gemini image extraction output did not match schema: {}", error))?;
+    parsed.source = "gemini-image-voice".to_string();
+    Ok(parsed)
+}
+
+fn build_image_voice_gemini_request_body(
+    request: &ImageVoiceExtractRequest,
+    image_data: &str,
+    image_path: &str,
+) -> serde_json::Value {
+    json!({
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {
+                    "text": format!(
+                        "{}\n\nInput JSON:\n{}",
+                        build_image_voice_system_prompt(),
+                        json!({
+                            "voiceTranscript": request.transcript,
+                            "referenceDate": request.reference_date,
+                            "dictionaries": request.dictionaries
+                        })
+                    )
+                },
+                {
+                    "inline_data": {
+                        "mime_type": guess_image_mime_type(image_path),
+                        "data": image_data
+                    }
+                }
+            ]
+        }],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseJsonSchema": build_gemini_response_schema()
+        }
+    })
+}
+
+fn build_image_voice_system_prompt() -> &'static str {
+    "あなたは領収書の画像と、補足の音声メモから会計用の固定フィールドを1件だけ抽出するエンジンです。\
+    事実(金額・消費税・日付・支払先・インボイス番号)は画像を最優先で読み取ってください。\
+    レシートには複数の金額(小計/税込/お預り/お釣り/ポイント等)が並びます。音声メモに金額がある場合は、それを手がかりに合計(税込)を特定してください。\
+    摘要(descriptionRaw)・勘定項目・支払方法は、画像に無ければ音声メモから採用してください。但書は読み上げられた語を改変せず保存してください。\
+    日付はYYYY-MM-DD、年が無ければreferenceDateの年で補完。税区分はinclusive/exclusive/unknown、金額は数値またはnull。\
+    画像と音声で金額が食い違う場合は warnings に『音声と画像の金額が一致しません』を追加してください。\
+    records には画像1枚=1件だけ返してください。空欄に「なし」等の代替語を入れないでください。"
+}
+
+fn guess_image_mime_type(image_path: &str) -> &'static str {
+    let lower = image_path.to_ascii_lowercase();
+    if lower.ends_with(".png") {
+        return "image/png";
+    }
+    if lower.ends_with(".webp") {
+        return "image/webp";
+    }
+    "image/jpeg"
 }
 
 fn build_request_body(model: &str, request: &AiFormatterRequest) -> serde_json::Value {
@@ -438,6 +571,32 @@ mod tests {
         assert_eq!(
             body.pointer("/generationConfig/responseJsonSchema/type"),
             Some(&serde_json::json!("object"))
+        );
+    }
+
+    #[test]
+    fn builds_image_voice_request_with_image_and_schema() {
+        let request = super::ImageVoiceExtractRequest {
+            image_path: "/tmp/receipt.jpg".to_string(),
+            transcript: "税込1158円 現金 文具代".to_string(),
+            model: Some("gemini-2.5-flash".to_string()),
+            reference_date: Some("2026-05-18T00:00:00+09:00".to_string()),
+            dictionaries: serde_json::json!({}),
+        };
+        let body =
+            super::build_image_voice_gemini_request_body(&request, "ZmFrZQ==", "/tmp/receipt.jpg");
+
+        assert_eq!(
+            body.pointer("/contents/0/parts/1/inline_data/mime_type"),
+            Some(&serde_json::json!("image/jpeg"))
+        );
+        assert_eq!(
+            body.pointer("/contents/0/parts/1/inline_data/data"),
+            Some(&serde_json::json!("ZmFrZQ=="))
+        );
+        assert_eq!(
+            body.pointer("/generationConfig/responseMimeType"),
+            Some(&serde_json::json!("application/json"))
         );
     }
 

@@ -24,6 +24,7 @@ pub fn run() {
             commands::stt::transcribe_audio,
             commands::stt::get_stt_diagnostics,
             commands::ai_formatter::format_receipt_text,
+            commands::ai_formatter::extract_receipt_from_image_and_voice,
             commands::ai_formatter::get_ai_diagnostics,
             commands::export::export_csv
         ])

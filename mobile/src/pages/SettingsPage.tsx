@@ -207,6 +207,21 @@ export function SettingsPage() {
             </label>
           )}
           <label className="field">
+            <span>取り込み方式</span>
+            <select
+              value={draft.captureStrategy}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  captureStrategy: event.target.value as AppSettings['captureStrategy'],
+                })
+              }
+            >
+              <option value="voice">音声中心(現行)</option>
+              <option value="image">画像中心(画像+音声)</option>
+            </select>
+          </label>
+          <label className="field">
             <span>STTモード</span>
             <select value={draft.sttMode} onChange={(event) => setDraft({ ...draft, sttMode: event.target.value as AppSettings['sttMode'] })}>
               <option value="mock">テスト</option>

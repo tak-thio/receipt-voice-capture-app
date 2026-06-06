@@ -47,6 +47,7 @@ export const appSettingsSchema = z.object({
   aiFormatterModel: z.string(),
   ocrEnabled: z.boolean(),
   ocrMode: z.enum(['mock', 'local', 'gemini']),
+  captureStrategy: z.enum(['voice', 'image']),
   exportTargetDefault: z.enum(['freee', 'yayoi', 'generic', 'mas']),
 })
 

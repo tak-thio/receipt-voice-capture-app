@@ -5,6 +5,13 @@ export type AiFormatMode = 'rule' | AiProvider | 'local'
 export type OcrMode = AdapterMode | 'gemini'
 
 /**
+ * standalone の取り込み方式:
+ * voice = 音声中心(現行。発話を主データに画像で照合)
+ * image = 画像中心(画像から事実を抽出し、音声を摘要+合計の特定=精度向上に使う)
+ */
+export type CaptureStrategy = 'voice' | 'image'
+
+/**
  * standalone = 端末完結(各自キーでAI、ローカル保存)
  * linked     = サーバ連携(QRペアリング、撮影はサーバへ、AIはサーバ=事務所キー)
  */
@@ -31,5 +38,6 @@ export interface AppSettings {
   aiFormatterModel: string
   ocrEnabled: boolean
   ocrMode: OcrMode
+  captureStrategy: CaptureStrategy
   exportTargetDefault: 'freee' | 'yayoi' | 'generic' | 'mas'
 }

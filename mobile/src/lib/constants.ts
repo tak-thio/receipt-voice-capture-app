@@ -36,6 +36,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   aiFormatterModel: 'gpt-4o-mini',
   ocrEnabled: true,
   ocrMode: 'gemini',
+  captureStrategy: 'voice',
   exportTargetDefault: 'mas',
 }
 

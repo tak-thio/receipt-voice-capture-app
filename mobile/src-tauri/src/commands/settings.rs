@@ -7,7 +7,11 @@ pub fn load_settings(
     storage_root: Option<String>,
 ) -> Result<Option<Value>, String> {
     let storage_root = crate::commands::resolve_storage_root(&app, storage_root)?;
-    SettingsRepository::load(storage_root.as_deref())
+    let loaded = SettingsRepository::load(storage_root.as_deref())?;
+    if let Some(ref settings) = loaded {
+        crate::services::api_keys::cache_api_keys_from_settings(settings);
+    }
+    Ok(loaded)
 }
 
 #[tauri::command]
@@ -17,5 +21,7 @@ pub fn save_settings(
     storage_root: Option<String>,
 ) -> Result<Value, String> {
     let storage_root = crate::commands::resolve_storage_root(&app, storage_root)?;
-    SettingsRepository::save(storage_root.as_deref(), &settings)
+    let saved = SettingsRepository::save(storage_root.as_deref(), &settings)?;
+    crate::services::api_keys::cache_api_keys_from_settings(&saved);
+    Ok(saved)
 }

@@ -24,6 +24,7 @@ const settingsSnapshot: AppSettings = {
   aiFormatterModel: 'gpt-4o-mini',
   ocrEnabled: true,
   ocrMode: 'mock',
+  captureStrategy: 'voice',
   exportTargetDefault: 'generic',
 }
 

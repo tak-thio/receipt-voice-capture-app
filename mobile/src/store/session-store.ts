@@ -1,5 +1,5 @@
 import { saveAudioClip } from '../api/audio-api'
-import { formatReceiptText } from '../api/ai-formatter-api'
+import { extractReceiptFromImageAndVoice, formatReceiptText } from '../api/ai-formatter-api'
 import { create } from 'zustand'
 import { saveCaptureImage } from '../api/capture-api'
 import {
@@ -35,6 +35,7 @@ import type { DictionaryBundle } from '../types/dictionaries'
 import type {
   CaptureImageMeta,
   ManualEditedField,
+  ParsedSpeechFields,
   ReceiptRecord,
   Session,
   SessionSummary,
@@ -91,6 +92,7 @@ interface SessionStoreState {
     captureFrames: CaptureFrameInput[],
   ) => Promise<void>
   persistRecordedAudioClip: (audioClip: RecordedAudioClip) => Promise<RecordedAudioClip>
+  captureReceiptPhoto: (input: { imageDataUrl: string; width: number; height: number }) => Promise<void>
   setSelectedRecordId: (recordId: string | null) => void
   setReviewMode: (mode: ReviewMode) => void
   updateFinalField: <K extends keyof ReceiptRecord['final']>(
@@ -183,12 +185,113 @@ async function formatSegmentText(
   }
 }
 
+interface ImageFirstVoice {
+  rawText: string
+  segmentStartMs: number | null
+  segmentEndMs: number | null
+  sourceEvents: SttInputEvent[]
+}
+
+// 画像中心のレコード生成。画像=事実の主ソース、音声(あれば)=摘要+合計特定の補助。
+// voice.rawText が空なら「写真だけ(音声なし)」として画像のみから抽出する。
+async function buildImageFirstRecord(
+  capture: CaptureImageMeta,
+  voice: ImageFirstVoice,
+  dictionaries: DictionaryBundle,
+  settings: AppSettings,
+): Promise<ReceiptRecord> {
+  const now = new Date().toISOString()
+  const normalizedText = normalizeSpeechText(voice.rawText)
+  const tokens = tokenizeSpeech(normalizedText).filter(
+    (token) => !BOUNDARY_KEYWORDS.includes(token),
+  )
+
+  let fields: ParsedSpeechFields
+  let warnings: string[]
+  try {
+    const extraction = await extractReceiptFromImageAndVoice({
+      imagePath: capture.imagePath,
+      transcript: voice.rawText,
+      model: settings.geminiModel,
+      referenceDate: now,
+      dictionaries,
+    })
+    const record = extraction.records[0]
+    if (!record) {
+      throw new Error('画像抽出結果にレコードが含まれていませんでした。')
+    }
+    fields = {
+      ...record,
+      amount: record.amount === null ? null : Number(record.amount),
+    }
+    warnings = extraction.warnings
+  } catch (error) {
+    // 画像抽出が失敗した場合は音声(あれば)のルール解析で最低限のレコードを残す。
+    const fallback = parseSpeech({ rawText: voice.rawText, dictionaries })
+    fields = fallback.fields
+    warnings = [
+      ...fallback.warnings,
+      error instanceof Error
+        ? `画像抽出に失敗しました: ${error.message}`
+        : '画像抽出に失敗しました。',
+    ]
+  }
+
+  const finalBlock: ReceiptRecord['final'] = {
+    ...fields,
+    manualEditedFields: [],
+  }
+  const ocrBlock: ReceiptRecord['ocr'] = {
+    rawText: '',
+    extractedCandidates: { dates: [], vendors: [], amounts: [], invoiceNumbers: [] },
+    source: 'gemini',
+  }
+  const review = buildReviewBlock(finalBlock, ocrBlock, warnings)
+
+  return {
+    id: `record-${crypto.randomUUID()}`,
+    createdAt: now,
+    updatedAt: now,
+    imagePath: capture.imagePath,
+    capturedAt: capture.capturedAt,
+    imageWidth: capture.width,
+    imageHeight: capture.height,
+    stt: {
+      rawText: voice.rawText,
+      normalizedText,
+      tokens,
+      segmentStartMs: voice.segmentStartMs,
+      segmentEndMs: voice.segmentEndMs,
+      sourceEvents: voice.sourceEvents,
+      parsedFields: fields,
+      parserWarnings: warnings,
+    },
+    ocr: ocrBlock,
+    final: finalBlock,
+    review,
+  }
+}
+
 async function buildRecordFromSegment(
   segment: SttCommittedSegment,
   capture: CaptureImageMeta,
   dictionaries: DictionaryBundle,
   settings: AppSettings,
 ): Promise<ReceiptRecord> {
+  if (settings.captureStrategy === 'image') {
+    return buildImageFirstRecord(
+      capture,
+      {
+        rawText: segment.rawText,
+        segmentStartMs: segment.segmentStartMs,
+        segmentEndMs: segment.segmentEndMs,
+        sourceEvents: segment.sourceEvents,
+      },
+      dictionaries,
+      settings,
+    )
+  }
+
   const parsed = await formatSegmentText(segment.rawText, dictionaries, settings)
 
   const now = new Date().toISOString()
@@ -591,6 +694,50 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         lastDetectedLanguage: null,
         lastTranscriptionEventCount: 0,
         lastTranscriptionError: error instanceof Error ? error.message : 'STT transcription failed.',
+      })
+    }
+  },
+  captureReceiptPhoto: async ({ imageDataUrl, width, height }) => {
+    const { dictionaries, settings } = get()
+    if (!dictionaries) {
+      return
+    }
+    const session = await ensureSession(get().session, settings)
+    set({ isProcessing: true, lastCaptureError: null })
+    try {
+      const capture = await saveCaptureImage({
+        sessionId: session.id,
+        imageDataUrl,
+        width,
+        height,
+        storageRoot: settings.storageRoot,
+        suggestedFileName: `scan-${Date.now()}.jpg`,
+      })
+      const record = await buildImageFirstRecord(
+        capture,
+        { rawText: '', segmentStartMs: null, segmentEndMs: null, sourceEvents: [] },
+        dictionaries,
+        settings,
+      )
+      const nextSession: Session = {
+        ...session,
+        settingsSnapshot: settings,
+        updatedAt: new Date().toISOString(),
+        records: [...session.records, record],
+      }
+      await saveSession(nextSession, settings.storageRoot)
+      set({
+        isProcessing: false,
+        session: nextSession,
+        availableSessions: await listSessions(settings.storageRoot),
+        selectedRecordId: record.id,
+        lastCaptureError: null,
+      })
+    } catch (error) {
+      set({
+        isProcessing: false,
+        lastCaptureError:
+          error instanceof Error ? error.message : 'スキャン取り込みに失敗しました。',
       })
     }
   },

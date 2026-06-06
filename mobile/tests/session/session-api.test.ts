@@ -38,6 +38,7 @@ describe('session api recovery', () => {
         aiFormatterModel: 'gpt-4o-mini',
         ocrEnabled: true,
         ocrMode: 'mock',
+        captureStrategy: 'voice',
         exportTargetDefault: 'generic',
       },
       records: [],
