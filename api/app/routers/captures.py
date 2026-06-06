@@ -5,6 +5,7 @@ Auth: a paired device (Bearer device token); principal.device_client_id is the
 """
 
 import hashlib
+import json
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
@@ -44,6 +45,7 @@ async def create_capture(
     image: UploadFile | None = None,
     audio: UploadFile | None = None,
     captured_at: str | None = Form(default=None),
+    metadata: str | None = Form(default=None),
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
@@ -54,11 +56,22 @@ async def create_capture(
     if not client:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
 
+    # 端末のキャプチャ時メタデータ(JSON)。壊れていても取り込みは止めない。
+    capture_meta: dict = {}
+    if metadata:
+        try:
+            parsed = json.loads(metadata)
+        except (ValueError, TypeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            capture_meta = parsed
+
     receipt = Receipt(
         firm_id=client.firm_id,
         client_id=client.id,
         source=ReceiptSource.mobile.value,
         captured_at=datetime.fromisoformat(captured_at) if captured_at else None,
+        capture_meta=capture_meta,
         created_by=principal.user.id,
     )
     session.add(receipt)

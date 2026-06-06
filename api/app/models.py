@@ -250,6 +250,8 @@ class Receipt(Base, TimestampMixin):
     created_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     # 付箋 (note) ids attached to this receipt — UUID strings into the notes master.
     note_ids: Mapped[list] = mapped_column(JSONB, default=list)
+    # モバイル端末のキャプチャ時メタデータ(撮影時刻・画像寸法・検出情報・プラットフォーム等)。
+    capture_meta: Mapped[dict] = mapped_column(JSONB, default=dict)
     # search_text (generated column + pg_trgm GIN index) is added in the migration.
 
     files: Mapped[list[ReceiptFile]] = relationship(cascade="all, delete-orphan")
