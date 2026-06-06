@@ -101,7 +101,11 @@ export function SettingsPage() {
       setDraft(next)
       await persistSettings(next)
       setPairingToken('')
-      setServerMessage('サーバに接続しました。撮影画面からアップロードできます。')
+      const org = [result.firm_name, result.client_name].filter(Boolean).join(' / ')
+      const person = [result.user_name, result.job_title].filter(Boolean).join('・')
+      setServerMessage(
+        `サーバに接続しました${org ? `(${org})` : ''}。${person ? `${person} として。` : ''}撮影画面からアップロードできます。`,
+      )
     } catch (error) {
       setServerMessage(error instanceof Error ? error.message : '接続に失敗しました。')
     } finally {

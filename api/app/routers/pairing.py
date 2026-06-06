@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..db import get_session, set_rls_context
 from ..deps import Principal, can_admin_client, get_principal
-from ..models import Client, DeviceSession, Membership, PairingToken, Role, User
+from ..models import Client, DeviceSession, Firm, Membership, PairingToken, Role, User
 from ..security import hash_token, new_token
 
 router = APIRouter(prefix="/pairing", tags=["pairing"])
@@ -143,8 +143,23 @@ async def redeem(body: RedeemBody, session: AsyncSession = Depends(get_session))
             refresh_token_hash=hash_token(device_token),
         )
     )
+
+    # 端末の接続確認表示用に、サーバ権威の識別名を返す(QR には載せない情報)。
+    user = await session.get(User, pt.user_id)
+    client = await session.get(Client, pt.client_id)
+    firm = await session.get(Firm, pt.firm_id)
+    membership = await session.scalar(
+        select(Membership).where(
+            Membership.user_id == pt.user_id, Membership.client_id == pt.client_id
+        )
+    )
     return {
         "access_token": device_token,
         "client_id": str(pt.client_id),
         "user_id": str(pt.user_id),
+        "user_name": user.name if user else "",
+        "job_title": (user.job_title if user else None) or "",
+        "role": membership.role if membership else "",
+        "client_name": client.name if client else "",
+        "firm_name": firm.name if firm else "",
     }

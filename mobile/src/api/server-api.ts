@@ -5,6 +5,12 @@ export interface PairResult {
   access_token: string
   client_id: string
   user_id: string
+  // 接続確認の表示用(サーバ権威。古いサーバでは欠ける場合があるので任意)。
+  user_name?: string
+  job_title?: string
+  role?: string
+  client_name?: string
+  firm_name?: string
 }
 
 function base(url: string): string {
