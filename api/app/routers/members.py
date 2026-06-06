@@ -57,7 +57,7 @@ async def _owner_count(session: AsyncSession, firm_id) -> int:
 
 @router.get("")
 async def list_members(
-    principal: Principal = Depends(require_firm_role()),
+    principal: Principal = Depends(require_firm_role("firm_owner")),
     session: AsyncSession = Depends(get_session),
 ):
     firm_id = firm_id_of(principal)
@@ -161,7 +161,7 @@ async def remove_member(
 @router.get("/{user_id}/clients")
 async def list_assigned_clients(
     user_id: UUID,
-    principal: Principal = Depends(require_firm_role()),
+    principal: Principal = Depends(require_firm_role("firm_owner")),
     session: AsyncSession = Depends(get_session),
 ):
     """担当顧問先 (client_ids) a firm staff is assigned to."""

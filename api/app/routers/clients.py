@@ -153,9 +153,11 @@ async def get_client(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_client(
     body: ClientIn,
-    principal: Principal = Depends(require_firm_role()),
+    principal: Principal = Depends(require_firm_role("firm_owner")),
     session: AsyncSession = Depends(get_session),
 ):
+    # firm_owner only: a firm_staff isn't assigned to a brand-new client and so
+    # couldn't see it (RLS) — client creation/assignment is an admin action.
     firm_membership = next((m for m in principal.memberships if m.client_id is None), None)
     if not firm_membership:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "no firm-level membership")

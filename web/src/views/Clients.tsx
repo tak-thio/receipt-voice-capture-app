@@ -32,10 +32,11 @@ function blankClient(): ClientDetail {
 type Screen = { kind: 'list' } | { kind: 'create' } | { kind: 'edit'; id: string }
 
 // 顧問先マスタ: 会計事務所向けに「一覧 / 新規 / 編集」を別画面に分離(1画面に詰め込まない)。
-export function ClientsView({ onChanged }: { onChanged: () => Promise<void> | void }) {
+// canManage(管理者のみ): 新規登録・削除を許可。一般社員は担当顧問先の閲覧・編集のみ。
+export function ClientsView({ onChanged, canManage }: { onChanged: () => Promise<void> | void; canManage: boolean }) {
   const [screen, setScreen] = useState<Screen>({ kind: 'list' })
 
-  if (screen.kind === 'create') {
+  if (screen.kind === 'create' && canManage) {
     return (
       <CreateScreen
         onCancel={() => setScreen({ kind: 'list' })}
@@ -47,6 +48,7 @@ export function ClientsView({ onChanged }: { onChanged: () => Promise<void> | vo
     return (
       <EditScreen
         id={screen.id}
+        canManage={canManage}
         onBack={() => setScreen({ kind: 'list' })}
         onChanged={onChanged}
       />
@@ -54,6 +56,7 @@ export function ClientsView({ onChanged }: { onChanged: () => Promise<void> | vo
   }
   return (
     <ListScreen
+      canManage={canManage}
       onNew={() => setScreen({ kind: 'create' })}
       onOpen={(id) => setScreen({ kind: 'edit', id })}
       onChanged={onChanged}
@@ -64,8 +67,9 @@ export function ClientsView({ onChanged }: { onChanged: () => Promise<void> | vo
 /* ----------------------------------------------------------------- 一覧 */
 
 function ListScreen({
-  onNew, onOpen, onChanged,
+  canManage, onNew, onOpen, onChanged,
 }: {
+  canManage: boolean
   onNew: () => void
   onOpen: (id: string) => void
   onChanged: () => Promise<void> | void
@@ -101,8 +105,8 @@ function ListScreen({
     <>
       <PageHeader
         title="顧問先マスタ"
-        description="顧問先(クライアント企業)の一覧です。"
-        actions={<Button variant="primary" onClick={onNew}><Icon.Plus /> 新規登録</Button>}
+        description={canManage ? '顧問先(クライアント企業)の一覧です。' : '担当している顧問先の一覧です。'}
+        actions={canManage ? <Button variant="primary" onClick={onNew}><Icon.Plus /> 新規登録</Button> : undefined}
       />
 
       <div className="mb-4 flex items-center gap-2">
@@ -136,7 +140,7 @@ function ListScreen({
                 <Td className="text-right" >
                   <div className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
                     <Button size="sm" variant="secondary" onClick={() => onOpen(c.id)}><Icon.Pencil /> 編集</Button>
-                    <IconButton label="削除" className="hover:!text-red-600" onClick={() => void remove(c)}><Icon.Trash /></IconButton>
+                    {canManage && <IconButton label="削除" className="hover:!text-red-600" onClick={() => void remove(c)}><Icon.Trash /></IconButton>}
                   </div>
                 </Td>
               </Tr>
@@ -186,7 +190,7 @@ function CreateScreen({ onCancel, onCreated }: { onCancel: () => void; onCreated
 
 /* ----------------------------------------------------------------- 編集 */
 
-function EditScreen({ id, onBack, onChanged }: { id: string; onBack: () => void; onChanged: () => Promise<void> | void }) {
+function EditScreen({ id, canManage, onBack, onChanged }: { id: string; canManage: boolean; onBack: () => void; onChanged: () => Promise<void> | void }) {
   const toast = useToast()
   const [detail, setDetail] = useState<ClientDetail | null>(null)
   const [busy, setBusy] = useState(false)
@@ -222,7 +226,7 @@ function EditScreen({ id, onBack, onChanged }: { id: string; onBack: () => void;
       <PageHeader
         title={detail.name}
         description={`顧問先の編集${detail.code ? ` · コード ${detail.code}` : ''}`}
-        actions={<Button variant="danger-ghost" onClick={() => void remove()}><Icon.Trash /> 削除</Button>}
+        actions={canManage ? <Button variant="danger-ghost" onClick={() => void remove()}><Icon.Trash /> 削除</Button> : undefined}
       />
       <div className="space-y-5">
         <Section title="基本情報">

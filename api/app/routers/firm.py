@@ -43,7 +43,7 @@ def _mask(ai_config: dict) -> dict:
 
 @router.get("")
 async def get_firm(
-    principal: Principal = Depends(get_principal),
+    principal: Principal = Depends(require_firm_role("firm_owner")),
     session: AsyncSession = Depends(get_session),
 ):
     firm = await session.get(Firm, firm_id_of(principal))

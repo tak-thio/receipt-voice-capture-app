@@ -128,10 +128,11 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [tab, setTab] = useState<Tab>('receipts')
   const [navOpen, setNavOpen] = useState(false)
 
-  const isFirmStaff = me.memberships.some(
-    (m) => m.client_id === null && (m.role === 'firm_owner' || m.role === 'firm_staff'),
+  // 設定(事務所/AI/職員管理)は管理者のみ。一般社員(職員)には表示しない。
+  const isFirmOwner = me.memberships.some(
+    (m) => m.client_id === null && m.role === 'firm_owner',
   )
-  const nav = NAV.filter((t) => !t.firmOnly || isFirmStaff)
+  const nav = NAV.filter((t) => !t.firmOnly || isFirmOwner)
   const active = nav.find((t) => t.id === tab) ?? nav[0]
 
   async function reloadClients() {
@@ -185,7 +186,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {tab === 'journal' && <JournalView clientId={clientId} />}
           {tab === 'export' && <ExportView clientId={clientId} />}
           {tab === 'masters' && <MastersView clientId={clientId} firmId={firmId} />}
-          {tab === 'clients' && <ClientsView onChanged={reloadClients} />}
+          {tab === 'clients' && <ClientsView onChanged={reloadClients} canManage={isFirmOwner} />}
           {tab === 'settings' && <SettingsView firmId={firmId} />}
         </main>
       </div>
