@@ -77,6 +77,7 @@ async def queue(
                 "image_file_id": str(img) if img else None,
                 "account_title_id": str(r.account_title_id) if r.account_title_id else None,
                 "partner_id": str(r.partner_id) if r.partner_id else None,
+                "note_ids": r.note_ids or [],
                 "suggestion": {
                     "account_title_id": str(suggestion["account_title_id"])
                     if suggestion["account_title_id"]

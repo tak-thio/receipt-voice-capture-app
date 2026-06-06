@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { api, type MasterRow, type QueueItem } from '../api'
+import { api, type MasterRow, type NoteRow, type QueueItem } from '../api'
 import {
   Alert, Badge, Button, Card, cn, EmptyState, Icon, PageHeader,
   Section, Select, Table, Tbody, Td, Th, Thead, Tr,
 } from '../ui'
+import { NoteChips, NotePickerModal } from '../notes'
 
 type Mode = 'queue' | 'held'
 
@@ -16,6 +17,8 @@ function yen(n: number | null): string {
 export function JournalView({ clientId }: { clientId: string }) {
   const [titles, setTitles] = useState<MasterRow[]>([])
   const [partners, setPartners] = useState<MasterRow[]>([])
+  const [notes, setNotes] = useState<NoteRow[]>([])
+  const [tagging, setTagging] = useState(false)
   const [items, setItems] = useState<QueueItem[]>([])
   const [total, setTotal] = useState(0)
   const [heldCount, setHeldCount] = useState(0)
@@ -31,6 +34,7 @@ export function JournalView({ clientId }: { clientId: string }) {
     if (!clientId) return
     setTitles(await api.accountTitles(clientId))
     setPartners(await api.partners(clientId))
+    setNotes(await api.notes(clientId).catch(() => []))
   }
   async function loadQueue(m: Mode = mode) {
     if (!clientId) return
@@ -79,6 +83,17 @@ export function JournalView({ clientId }: { clientId: string }) {
   function handleProcess() {
     if (!top || !titleId) return
     void act(() => api.journalize(top.id, { account_title_id: titleId, partner_id: partnerId || null }))
+  }
+  async function toggleNote(noteId: string) {
+    if (!top) return
+    const has = top.note_ids.includes(noteId)
+    const next = has ? top.note_ids.filter((x) => x !== noteId) : [...top.note_ids, noteId]
+    setItems((its) => its.map((it) => (it.id === top.id ? { ...it, note_ids: next } : it)))
+    try {
+      await api.setReceiptNotes(top.id, next)
+    } catch (e) {
+      setError(String(e))
+    }
   }
 
   if (!clientId) {
@@ -134,6 +149,11 @@ export function JournalView({ clientId }: { clientId: string }) {
                 <span className="text-lg font-semibold tabular-nums text-slate-900">{yen(top.amount_jpy)}</span>
                 <span className="text-xs text-slate-400">{top.date ?? '—'} · {top.source}</span>
                 {top.t_number && <Badge>T{top.t_number}</Badge>}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <NoteChips ids={top.note_ids} notes={notes} empty={<span className="text-xs text-slate-400">付箋なし</span>} />
+                <Button size="sm" variant="secondary" onClick={() => setTagging(true)}><Icon.Plus /> 付箋</Button>
               </div>
 
               <div className="flex h-80 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
@@ -217,6 +237,14 @@ export function JournalView({ clientId }: { clientId: string }) {
           )}
         </div>
       )}
+
+      <NotePickerModal
+        open={tagging && !!top}
+        onClose={() => setTagging(false)}
+        notes={notes}
+        value={top?.note_ids ?? []}
+        onToggle={(id) => void toggleNote(id)}
+      />
     </>
   )
 }

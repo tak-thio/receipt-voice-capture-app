@@ -62,6 +62,13 @@ export interface ReceiptRow {
   account_title_id: string | null
   approval_status: string
   journalized_at: string | null
+  note_ids: string[]
+}
+
+export interface NoteRow {
+  id: string
+  text: string
+  color: string
 }
 
 export interface MasterRow {
@@ -95,6 +102,7 @@ export interface QueueItem {
   image_file_id: string | null
   account_title_id: string | null
   partner_id: string | null
+  note_ids: string[]
   suggestion: Suggestion
 }
 export interface JournalQueue {
@@ -181,6 +189,17 @@ export const api = {
   patchPartner: (id: string, patch: { name?: string; code?: string; domain?: string }) =>
     req(`/masters/partners/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deletePartner: (id: string) => req(`/masters/partners/${id}`, { method: 'DELETE' }),
+
+  // --- 付箋 (notes) ---
+  notes: (clientId?: string) =>
+    req<NoteRow[]>(`/masters/notes${clientId ? `?client_id=${clientId}` : ''}`),
+  createNote: (body: { firm_id: string; client_id: string; text: string; color: string }) =>
+    req<{ id: string }>('/masters/notes', { method: 'POST', body: JSON.stringify(body) }),
+  patchNote: (id: string, patch: { text?: string; color?: string }) =>
+    req(`/masters/notes/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteNote: (id: string) => req(`/masters/notes/${id}`, { method: 'DELETE' }),
+  setReceiptNotes: (receiptId: string, noteIds: string[]) =>
+    req(`/receipts/${receiptId}`, { method: 'PATCH', body: JSON.stringify({ note_ids: noteIds }) }),
 
   issuePairing: (clientId: string, userId?: string) =>
     req<{ token: string; qr_png_base64: string; expires_in_min: number }>('/pairing/issue', {

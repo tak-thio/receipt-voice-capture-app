@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { api, type MasterRow, type SubAccountRow } from '../api'
+import { api, type MasterRow, type NoteRow, type SubAccountRow } from '../api'
 import {
-  Badge, Button, Card, EmptyState, Field, Icon, IconButton, Input, Modal,
+  Badge, Button, Card, cn, EmptyState, Field, Icon, IconButton, Input, Modal,
   PageHeader, Section, Table, Tbody, Td, Th, Thead, Tr,
 } from '../ui'
+import { NOTE_COLOR_KEYS, NOTE_COLORS, NoteChip } from '../notes'
 import { useToast } from '../ui/toast'
 
 type TitleModal = { mode: 'add' } | { mode: 'edit'; row: MasterRow } | null
@@ -93,6 +94,7 @@ export function MastersView({ clientId, firmId }: { clientId: string; firmId: st
           </Table>
         </Section>
 
+        <div className="space-y-5">
         <Section
           title="取引先"
           actions={<Button variant="primary" size="sm" onClick={() => setPartnerModal({ mode: 'add' })}><Icon.Plus /> 追加</Button>}
@@ -125,6 +127,8 @@ export function MastersView({ clientId, firmId }: { clientId: string; firmId: st
             </Tbody>
           </Table>
         </Section>
+        <NotesSection clientId={clientId} firmId={firmId} />
+        </div>
       </div>
 
       {titleModal && (
@@ -299,5 +303,94 @@ function PartnerEditor({
         <Field label="ドメイン" hint="メール取込時の自動引当に使用します。"><Input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="example.co.jp" /></Field>
       </div>
     </Modal>
+  )
+}
+
+/* ------------------------------------------------------------------ 付箋 */
+
+function ColorSwatches({ value, onChange }: { value: string; onChange: (c: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {NOTE_COLOR_KEYS.map((k) => (
+        <button key={k} type="button" title={NOTE_COLORS[k].label} onClick={() => onChange(k)}
+          className={cn('h-6 w-6 rounded-full ring-2 ring-offset-1 transition',
+            NOTE_COLORS[k].dot, value === k ? 'ring-slate-800' : 'ring-transparent hover:ring-slate-300')} />
+      ))}
+    </div>
+  )
+}
+
+function NotesSection({ clientId, firmId }: { clientId: string; firmId: string }) {
+  const toast = useToast()
+  const [notes, setNotes] = useState<NoteRow[]>([])
+  const [text, setText] = useState('')
+  const [color, setColor] = useState('amber')
+  const [editId, setEditId] = useState<string | null>(null)
+  const [edit, setEdit] = useState({ text: '', color: 'amber' })
+  const [busy, setBusy] = useState(false)
+
+  async function load() {
+    setNotes(await api.notes(clientId).catch(() => []))
+  }
+  useEffect(() => {
+    void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId])
+
+  async function add() {
+    if (!text.trim()) { toast.error('付箋のテキストを入力してください。'); return }
+    setBusy(true)
+    const ok = await toast.run(() => api.createNote({ firm_id: firmId, client_id: clientId, text: text.trim(), color }), '付箋を追加しました')
+    setBusy(false)
+    if (ok) { setText(''); setColor('amber'); await load() }
+  }
+  async function save(id: string) {
+    if (await toast.run(() => api.patchNote(id, { text: edit.text.trim(), color: edit.color }), '付箋を更新しました')) {
+      setEditId(null); await load()
+    }
+  }
+  async function del(n: NoteRow) {
+    if (!window.confirm(`付箋「${n.text}」を削除しますか?`)) return
+    if (await toast.run(() => api.deleteNote(n.id), '付箋を削除しました')) await load()
+  }
+
+  return (
+    <Section title="付箋" description="「社長に確認」など、領収書に付ける目印。受信箱・仕分けで参照できます。" bodyClassName="p-4">
+      <div className="mb-3 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="付箋のテキスト(例: 社長に確認)"
+          onKeyDown={(e) => e.key === 'Enter' && void add()} />
+        <div className="flex items-center justify-between">
+          <ColorSwatches value={color} onChange={setColor} />
+          <Button variant="primary" size="sm" disabled={busy} onClick={() => void add()}><Icon.Plus /> 追加</Button>
+        </div>
+      </div>
+      <ul className="space-y-1.5">
+        {notes.map((n) => (
+          <li key={n.id} className="rounded-lg">
+            {editId === n.id ? (
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                <Input value={edit.text} onChange={(e) => setEdit({ ...edit, text: e.target.value })} />
+                <div className="flex items-center justify-between">
+                  <ColorSwatches value={edit.color} onChange={(c) => setEdit({ ...edit, color: c })} />
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="primary" onClick={() => void save(n.id)}>保存</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setEditId(null)}>取消</Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between py-1">
+                <NoteChip note={n} />
+                <div className="flex items-center gap-0.5">
+                  <IconButton label="編集" onClick={() => { setEditId(n.id); setEdit({ text: n.text, color: n.color }) }}><Icon.Pencil /></IconButton>
+                  <IconButton label="削除" className="hover:!text-red-600" onClick={() => void del(n)}><Icon.Trash /></IconButton>
+                </div>
+              </div>
+            )}
+          </li>
+        ))}
+        {notes.length === 0 && <li className="py-4 text-center text-sm text-slate-400">付箋がありません</li>}
+      </ul>
+    </Section>
   )
 }

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import Principal, get_principal, require_firm_role
-from ..models import AccountTitle, Partner, SubAccount
+from ..models import AccountTitle, Note, Partner, SubAccount
 
 router = APIRouter(prefix="/masters", tags=["masters"])
 
@@ -59,6 +59,20 @@ class SubAccountIn(BaseModel):
 class SubAccountPatch(BaseModel):
     code: str | None = None
     name: str | None = None
+    sort_order: int | None = None
+
+
+class NoteIn(BaseModel):
+    firm_id: UUID
+    client_id: UUID
+    text: str
+    color: str = "amber"
+    sort_order: int = 0
+
+
+class NotePatch(BaseModel):
+    text: str | None = None
+    color: str | None = None
     sort_order: int | None = None
 
 
@@ -282,5 +296,68 @@ async def delete_sub_account(
     if not sub:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "sub-account not found")
     sub.active = False  # soft-delete
+    await session.flush()
+    return {"ok": True}
+
+
+# --- 付箋 (notes) ------------------------------------------------------------
+
+@router.get("/notes")
+async def list_notes(
+    client_id: UUID | None = None,
+    _: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    stmt = select(Note).where(Note.active.is_(True))
+    if client_id:
+        stmt = stmt.where(Note.client_id == client_id)
+    rows = await session.scalars(stmt.order_by(Note.sort_order, Note.created_at))
+    return [{"id": str(n.id), "text": n.text, "color": n.color} for n in rows]
+
+
+@router.post("/notes", status_code=201)
+async def create_note(
+    body: NoteIn,
+    _: Principal = Depends(require_firm_role(*MASTER_EDITORS)),
+    session: AsyncSession = Depends(get_session),
+):
+    note = Note(
+        firm_id=body.firm_id,
+        client_id=body.client_id,
+        text=body.text,
+        color=body.color,
+        sort_order=body.sort_order,
+    )
+    session.add(note)
+    await session.flush()
+    return {"id": str(note.id), "text": note.text, "color": note.color}
+
+
+@router.patch("/notes/{note_id}")
+async def patch_note(
+    note_id: UUID,
+    body: NotePatch,
+    _: Principal = Depends(require_firm_role(*MASTER_EDITORS)),
+    session: AsyncSession = Depends(get_session),
+):
+    note = await session.get(Note, note_id)  # RLS scopes to the firm/client
+    if not note:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "note not found")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(note, field, value)
+    await session.flush()
+    return {"id": str(note.id), "text": note.text, "color": note.color}
+
+
+@router.delete("/notes/{note_id}")
+async def delete_note(
+    note_id: UUID,
+    _: Principal = Depends(require_firm_role(*MASTER_EDITORS)),
+    session: AsyncSession = Depends(get_session),
+):
+    note = await session.get(Note, note_id)
+    if not note:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "note not found")
+    note.active = False  # soft-delete: keep it referenced on past receipts
     await session.flush()
     return {"ok": True}

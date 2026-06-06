@@ -248,6 +248,8 @@ class Receipt(Base, TimestampMixin):
     journal_hold: Mapped[bool] = mapped_column(Boolean, default=False)
     match_id: Mapped[UUID | None] = mapped_column(nullable=True, index=True)
     created_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    # 付箋 (note) ids attached to this receipt — UUID strings into the notes master.
+    note_ids: Mapped[list] = mapped_column(JSONB, default=list)
     # search_text (generated column + pg_trgm GIN index) is added in the migration.
 
     files: Mapped[list[ReceiptFile]] = relationship(cascade="all, delete-orphan")
@@ -298,6 +300,21 @@ class SubAccount(Base, TimestampMixin):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     override_of: Mapped[UUID | None] = mapped_column(ForeignKey("sub_accounts.id"), nullable=True)
+
+
+class Note(Base, TimestampMixin):
+    """付箋: a free-text + colour label, defined per client, attachable to
+    receipts (see Receipt.note_ids). Examples: 「社長に確認」「井出さんに確認」."""
+
+    __tablename__ = "notes"
+
+    id: Mapped[UUID] = _uuid_pk()
+    firm_id: Mapped[UUID] = mapped_column(ForeignKey("firms.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    text: Mapped[str] = mapped_column(String(100))
+    color: Mapped[str] = mapped_column(String(20), default="amber")  # palette key
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class Partner(Base, TimestampMixin):

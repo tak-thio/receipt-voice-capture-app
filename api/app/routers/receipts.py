@@ -24,6 +24,7 @@ class ReceiptPatch(BaseModel):
     sub_account_id: UUID | None = None
     partner_id: UUID | None = None
     approval_status: str | None = None
+    note_ids: list[str] | None = None  # 付箋: replace the attached set
 
 
 def _serialize(r: Receipt) -> dict:
@@ -40,6 +41,7 @@ def _serialize(r: Receipt) -> dict:
         "account_title_id": str(r.account_title_id) if r.account_title_id else None,
         "approval_status": r.approval_status,
         "journalized_at": r.journalized_at.isoformat() if r.journalized_at else None,
+        "note_ids": r.note_ids or [],
     }
 
 

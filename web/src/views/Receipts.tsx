@@ -1,16 +1,21 @@
 import { useEffect, useState } from 'react'
-import { api, type ReceiptRow } from '../api'
+import { api, type NoteRow, type ReceiptRow } from '../api'
 import {
-  Badge, Button, Card, EmptyState, Icon, Input, PageHeader,
+  Badge, Button, Card, EmptyState, Icon, IconButton, Input, PageHeader,
   Table, Tbody, Td, Th, Thead, Tr,
 } from '../ui'
+import { NoteChips, NotePickerModal } from '../notes'
+import { useToast } from '../ui/toast'
 
 const FORMATS = ['generic', 'mas', 'freee', 'yayoi']
 
 export function ReceiptsView({ clientId }: { clientId: string }) {
+  const toast = useToast()
   const [rows, setRows] = useState<ReceiptRow[]>([])
+  const [notes, setNotes] = useState<NoteRow[]>([])
   const [q, setQ] = useState('')
   const [loading, setLoading] = useState(false)
+  const [tagging, setTagging] = useState<ReceiptRow | null>(null)
 
   async function load() {
     if (!clientId) {
@@ -26,8 +31,18 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
   }
   useEffect(() => {
     void load()
+    if (clientId) api.notes(clientId).then(setNotes).catch(() => setNotes([]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId])
+
+  async function toggleNote(noteId: string) {
+    if (!tagging) return
+    const has = tagging.note_ids.includes(noteId)
+    const next = has ? tagging.note_ids.filter((x) => x !== noteId) : [...tagging.note_ids, noteId]
+    setTagging({ ...tagging, note_ids: next })
+    setRows((rs) => rs.map((r) => (r.id === tagging.id ? { ...r, note_ids: next } : r)))
+    await toast.run(() => api.setReceiptNotes(tagging.id, next))
+  }
 
   if (!clientId) {
     return (
@@ -73,7 +88,7 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
               <Th className="w-28">日付</Th>
               <Th>支払先</Th>
               <Th className="text-right">金額</Th>
-              <Th className="w-24">区分</Th>
+              <Th>付箋</Th>
               <Th className="w-24">状態</Th>
             </tr>
           </Thead>
@@ -85,7 +100,14 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
                 <Td className="text-right font-medium tabular-nums">
                   {r.amount_jpy != null ? `¥${r.amount_jpy.toLocaleString()}` : '—'}
                 </Td>
-                <Td className="text-slate-500">{r.source}</Td>
+                <Td>
+                  <div className="flex items-center gap-1.5">
+                    <NoteChips ids={r.note_ids} notes={notes} />
+                    <IconButton label="付箋を付ける" className="h-7 w-7" onClick={() => setTagging(r)}>
+                      <Icon.Plus />
+                    </IconButton>
+                  </div>
+                </Td>
                 <Td>
                   {r.journalized_at
                     ? <Badge tone="success">仕分済</Badge>
@@ -103,6 +125,14 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
           </Tbody>
         </Table>
       </Card>
+
+      <NotePickerModal
+        open={!!tagging}
+        onClose={() => setTagging(null)}
+        notes={notes}
+        value={tagging?.note_ids ?? []}
+        onToggle={(id) => void toggleNote(id)}
+      />
     </>
   )
 }
