@@ -52,9 +52,18 @@ git checkout feature/mobile-ios
     - 受け側: `api/app/routers/pairing.py`(redeem)、`api/app/routers/captures.py`(create_capture)。
       端末トークンは `Authorization: Bearer` で送られ、`api/app/deps.py:get_principal` が解決。
 
-### まだ無いもの(= Mac での主タスク)
-- **iOS は未初期化**(`mobile/src-tauri/gen/apple/` が無い)。Mac で `tauri ios init` が必要。
-- iOS 実機での一連の動作確認(録音/撮影/権限/`audio/mp4` の STT 受理など)。
+### Mac で実施済み(2026-06-06)
+- **Rust + iOS ターゲット導入**: `rustup`(stable 1.96)+ `aarch64-apple-ios` / `aarch64-apple-ios-sim` / `x86_64-apple-ios`。
+- **iOS 初期化完了**: `npm run tauri -- ios init` → `mobile/src-tauri/gen/apple/`(Xcode プロジェクト)を生成。コミット対象。
+- **権限/ATS 設定**: 生成 `gen/apple/receipt_voice_capture_iOS/Info.plist` と `gen/apple/project.yml`(xcodegen の再生成元)、および canonical な `src-tauri/Info.plist` に以下を追加:
+  - `NSCameraUsageDescription` / `NSMicrophoneUsageDescription`(録音・撮影)
+  - `NSLocalNetworkUsageDescription` + `NSAppTransportSecurity → NSAllowsLocalNetworking`(server-linked の LAN HTTP `http://<MacのIP>:8088` 接続用。iOS 14+ のローカルネットワーク権限と ATS を満たす)
+- **シミュレータビルド検証**: `npm run tauri -- ios build --target aarch64-sim --debug` が `** BUILD SUCCEEDED **`(ad-hoc 署名、Apple Developer 登録不要)。ビルド済み `.app` の最終 Info.plist に上記キーの反映を確認済み。
+
+### まだ無いもの(= 実機が要る残作業)
+- iOS **実機**での一連の動作確認(録音/撮影/権限プロンプト/`audio/mp4` の STT 受理など)。シミュレータはカメラ非搭載のため、撮影系の検証は実機必須。
+- 実機インストール/配布ビルド(`tauri ios build`)は Apple Developer 登録($99/年)と署名・プロビジョニング設定が必要。
+- server-linked の実通信確認(サーバ稼働 + QR/トークンでペアリング → `/captures` アップロード)。なお現状サーバ側は受領・ジョブ登録まで実装で、STT/OCR ワーカーは `api/app/routers/captures.py` の Phase 1 TODO（未実装）。
 
 ---
 
@@ -131,12 +140,13 @@ git checkout feature/mobile-ios
 
 ## 8. 検証チェックリスト(iOS)
 
-- [ ] `tauri ios init` → `gen/apple/` 生成、Xcode で開ける
-- [ ] マイク/カメラ権限プロンプト → 許可 → `getUserMedia` 成功
-- [ ] standalone: 録音→STT / 撮影→OCR / 保存 / 再起動後にセッション復元 / エクスポート(共有)
-- [ ] server-linked: QR ペアリング → 撮影アップロード → 管理画面 受信箱に表示
-- [ ] `audio/mp4` が STT API に受理される
-- [ ] `npm run tauri ios build` で IPA(配布は Apple Developer 登録が別途必要 $99/年)
+- [x] `tauri ios init` → `gen/apple/` 生成、Xcode で開ける
+- [x] シミュレータ向けビルド成功(`npm run tauri -- ios build --target aarch64-sim --debug` → `BUILD SUCCEEDED`)、Info.plist へ権限反映を確認
+- [ ] マイク/カメラ権限プロンプト → 許可 → `getUserMedia` 成功(実機)
+- [ ] standalone: 録音→STT / 撮影→OCR / 保存 / 再起動後にセッション復元 / エクスポート(共有)(実機)
+- [ ] server-linked: QR/トークンでペアリング → 撮影アップロード → 管理画面 受信箱に表示(実機 + サーバ)
+- [ ] `audio/mp4` が STT API に受理される(実機)
+- [ ] `npm run tauri -- ios build` で IPA(配布は Apple Developer 登録が別途必要 $99/年)
 
 ## 9. 関連ドキュメント
 
