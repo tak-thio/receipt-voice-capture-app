@@ -31,6 +31,43 @@ function parsePairingQr(value: string): { token: string; url?: string } {
   return { token: trimmed }
 }
 
+function isLocalHost(hostname: string): boolean {
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
+    return true
+  }
+  if (hostname.endsWith('.local')) {
+    return true
+  }
+  const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(hostname)
+  if (m) {
+    const a = Number(m[1])
+    const b = Number(m[2])
+    if (a === 10 || a === 127) return true
+    if (a === 192 && b === 168) return true
+    if (a === 172 && b >= 16 && b <= 31) return true
+  }
+  return false
+}
+
+/** 本番(公開ホスト)への http 接続を弾く。https は常に可、http はローカル/LAN のみ許可。 */
+function validateServerUrl(raw: string): string | null {
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    return 'サーバURLの形式が正しくありません(例: https://example.com/api)。'
+  }
+  if (url.protocol === 'https:') {
+    return null
+  }
+  if (url.protocol === 'http:') {
+    return isLocalHost(url.hostname)
+      ? null
+      : '本番接続は https が必要です。http はトークンが平文で流れるため、ローカル/LAN 検証以外では使えません。'
+  }
+  return 'サーバURLは https(本番)または http(ローカル/LAN のみ)で指定してください。'
+}
+
 export function SettingsPage() {
   const settings = useSessionStore((state) => state.settings)
   const dictionaries = useSessionStore((state) => state.dictionaries)
@@ -87,6 +124,11 @@ export function SettingsPage() {
   async function handleConnect() {
     if (!draft.serverUrl || !pairingToken) {
       setServerMessage('サーバURLとペアリングトークンを入力してください。')
+      return
+    }
+    const urlError = validateServerUrl(draft.serverUrl)
+    if (urlError) {
+      setServerMessage(urlError)
       return
     }
     setIsConnecting(true)
