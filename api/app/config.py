@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
     cookie_secure: bool = False
 
+    # モバイルのペアリングQRに埋める公開APIベースURL(例 https://receipt.example.com/api)。
+    # 設定すると /pairing/issue が {"url","t"} を QR に入れ、1スキャンで端末が接続先+トークンを得る。
+    # 空なら QR は bare token のみ(端末側で URL を手入力)。
+    public_api_url: str = ""
+
     @property
     def runtime_database_url(self) -> str:
         return self.app_database_url or self.database_url

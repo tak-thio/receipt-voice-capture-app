@@ -12,6 +12,25 @@ import type { AiDiagnostics } from '../api/ai-formatter-api'
 import type { SttDiagnostics } from '../api/stt-api'
 import type { OcrDiagnostics } from '../api/ocr-api'
 
+/** ペアリングQRの中身を解釈する。{url,t} JSON なら接続先URLも取得、そうでなければ bare token。 */
+function parsePairingQr(value: string): { token: string; url?: string } {
+  const trimmed = value.trim()
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed) as { url?: unknown; t?: unknown }
+      if (typeof parsed.t === 'string' && parsed.t) {
+        return {
+          token: parsed.t,
+          url: typeof parsed.url === 'string' && parsed.url ? parsed.url : undefined,
+        }
+      }
+    } catch {
+      // JSON でなければ bare token として扱う
+    }
+  }
+  return { token: trimmed }
+}
+
 export function SettingsPage() {
   const settings = useSessionStore((state) => state.settings)
   const dictionaries = useSessionStore((state) => state.dictionaries)
@@ -49,8 +68,14 @@ export function SettingsPage() {
     try {
       const value = await scanQrOnce()
       if (value) {
-        setPairingToken(value)
-        setServerMessage('QRを読み取りました。「接続」を押してください。')
+        const parsed = parsePairingQr(value)
+        setPairingToken(parsed.token)
+        if (parsed.url) {
+          setDraft((current) => ({ ...current, serverUrl: parsed.url as string }))
+          setServerMessage('QRを読み取りました(接続先URLも取得)。「接続」を押してください。')
+        } else {
+          setServerMessage('QRを読み取りました。「接続」を押してください。')
+        }
       } else {
         setServerMessage('QRを読み取れませんでした。トークンを手入力してください。')
       }

@@ -9,6 +9,7 @@ No password is typed on the phone.
 
 import base64
 import io
+import json
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
@@ -18,6 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import get_settings
 from ..db import get_session, set_rls_context
 from ..deps import Principal, can_admin_client, get_principal
 from ..models import Client, DeviceSession, Membership, PairingToken, Role, User
@@ -25,6 +27,7 @@ from ..security import hash_token, new_token
 
 router = APIRouter(prefix="/pairing", tags=["pairing"])
 
+settings = get_settings()
 PAIRING_TTL_MIN = 15
 
 
@@ -98,13 +101,22 @@ async def issue(
         )
     )
 
-    img = qrcode.make(token)
+    # 公開URLが設定されていれば {"url","t"} を QR に入れ、1スキャンで接続先+トークンを得る。
+    # 未設定なら従来どおり bare token(端末側で URL を手入力)。
+    if settings.public_api_url:
+        qr_content = json.dumps(
+            {"url": settings.public_api_url, "t": token}, separators=(",", ":")
+        )
+    else:
+        qr_content = token
+    img = qrcode.make(qr_content)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     qr_b64 = base64.b64encode(buf.getvalue()).decode()
     return {
         "token": token,  # for testing; production shows only the QR
         "qr_png_base64": qr_b64,
+        "url": settings.public_api_url or None,
         "expires_in_min": PAIRING_TTL_MIN,
         "client_id": str(client.id),
         "user_id": str(user.id),
