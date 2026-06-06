@@ -92,7 +92,13 @@ interface SessionStoreState {
     captureFrames: CaptureFrameInput[],
   ) => Promise<void>
   persistRecordedAudioClip: (audioClip: RecordedAudioClip) => Promise<RecordedAudioClip>
-  captureReceiptPhoto: (input: { imageDataUrl: string; width: number; height: number }) => Promise<void>
+  captureReceiptPhoto: (input: {
+    imageDataUrl: string
+    width: number
+    height: number
+    /** シャッターを切った時刻(壁時計 ISO)。音声との突き合わせに使う。 */
+    capturedAt: string
+  }) => Promise<void>
   setSelectedRecordId: (recordId: string | null) => void
   setReviewMode: (mode: ReviewMode) => void
   updateFinalField: <K extends keyof ReceiptRecord['final']>(
@@ -697,7 +703,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       })
     }
   },
-  captureReceiptPhoto: async ({ imageDataUrl, width, height }) => {
+  captureReceiptPhoto: async ({ imageDataUrl, width, height, capturedAt }) => {
     const { dictionaries, settings } = get()
     if (!dictionaries) {
       return
@@ -705,7 +711,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     const session = await ensureSession(get().session, settings)
     set({ isProcessing: true, lastCaptureError: null })
     try {
-      const capture = await saveCaptureImage({
+      const saved = await saveCaptureImage({
         sessionId: session.id,
         imageDataUrl,
         width,
@@ -713,6 +719,9 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         storageRoot: settings.storageRoot,
         suggestedFileName: `scan-${Date.now()}.jpg`,
       })
+      // 撮影時刻は保存処理の時刻ではなく「シャッターを切った瞬間(壁時計)」を採用する。
+      // 音声(audioClip.startedAt + STT events)と同じ時間軸で後から突き合わせるため。
+      const capture = { ...saved, capturedAt }
       const record = await buildImageFirstRecord(
         capture,
         { rawText: '', segmentStartMs: null, segmentEndMs: null, sourceEvents: [] },

@@ -28,6 +28,8 @@ export interface CaptureUpload {
   imageDataUrl?: string
   audio?: Blob
   capturedAt?: string
+  /** 端末のキャプチャ時メタデータ(撮影時刻・画像寸法・検出情報・プラットフォーム等)。JSON で送る。 */
+  metadata?: Record<string, unknown>
 }
 
 function dataUrlToBlob(dataUrl: string): Blob {
@@ -56,6 +58,9 @@ export async function uploadCapture(
   }
   if (capture.capturedAt) {
     form.append('captured_at', capture.capturedAt)
+  }
+  if (capture.metadata) {
+    form.append('metadata', JSON.stringify(capture.metadata))
   }
   const res = await fetch(`${base(serverUrl)}/captures`, {
     method: 'POST',

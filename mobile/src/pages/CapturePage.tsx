@@ -10,6 +10,8 @@ import { MOCK_TRANSCRIPT_SEQUENCES } from '../services/sample-sequences'
 import { useSessionStore } from '../store/session-store'
 import { useAutoScanner } from '../hooks/useAutoScanner'
 import { unlockShutterAudio } from '../services/detection'
+import type { Detection } from '../services/detection'
+import { getRuntimePlatform } from '../lib/platform'
 import type { RecordedAudioClip } from '../types/audio'
 
 function buildFallbackCapture(): { imageDataUrl: string; width: number; height: number } {
@@ -111,12 +113,26 @@ export function CapturePage() {
   const scanner = useAutoScanner({
     videoRef,
     enabled: isScanning && scanModeEnabled && cameraStatus === 'ready',
-    onCapture: (capture) =>
-      void captureReceiptPhoto({
-        imageDataUrl: capture.imageDataUrl,
-        width: capture.width,
-        height: capture.height,
-      }),
+    onCapture: (capture) => {
+      if (settings.appMode === 'linked') {
+        // サーバ連携モード: 端末では抽出せず、画像+(録音中なら音声)+メタデータをサーバへ送る。
+        void uploadToServer({
+          imageDataUrl: capture.imageDataUrl,
+          width: capture.width,
+          height: capture.height,
+          capturedAt: capture.capturedAt,
+          captureMethod: 'scan',
+          detection: capture.detection,
+        })
+      } else {
+        void captureReceiptPhoto({
+          imageDataUrl: capture.imageDataUrl,
+          width: capture.width,
+          height: capture.height,
+          capturedAt: capture.capturedAt,
+        })
+      }
+    },
   })
 
   useEffect(() => {
@@ -144,13 +160,15 @@ export function CapturePage() {
     if (!isScanning) {
       return
     }
+    // ロックオン中(枠が安定)は緑、まだ動いている間は琥珀色
+    const boxColor = scanner.settled ? 'rgba(86, 222, 130, 0.95)' : 'rgba(255, 190, 70, 0.92)'
     for (const detection of scanner.detections) {
       const { x, y, width, height } = detection.box
       ctx.lineWidth = Math.max(2, vw * 0.006)
-      ctx.strokeStyle = 'rgba(86, 222, 130, 0.95)'
+      ctx.strokeStyle = boxColor
       ctx.strokeRect(x, y, width, height)
     }
-  }, [scanner.detections, isScanning])
+  }, [scanner.detections, scanner.settled, isScanning])
 
   const latestRecord = session?.records.at(-1) ?? null
   const selectedSequence = useMemo(
@@ -246,7 +264,39 @@ export function CapturePage() {
     }
   }
 
-  async function handleServerUpload() {
+  function buildCaptureMetadata(input: {
+    capturedAt: string
+    width: number
+    height: number
+    captureMethod: 'scan' | 'manual'
+    detection?: Detection
+  }): Record<string, unknown> {
+    return {
+      capturedAt: input.capturedAt,
+      imageWidth: input.width,
+      imageHeight: input.height,
+      captureMethod: input.captureMethod,
+      appMode: settings.appMode,
+      platform: getRuntimePlatform(),
+      hasAudio: Boolean(latestAudioClip?.blob),
+      detection: input.detection
+        ? {
+            label: input.detection.label,
+            score: Number(input.detection.score.toFixed(3)),
+            box: input.detection.box,
+          }
+        : undefined,
+    }
+  }
+
+  async function uploadToServer(input: {
+    imageDataUrl: string
+    width: number
+    height: number
+    capturedAt: string
+    captureMethod: 'scan' | 'manual'
+    detection?: Detection
+  }): Promise<void> {
     if (!settings.serverUrl || !settings.serverDeviceToken) {
       setUploadMessage('設定画面で「サーバ連携」を接続してください。')
       return
@@ -254,18 +304,31 @@ export function CapturePage() {
     setIsUploading(true)
     setUploadMessage('サーバへアップロード中...')
     try {
-      const frame = captureFrame()
       const result = await uploadCapture(settings.serverUrl, settings.serverDeviceToken, {
-        imageDataUrl: frame.imageDataUrl,
+        imageDataUrl: input.imageDataUrl,
         audio: latestAudioClip?.blob,
-        capturedAt: new Date().toISOString(),
+        capturedAt: input.capturedAt,
+        metadata: buildCaptureMetadata(input),
       })
-      setUploadMessage(`サーバに送信しました(受領ID: ${result.receipt_id.slice(0, 8)}…)。事務所側で処理されます。`)
+      setUploadMessage(
+        `サーバに送信しました(受領ID: ${result.receipt_id.slice(0, 8)}…)。事務所側で処理されます。`,
+      )
     } catch (error) {
       setUploadMessage(error instanceof Error ? error.message : 'アップロードに失敗しました。')
     } finally {
       setIsUploading(false)
     }
+  }
+
+  async function handleServerUpload() {
+    const frame = captureFrame()
+    await uploadToServer({
+      imageDataUrl: frame.imageDataUrl,
+      width: frame.width,
+      height: frame.height,
+      capturedAt: new Date().toISOString(),
+      captureMethod: 'manual',
+    })
   }
 
   function captureSnapshot(): CaptureSnapshot {

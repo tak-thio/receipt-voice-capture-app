@@ -5,14 +5,20 @@ import {
   createDetector,
   playShutterSound,
 } from '../services/detection'
-import type { Detection, ObjectDetector } from '../services/detection'
+import type { Detection, DetectionBox, ObjectDetector } from '../services/detection'
 
 export interface ScannerCapture {
   imageDataUrl: string
   width: number
   height: number
-  /** 撮影時刻(performance.now ベース、音声との突き合わせ補助に使う) */
-  capturedAtMs: number
+  /**
+   * シャッターを切った時刻(壁時計 ISO)。
+   * 音声タイムライン(audioClip.startedAt + STT events)と同じ時間軸で突き合わせるため、
+   * performance.now ではなく Date ベースの絶対時刻を持つ。
+   */
+  capturedAt: string
+  /** このキャプチャを発火させた検出(bbox/score/label)。メタデータに使う。 */
+  detection: Detection
 }
 
 export interface UseAutoScannerOptions {
@@ -20,10 +26,14 @@ export interface UseAutoScannerOptions {
   enabled: boolean
   onCapture: (capture: ScannerCapture) => void
   detectionIntervalMs?: number
-  /** 連続で対象を検出したら発火するフレーム数 */
+  /** 連続で安定検出したら発火するフレーム数 */
   stabilityFrames?: number
   /** 連続発火を抑えるクールダウン(重複はOKなので短め) */
   cooldownMs?: number
+  /** 連続フレームの枠 IoU がこれ以上なら「動いていない=安定」とみなす */
+  settleIou?: number
+  /** 見切れ(枠が画面端に接触)時に必要な安定フレーム数 */
+  partialStabilityFrames?: number
 }
 
 export interface AutoScannerState {
@@ -32,6 +42,8 @@ export interface AutoScannerState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   error: string | null
   captureCount: number
+  /** 枠が安定し、シャッター直前まで来ている(=ロックオン中) */
+  settled: boolean
 }
 
 const DETECT_WIDTH = 320
@@ -41,17 +53,21 @@ export function useAutoScanner(options: UseAutoScannerOptions): AutoScannerState
   const intervalMs = options.detectionIntervalMs ?? 180
   const stabilityFrames = options.stabilityFrames ?? 4
   const cooldownMs = options.cooldownMs ?? 1400
+  const settleIou = options.settleIou ?? 0.78
+  const partialStabilityFrames = options.partialStabilityFrames ?? stabilityFrames * 2
 
   const [detections, setDetections] = useState<Detection[]>([])
   const [status, setStatus] = useState<AutoScannerState['status']>('idle')
   const [error, setError] = useState<string | null>(null)
   const [captureCount, setCaptureCount] = useState(0)
+  const [settled, setSettled] = useState(false)
 
   const detectorRef = useRef<ObjectDetector | null>(null)
   const detCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const cropCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const stableCountRef = useRef(0)
   const lastCaptureRef = useRef(0)
+  const prevBoxRef = useRef<DetectionBox | null>(null)
   const onCaptureRef = useRef(options.onCapture)
   onCaptureRef.current = options.onCapture
 
@@ -59,7 +75,9 @@ export function useAutoScanner(options: UseAutoScannerOptions): AutoScannerState
     if (!enabled) {
       setStatus('idle')
       setDetections([])
+      setSettled(false)
       stableCountRef.current = 0
+      prevBoxRef.current = null
       return
     }
 
@@ -69,6 +87,8 @@ export function useAutoScanner(options: UseAutoScannerOptions): AutoScannerState
     setError(null)
 
     function captureCrop(video: HTMLVideoElement, best: Detection): void {
+      // シャッター瞬間の壁時計時刻を確定(以降の処理時間に左右されない)。
+      const capturedAt = new Date().toISOString()
       const vw = video.videoWidth
       const vh = video.videoHeight
       const margin = 0.06
@@ -103,7 +123,8 @@ export function useAutoScanner(options: UseAutoScannerOptions): AutoScannerState
         imageDataUrl,
         width: canvas.width,
         height: canvas.height,
-        capturedAtMs: performance.now(),
+        capturedAt,
+        detection: best,
       })
     }
 
@@ -148,20 +169,37 @@ export function useAutoScanner(options: UseAutoScannerOptions): AutoScannerState
         null,
       )
 
+      // 枠の「動きが収まったか(ブレ)」を連続フレームの IoU で見る。
+      // 動いていない時だけカウントを積み、動いている間は減衰させて撮らない。
+      let isPartial = false
       if (best && best.score >= DETECTION_CONFIG.scoreThreshold) {
-        stableCountRef.current += 1
+        const prev = prevBoxRef.current
+        const settledNow = prev ? boxIou(best.box, prev) >= settleIou : false
+        prevBoxRef.current = best.box
+        isPartial = isBoxPartial(best.box, vw, vh)
+        if (settledNow) {
+          stableCountRef.current += 1
+        } else {
+          stableCountRef.current = Math.max(0, stableCountRef.current - 2)
+        }
       } else {
         stableCountRef.current = 0
+        prevBoxRef.current = null
       }
+
+      // 見切れ(枠が画面端に接触)時は必要フレーム数を多めにして、構えてから撮る。
+      const needed = isPartial ? partialStabilityFrames : stabilityFrames
+      setSettled(best != null && stableCountRef.current >= Math.max(2, Math.ceil(needed / 2)))
 
       const now = performance.now()
       if (
         best &&
-        stableCountRef.current >= stabilityFrames &&
+        stableCountRef.current >= needed &&
         now - lastCaptureRef.current >= cooldownMs
       ) {
         lastCaptureRef.current = now
         stableCountRef.current = 0
+        prevBoxRef.current = null
         captureCrop(video, best)
       }
     }
@@ -226,5 +264,25 @@ export function useAutoScanner(options: UseAutoScannerOptions): AutoScannerState
     [],
   )
 
-  return { detections, status, error, captureCount }
+  return { detections, status, error, captureCount, settled }
+}
+
+function boxIou(a: DetectionBox, b: DetectionBox): number {
+  const x1 = Math.max(a.x, b.x)
+  const y1 = Math.max(a.y, b.y)
+  const x2 = Math.min(a.x + a.width, b.x + b.width)
+  const y2 = Math.min(a.y + a.height, b.y + b.height)
+  const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1)
+  const union = a.width * a.height + b.width * b.height - inter
+  return union > 0 ? inter / union : 0
+}
+
+function isBoxPartial(box: DetectionBox, frameWidth: number, frameHeight: number): boolean {
+  const margin = Math.min(frameWidth, frameHeight) * 0.02
+  return (
+    box.x <= margin ||
+    box.y <= margin ||
+    box.x + box.width >= frameWidth - margin ||
+    box.y + box.height >= frameHeight - margin
+  )
 }
