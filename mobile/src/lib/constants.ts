@@ -21,8 +21,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   serverDeviceToken: '',
   serverClientId: '',
   storageRoot: 'receipt-sessions',
-  preferredCameraId: '',
-  preferredMicrophoneId: '',
   sttMode: 'gemini',
   sttModel: 'small',
   sttDevice: 'cpu',

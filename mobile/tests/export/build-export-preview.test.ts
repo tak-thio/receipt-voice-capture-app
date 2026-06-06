@@ -9,8 +9,6 @@ const settingsSnapshot: AppSettings = {
   serverDeviceToken: '',
   serverClientId: '',
   storageRoot: '/tmp/receipt-app',
-  preferredCameraId: '',
-  preferredMicrophoneId: '',
   sttMode: 'mock',
   sttModel: 'small',
   sttDevice: 'cpu',

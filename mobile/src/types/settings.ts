@@ -16,8 +16,6 @@ export interface AppSettings {
   serverDeviceToken: string
   serverClientId: string
   storageRoot: string
-  preferredCameraId: string
-  preferredMicrophoneId: string
   sttMode: SttMode
   sttModel: string
   sttDevice: string

@@ -8,8 +8,3 @@ export interface RecordedAudioClip {
   startedAt: string
   endedAt: string
 }
-
-export interface RecordingDeviceOption {
-  deviceId: string
-  label: string
-}

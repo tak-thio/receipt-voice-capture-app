@@ -1,4 +1,4 @@
-import type { RecordedAudioClip, RecordingDeviceOption } from '../../types/audio'
+import type { RecordedAudioClip } from '../../types/audio'
 
 export interface MediaRecordingSupport {
   supported: boolean
@@ -17,30 +17,6 @@ function pickMimeType(): string {
   ]
 
   return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ?? ''
-}
-
-async function listInputDevices(kind: MediaDeviceKind): Promise<RecordingDeviceOption[]> {
-  if (!navigator.mediaDevices?.enumerateDevices) {
-    return []
-  }
-
-  const devices = await navigator.mediaDevices.enumerateDevices()
-  return devices
-    .filter((device) => device.kind === kind)
-    .map((device, index) => ({
-      deviceId: device.deviceId,
-      label:
-        device.label ||
-        `${kind === 'audioinput' ? 'Microphone' : 'Camera'} ${index + 1}`,
-    }))
-}
-
-export async function listAudioInputDevices(): Promise<RecordingDeviceOption[]> {
-  return listInputDevices('audioinput')
-}
-
-export async function listVideoInputDevices(): Promise<RecordingDeviceOption[]> {
-  return listInputDevices('videoinput')
 }
 
 export function getMediaRecordingSupport(): MediaRecordingSupport {

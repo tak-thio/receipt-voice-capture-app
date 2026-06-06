@@ -23,8 +23,6 @@ describe('session api recovery', () => {
       updatedAt: '2026-03-25T00:01:00.000Z',
       settingsSnapshot: {
         storageRoot: 'receipt-sessions',
-        preferredCameraId: '',
-        preferredMicrophoneId: '',
         sttMode: 'mock',
         sttModel: 'small',
         sttDevice: 'cpu',

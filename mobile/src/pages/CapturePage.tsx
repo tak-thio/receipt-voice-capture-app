@@ -5,12 +5,10 @@ import { revokeRecordedClip } from '../services/adapters/mock-stt-adapter'
 import {
   MediaRecorderService,
   getMediaRecordingSupport,
-  listAudioInputDevices,
-  listVideoInputDevices,
 } from '../services/audio/media-recorder-service'
 import { MOCK_TRANSCRIPT_SEQUENCES } from '../services/sample-sequences'
 import { useSessionStore } from '../store/session-store'
-import type { RecordedAudioClip, RecordingDeviceOption } from '../types/audio'
+import type { RecordedAudioClip } from '../types/audio'
 
 function buildFallbackCapture(): { imageDataUrl: string; width: number; height: number } {
   const svg = `
@@ -77,8 +75,7 @@ export function CapturePage() {
   )
   const [transcriptionMode, setTranscriptionMode] = useState<TranscriptionMode>('sequence')
   const [cameraStatus, setCameraStatus] = useState<'idle' | 'ready' | 'fallback'>('idle')
-  const [cameraDevices, setCameraDevices] = useState<RecordingDeviceOption[]>([])
-  const [audioDevices, setAudioDevices] = useState<RecordingDeviceOption[]>([])
+  const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment')
   const [latestAudioClip, setLatestAudioClip] = useState<RecordedAudioClip | null>(null)
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0)
   const [captureSnapshotCount, setCaptureSnapshotCount] = useState(0)
@@ -103,7 +100,6 @@ export function CapturePage() {
   const persistRecordedAudioClip = useSessionStore((state) => state.persistRecordedAudioClip)
   const startNewSession = useSessionStore((state) => state.startNewSession)
   const setSelectedRecordId = useSessionStore((state) => state.setSelectedRecordId)
-  const persistSettings = useSessionStore((state) => state.persistSettings)
 
   const latestRecord = session?.records.at(-1) ?? null
   const selectedSequence = useMemo(
@@ -156,9 +152,7 @@ export function CapturePage() {
 
       try {
         currentStream = await navigator.mediaDevices.getUserMedia({
-          video: settings.preferredCameraId
-            ? { deviceId: { exact: settings.preferredCameraId } }
-            : { facingMode: 'environment' },
+          video: { facingMode: cameraFacing },
           audio: false,
         })
         if (!isMounted || !videoRef.current) {
@@ -179,20 +173,7 @@ export function CapturePage() {
       isMounted = false
       currentStream?.getTracks().forEach((track) => track.stop())
     }
-  }, [settings.preferredCameraId])
-
-  useEffect(() => {
-    async function refreshAudioDevices() {
-      const [microphones, cameras] = await Promise.all([
-        listAudioInputDevices(),
-        listVideoInputDevices(),
-      ])
-      setAudioDevices(microphones)
-      setCameraDevices(cameras)
-    }
-
-    void refreshAudioDevices()
-  }, [isRecording])
+  }, [cameraFacing])
 
   function captureFrame(): { imageDataUrl: string; width: number; height: number } {
     const videoElement = videoRef.current
@@ -270,7 +251,7 @@ export function CapturePage() {
 
     try {
       setRecordingError('')
-      await recorderRef.current.start(settings.preferredMicrophoneId || undefined)
+      await recorderRef.current.start()
       setRecording(true)
       setRecordingElapsedMs(0)
       setCaptureSnapshotCount(0)
@@ -333,9 +314,6 @@ export function CapturePage() {
       revokeRecordedClip(current)
       return persistedClip
     })
-    const devices = await listAudioInputDevices()
-    setAudioDevices(devices)
-    setCameraDevices(await listVideoInputDevices())
   }
 
   async function handleProcessRecording() {
@@ -397,46 +375,39 @@ export function CapturePage() {
             <h3>カメラと音声</h3>
             <span className={`status-chip ${cameraStatus}`}>{cameraStatus === 'ready' ? '使用中' : '代替表示'}</span>
           </div>
-          <video ref={videoRef} className="camera-surface" autoPlay muted playsInline />
+          <div className="camera-stage">
+            <video ref={videoRef} className="camera-surface" autoPlay muted playsInline />
+            {cameraStatus === 'ready' && (
+              <button
+                type="button"
+                className="camera-flip-button"
+                onClick={() =>
+                  setCameraFacing((current) => (current === 'environment' ? 'user' : 'environment'))
+                }
+                aria-label={cameraFacing === 'environment' ? 'インカメラに切り替え' : 'アウトカメラに切り替え'}
+                title={cameraFacing === 'environment' ? 'インカメラに切り替え' : 'アウトカメラに切り替え'}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="22"
+                  height="22"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M3 8a9 9 0 0 1 14.5-2.5L21 8" />
+                  <path d="M21 4v4h-4" />
+                  <path d="M21 16a9 9 0 0 1-14.5 2.5L3 16" />
+                  <path d="M3 20v-4h4" />
+                  <circle cx="12" cy="12" r="2.5" />
+                </svg>
+              </button>
+            )}
+          </div>
           <div className="field-grid compact-top">
-            <label className="field">
-              <span>入力カメラ</span>
-              <select
-                value={settings.preferredCameraId}
-                onChange={(event) =>
-                  void persistSettings({
-                    ...settings,
-                    preferredCameraId: event.target.value,
-                  })
-                }
-              >
-                <option value="">既定のカメラ</option>
-                {cameraDevices.map((device) => (
-                  <option key={device.deviceId} value={device.deviceId}>
-                    {device.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>入力マイク</span>
-              <select
-                value={settings.preferredMicrophoneId}
-                onChange={(event) =>
-                  void persistSettings({
-                    ...settings,
-                    preferredMicrophoneId: event.target.value,
-                  })
-                }
-              >
-                <option value="">既定のマイク</option>
-                {audioDevices.map((device) => (
-                  <option key={device.deviceId} value={device.deviceId}>
-                    {device.label}
-                  </option>
-                ))}
-              </select>
-            </label>
             <div className="recording-summary">
               <span className={`status-chip ${isRecording ? 'warning' : 'ready'}`}>
                 {isRecording ? `録音中 ${formatDuration(recordingElapsedMs)}` : '待機中'}

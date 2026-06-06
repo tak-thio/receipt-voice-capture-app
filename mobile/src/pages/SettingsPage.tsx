@@ -6,12 +6,7 @@ import { LOCAL_STT_RECOMMENDED_SETTINGS } from '../lib/constants'
 import { isMobilePlatform } from '../lib/platform'
 import { pairDevice } from '../api/server-api'
 import { isQrScanSupported, scanQrOnce } from '../lib/qr-scan'
-import {
-  listAudioInputDevices,
-  listVideoInputDevices,
-} from '../services/audio/media-recorder-service'
 import { useSessionStore } from '../store/session-store'
-import type { RecordingDeviceOption } from '../types/audio'
 import type { AppMode, AppSettings } from '../types/settings'
 import type { AiDiagnostics } from '../api/ai-formatter-api'
 import type { SttDiagnostics } from '../api/stt-api'
@@ -32,8 +27,6 @@ export function SettingsPage() {
   const reloadCurrentSessionFromDisk = useSessionStore((state) => state.reloadCurrentSessionFromDisk)
   const restoreSessionById = useSessionStore((state) => state.restoreSessionById)
   const [draft, setDraft] = useState<AppSettings>(settings)
-  const [cameraDevices, setCameraDevices] = useState<RecordingDeviceOption[]>([])
-  const [audioDevices, setAudioDevices] = useState<RecordingDeviceOption[]>([])
   const [message, setMessage] = useState('')
   const [isReloading, setIsReloading] = useState(false)
   const [isReloadingSession, setIsReloadingSession] = useState(false)
@@ -98,20 +91,6 @@ export function SettingsPage() {
   useEffect(() => {
     setDraft(settings)
   }, [settings])
-
-  useEffect(() => {
-    async function refreshDevices() {
-      const [cameras, microphones] = await Promise.all([
-        listVideoInputDevices(),
-        listAudioInputDevices(),
-      ])
-
-      setCameraDevices(cameras)
-      setAudioDevices(microphones)
-    }
-
-    void refreshDevices()
-  }, [])
 
   useEffect(() => {
     setIsRefreshingSttDiagnostics(true)
@@ -227,34 +206,6 @@ export function SettingsPage() {
               <input value={draft.storageRoot} onChange={(event) => setDraft({ ...draft, storageRoot: event.target.value })} />
             </label>
           )}
-          <label className="field">
-            <span>カメラID</span>
-            <select
-              value={draft.preferredCameraId}
-              onChange={(event) => setDraft({ ...draft, preferredCameraId: event.target.value })}
-            >
-              <option value="">既定のカメラ</option>
-              {cameraDevices.map((device) => (
-                <option key={device.deviceId} value={device.deviceId}>
-                  {device.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>マイクID</span>
-            <select
-              value={draft.preferredMicrophoneId}
-              onChange={(event) => setDraft({ ...draft, preferredMicrophoneId: event.target.value })}
-            >
-              <option value="">既定のマイク</option>
-              {audioDevices.map((device) => (
-                <option key={device.deviceId} value={device.deviceId}>
-                  {device.label}
-                </option>
-              ))}
-            </select>
-          </label>
           <label className="field">
             <span>STTモード</span>
             <select value={draft.sttMode} onChange={(event) => setDraft({ ...draft, sttMode: event.target.value as AppSettings['sttMode'] })}>

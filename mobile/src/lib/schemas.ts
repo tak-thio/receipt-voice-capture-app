@@ -32,8 +32,6 @@ export const appSettingsSchema = z.object({
   serverDeviceToken: z.string().default(''),
   serverClientId: z.string().default(''),
   storageRoot: z.string(),
-  preferredCameraId: z.string(),
-  preferredMicrophoneId: z.string(),
   sttMode: z.enum(['mock', 'local', 'openai', 'gemini']),
   sttModel: z.string(),
   sttDevice: z.string(),
