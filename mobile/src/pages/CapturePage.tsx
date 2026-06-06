@@ -8,6 +8,8 @@ import {
 } from '../services/audio/media-recorder-service'
 import { MOCK_TRANSCRIPT_SEQUENCES } from '../services/sample-sequences'
 import { useSessionStore } from '../store/session-store'
+import { useAutoScanner } from '../hooks/useAutoScanner'
+import { unlockShutterAudio } from '../services/detection'
 import type { RecordedAudioClip } from '../types/audio'
 
 function buildFallbackCapture(): { imageDataUrl: string; width: number; height: number } {
@@ -68,6 +70,7 @@ export function CapturePage() {
   const snapshotTimerRef = useRef<number | null>(null)
   const recordingStartedAtRef = useRef<number | null>(null)
   const captureSnapshotsRef = useRef<CaptureSnapshot[]>([])
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const [selectedSequenceId, setSelectedSequenceId] = useState(MOCK_TRANSCRIPT_SEQUENCES[0]?.id ?? '')
   const [manualTranscript, setManualTranscript] = useState(
@@ -76,6 +79,8 @@ export function CapturePage() {
   const [transcriptionMode, setTranscriptionMode] = useState<TranscriptionMode>('sequence')
   const [cameraStatus, setCameraStatus] = useState<'idle' | 'ready' | 'fallback'>('idle')
   const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment')
+  const [isScanning, setIsScanning] = useState(false)
+  const [videoAspect, setVideoAspect] = useState<number | null>(null)
   const [latestAudioClip, setLatestAudioClip] = useState<RecordedAudioClip | null>(null)
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0)
   const [captureSnapshotCount, setCaptureSnapshotCount] = useState(0)
@@ -100,6 +105,52 @@ export function CapturePage() {
   const persistRecordedAudioClip = useSessionStore((state) => state.persistRecordedAudioClip)
   const startNewSession = useSessionStore((state) => state.startNewSession)
   const setSelectedRecordId = useSessionStore((state) => state.setSelectedRecordId)
+  const captureReceiptPhoto = useSessionStore((state) => state.captureReceiptPhoto)
+
+  const scanModeEnabled = settings.captureStrategy === 'image'
+  const scanner = useAutoScanner({
+    videoRef,
+    enabled: isScanning && scanModeEnabled && cameraStatus === 'ready',
+    onCapture: (capture) =>
+      void captureReceiptPhoto({
+        imageDataUrl: capture.imageDataUrl,
+        width: capture.width,
+        height: capture.height,
+      }),
+  })
+
+  useEffect(() => {
+    const canvas = overlayCanvasRef.current
+    const video = videoRef.current
+    if (!canvas || !video) {
+      return
+    }
+    const vw = video.videoWidth
+    const vh = video.videoHeight
+    if (!vw || !vh) {
+      return
+    }
+    if (canvas.width !== vw) {
+      canvas.width = vw
+    }
+    if (canvas.height !== vh) {
+      canvas.height = vh
+    }
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      return
+    }
+    ctx.clearRect(0, 0, vw, vh)
+    if (!isScanning) {
+      return
+    }
+    for (const detection of scanner.detections) {
+      const { x, y, width, height } = detection.box
+      ctx.lineWidth = Math.max(2, vw * 0.006)
+      ctx.strokeStyle = 'rgba(86, 222, 130, 0.95)'
+      ctx.strokeRect(x, y, width, height)
+    }
+  }, [scanner.detections, isScanning])
 
   const latestRecord = session?.records.at(-1) ?? null
   const selectedSequence = useMemo(
@@ -359,6 +410,18 @@ export function CapturePage() {
               {isUploading ? '送信中...' : 'サーバへ送信'}
             </button>
           )}
+          {scanModeEnabled && (
+            <button
+              className={`accent-button${isScanning ? ' danger' : ''}`}
+              onClick={() => {
+                unlockShutterAudio()
+                setIsScanning((value) => !value)
+              }}
+              disabled={cameraStatus !== 'ready'}
+            >
+              {isScanning ? 'スキャン停止' : '自動スキャン'}
+            </button>
+          )}
           <button
             className={`accent-button${isRecording ? ' danger' : ''}`}
             onClick={() => void (isRecording ? handleStopRecording() : handleStartRecording())}
@@ -375,8 +438,37 @@ export function CapturePage() {
             <h3>カメラと音声</h3>
             <span className={`status-chip ${cameraStatus}`}>{cameraStatus === 'ready' ? '使用中' : '代替表示'}</span>
           </div>
-          <div className="camera-stage">
-            <video ref={videoRef} className="camera-surface" autoPlay muted playsInline />
+          <div
+            className="camera-stage"
+            style={scanModeEnabled && videoAspect ? { aspectRatio: String(videoAspect) } : undefined}
+          >
+            <video
+              ref={videoRef}
+              className={`camera-surface${scanModeEnabled ? ' full-frame' : ''}`}
+              autoPlay
+              muted
+              playsInline
+              onLoadedMetadata={(event) =>
+                setVideoAspect(
+                  event.currentTarget.videoHeight > 0
+                    ? event.currentTarget.videoWidth / event.currentTarget.videoHeight
+                    : null,
+                )
+              }
+            />
+            <canvas
+              ref={overlayCanvasRef}
+              className={`scan-overlay${scanModeEnabled ? ' full-frame' : ''}`}
+            />
+            {isScanning && scanModeEnabled && (
+              <span className={`scan-badge ${scanner.status}`}>
+                {scanner.status === 'loading'
+                  ? '検出モデル読込中…'
+                  : scanner.status === 'error'
+                    ? (scanner.error ?? '検出エラー')
+                    : `スキャン中 · ${scanner.captureCount}枚`}
+              </span>
+            )}
             {cameraStatus === 'ready' && (
               <button
                 type="button"

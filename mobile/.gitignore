@@ -19,5 +19,7 @@ src-tauri/receipt-sessions
 settings.json
 src-tauri/settings.json
 .venv-stt
+# 物体検出モデル(差し替え可能・サイズ大。各自 public/models/ に配置)
+public/models/
 scripts/dev-tauri-gemini.sh
 *.command
