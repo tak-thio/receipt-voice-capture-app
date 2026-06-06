@@ -219,6 +219,12 @@ export const api = {
 
   // --- firm staff / members ---
   members: () => req<MemberRow[]>('/members'),
+  createMember: (body: { name: string; email: string; password: string; role: string }) =>
+    req<{ user_id: string }>('/members', { method: 'POST', body: JSON.stringify(body) }),
+  patchMember: (
+    userId: string,
+    patch: { role?: string; name?: string; email?: string; password?: string },
+  ) => req(`/members/${userId}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   setMemberRole: (userId: string, role: string) =>
     req(`/members/${userId}`, { method: 'PATCH', body: JSON.stringify({ role }) }),
   removeMember: (userId: string) => req(`/members/${userId}`, { method: 'DELETE' }),

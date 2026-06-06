@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
 import { api, type ClientRow, type FirmInfo, type MemberRow } from '../api'
 import {
-  Button, Field, Icon, Input, Modal, PageHeader, Section,
+  Badge, Button, Field, Icon, IconButton, Input, Modal, PageHeader, Section,
   Select, Table, Tbody, Td, Th, Thead, Tr,
 } from '../ui'
 import { useToast } from '../ui/toast'
+
+const FIRM_ROLE_LABEL: Record<string, string> = { firm_owner: '管理者', firm_staff: '一般社員' }
+type MemberModalState = { mode: 'add' } | { mode: 'edit'; member: MemberRow } | null
 
 const PROVIDERS: Record<string, string[]> = {
   stt: ['openai', 'gemini', 'whisper', 'mock'],
@@ -26,6 +29,7 @@ export function SettingsView({ firmId }: { firmId: string }) {
   const [assignFor, setAssignFor] = useState<MemberRow | null>(null)
   const [assigned, setAssigned] = useState<Set<string>>(new Set())
   const [invite, setInvite] = useState<string | null>(null)
+  const [memberModal, setMemberModal] = useState<MemberModalState>(null)
   void firmId
 
   async function load() {
@@ -140,15 +144,20 @@ export function SettingsView({ firmId }: { firmId: string }) {
 
         <Section
           title="職員"
-          description="職員のロールと担当顧問先を管理します。"
-          actions={<Button size="sm" onClick={() => void inviteStaff()}><Icon.Link /> 職員を招待</Button>}
+          description="職員の氏名・ログイン・ロール・担当顧問先を管理します。"
+          actions={
+            <>
+              <Button variant="primary" size="sm" onClick={() => setMemberModal({ mode: 'add' })}><Icon.Plus /> 職員を追加</Button>
+              <Button size="sm" onClick={() => void inviteStaff()}><Icon.Link /> 招待リンク</Button>
+            </>
+          }
           bodyClassName="p-0"
         >
           <Table>
             <Thead>
               <tr>
                 <Th>職員</Th>
-                <Th className="w-40">ロール</Th>
+                <Th className="w-28">ロール</Th>
                 <Th className="w-px text-right">操作</Th>
               </tr>
             </Thead>
@@ -156,15 +165,14 @@ export function SettingsView({ firmId }: { firmId: string }) {
               {members.map((m) => (
                 <Tr key={m.user_id}>
                   <Td>
-                    <div className="font-medium text-slate-800">{m.name || m.email}</div>
-                    {m.name && <div className="text-xs text-slate-400">{m.email}</div>}
+                    <div className="font-medium text-slate-800">{m.name || '(氏名未設定)'}</div>
+                    <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                      {m.email}
+                      {m.password_set === false && <Badge tone="warning">PW未設定</Badge>}
+                    </div>
                   </Td>
                   <Td>
-                    <Select value={m.role} className="h-8 text-xs"
-                      onChange={async (e) => { if (await toast.run(() => api.setMemberRole(m.user_id, e.target.value), 'ロールを変更しました')) await load() }}>
-                      <option value="firm_owner">管理者</option>
-                      <option value="firm_staff">一般社員</option>
-                    </Select>
+                    <Badge tone={m.role === 'firm_owner' ? 'brand' : 'neutral'}>{FIRM_ROLE_LABEL[m.role] ?? m.role}</Badge>
                   </Td>
                   <Td className="text-right">
                     <div className="flex items-center justify-end gap-1">
@@ -173,10 +181,11 @@ export function SettingsView({ firmId }: { firmId: string }) {
                           <Icon.Building /> 担当顧問先
                         </Button>
                       )}
-                      <IconBtnDelete onClick={async () => {
+                      <IconButton label="編集" onClick={() => setMemberModal({ mode: 'edit', member: m })}><Icon.Pencil /></IconButton>
+                      <IconButton label="削除" className="hover:!text-red-600" onClick={async () => {
                         if (!window.confirm(`${m.name || m.email} を削除しますか?`)) return
                         if (await toast.run(() => api.removeMember(m.user_id), '職員を削除しました')) await load()
-                      }} />
+                      }}><Icon.Trash /></IconButton>
                     </div>
                   </Td>
                 </Tr>
@@ -218,15 +227,81 @@ export function SettingsView({ firmId }: { firmId: string }) {
           {invite}
         </div>
       </Modal>
+
+      {memberModal && (
+        <MemberModal modal={memberModal} onClose={() => setMemberModal(null)}
+          onSaved={async () => { setMemberModal(null); await load() }} />
+      )}
     </>
   )
 }
 
-function IconBtnDelete({ onClick }: { onClick: () => void }) {
+function MemberModal({
+  modal, onClose, onSaved,
+}: {
+  modal: { mode: 'add' } | { mode: 'edit'; member: MemberRow }
+  onClose: () => void
+  onSaved: () => void | Promise<void>
+}) {
+  const toast = useToast()
+  const editing = modal.mode === 'edit'
+  const m = editing ? modal.member : undefined
+  const [name, setName] = useState(m?.name ?? '')
+  const [email, setEmail] = useState(m?.email ?? '')
+  const [password, setPassword] = useState('')
+  const [role, setRole] = useState(m?.role ?? 'firm_staff')
+  const [busy, setBusy] = useState(false)
+
+  async function submit() {
+    if (!name.trim()) { toast.error('氏名は必須です。'); return }
+    if (!email.trim()) { toast.error('メールアドレスは必須です。'); return }
+    if (!editing && !password) { toast.error('パスワードを設定してください。'); return }
+    setBusy(true)
+    try {
+      if (editing && m) {
+        const patch: Record<string, string> = {}
+        if (name !== (m.name || '')) patch.name = name.trim()
+        if (email !== (m.email || '')) patch.email = email.trim()
+        if (role !== m.role) patch.role = role
+        if (password) patch.password = password
+        await api.patchMember(m.user_id, patch)
+        toast.success('職員を更新しました')
+      } else {
+        await api.createMember({ name: name.trim(), email: email.trim(), password, role })
+        toast.success('職員を追加しました')
+      }
+      await onSaved()
+    } catch (e) {
+      toast.error(String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <button title="削除" aria-label="削除" onClick={onClick}
-      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600">
-      <Icon.Trash />
-    </button>
+    <Modal open onClose={onClose} title={editing ? '職員を編集' : '職員を追加'}
+      description="PCで仕分け・確認する職員のログイン情報を設定します。"
+      footer={<>
+        <Button onClick={onClose}>キャンセル</Button>
+        <Button variant="primary" onClick={() => void submit()} disabled={busy}>{busy ? '保存中…' : editing ? '保存' : '追加'}</Button>
+      </>}>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Field label="氏名" required className="sm:col-span-2">
+          <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label="ログインID(メール)" required className="sm:col-span-2">
+          <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="staff@example.com" />
+        </Field>
+        <Field label={editing ? '新パスワード(変更時のみ)' : 'パスワード'} required={!editing}>
+          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+        </Field>
+        <Field label="ロール">
+          <Select value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="firm_owner">管理者</option>
+            <option value="firm_staff">一般社員</option>
+          </Select>
+        </Field>
+      </div>
+    </Modal>
   )
 }
