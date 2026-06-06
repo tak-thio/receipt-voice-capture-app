@@ -18,6 +18,7 @@ from ..deps import (
 )
 from ..models import Client, Membership, Role, User
 from ..security import hash_password
+from ..seed import seed_client_chart
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
@@ -164,9 +165,9 @@ async def create_client(
             setattr(client, field, value)
     session.add(client)
     await session.flush()
-    # No template copy needed: a client inherits the firm's account-title
-    # template (client_id NULL) via the overlay in the masters router, and only
-    # adds rows to override/extend it.
+    # Give the new client its own editable copy of the firm's standard chart
+    # (overriding the inherited template rows so there are no duplicates).
+    await seed_client_chart(session, client.firm_id, client.id)
     return {"id": str(client.id)}
 
 

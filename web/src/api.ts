@@ -70,6 +70,13 @@ export interface MasterRow {
   name: string
   scope?: string
   domain?: string | null
+  sub_account_count?: number
+}
+
+export interface SubAccountRow {
+  id: string
+  code: string | null
+  name: string
 }
 
 export interface Suggestion {
@@ -159,6 +166,14 @@ export const api = {
     req(`/masters/account-titles/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteAccountTitle: (id: string) =>
     req(`/masters/account-titles/${id}`, { method: 'DELETE' }),
+  subAccounts: (titleId: string) =>
+    req<SubAccountRow[]>(`/masters/account-titles/${titleId}/sub-accounts`),
+  createSubAccount: (titleId: string, body: { code: string; name: string }) =>
+    req<{ id: string }>(`/masters/account-titles/${titleId}/sub-accounts`, { method: 'POST', body: JSON.stringify(body) }),
+  patchSubAccount: (id: string, patch: { code?: string; name?: string }) =>
+    req(`/masters/sub-accounts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteSubAccount: (id: string) =>
+    req(`/masters/sub-accounts/${id}`, { method: 'DELETE' }),
   partners: (clientId?: string) =>
     req<MasterRow[]>(`/masters/partners${clientId ? `?client_id=${clientId}` : ''}`),
   createPartner: (body: { firm_id: string; client_id: string; name: string; domain?: string }) =>

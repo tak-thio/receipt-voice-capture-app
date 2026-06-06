@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, type MasterRow } from '../api'
+import { api, type MasterRow, type SubAccountRow } from '../api'
 import {
   Badge, Button, Card, EmptyState, Field, Icon, IconButton, Input, Modal,
   PageHeader, Section, Table, Tbody, Td, Th, Thead, Tr,
@@ -15,6 +15,7 @@ export function MastersView({ clientId, firmId }: { clientId: string; firmId: st
   const [partners, setPartners] = useState<MasterRow[]>([])
   const [titleModal, setTitleModal] = useState<TitleModal>(null)
   const [partnerModal, setPartnerModal] = useState<PartnerModal>(null)
+  const [subFor, setSubFor] = useState<MasterRow | null>(null)
 
   async function load() {
     if (!clientId) return
@@ -46,21 +47,21 @@ export function MastersView({ clientId, firmId }: { clientId: string; firmId: st
 
   return (
     <>
-      <PageHeader title="マスタ" description="勘定科目(テンプレ＋顧問先上書き)と取引先を管理します。" />
+      <PageHeader title="マスタ" description="勘定科目・補助科目・取引先を管理します。" />
 
       <div className="grid gap-5 xl:grid-cols-2">
         <Section
           title="勘定科目"
-          description="事務所テンプレートに顧問先固有の科目を上書き・追加できます。"
+          description="新規顧問先には標準チャートが複製されます。科目ごとに補助科目を設定できます。"
           actions={<Button variant="primary" size="sm" onClick={() => setTitleModal({ mode: 'add' })}><Icon.Plus /> 追加</Button>}
           bodyClassName="p-0"
         >
           <Table>
             <Thead>
               <tr>
-                <Th className="w-24">コード</Th>
+                <Th className="w-20">コード</Th>
                 <Th>科目名</Th>
-                <Th className="w-24">区分</Th>
+                <Th className="w-28">補助科目</Th>
                 <Th className="w-px text-right">操作</Th>
               </tr>
             </Thead>
@@ -68,8 +69,15 @@ export function MastersView({ clientId, firmId }: { clientId: string; firmId: st
               {titles.map((t) => (
                 <Tr key={t.id}>
                   <Td className="font-mono text-xs text-slate-500">{t.code}</Td>
-                  <Td className="font-medium text-slate-800">{t.name}</Td>
-                  <Td>{t.scope === 'client' ? <Badge tone="brand">顧問先</Badge> : <Badge>テンプレ</Badge>}</Td>
+                  <Td className="font-medium text-slate-800">
+                    {t.name}
+                    {t.scope !== 'client' && <Badge className="ml-2">テンプレ</Badge>}
+                  </Td>
+                  <Td>
+                    <Button size="sm" variant="secondary" onClick={() => setSubFor(t)}>
+                      補助科目{t.sub_account_count ? ` ${t.sub_account_count}` : ''}
+                    </Button>
+                  </Td>
                   <Td className="text-right">
                     <div className="flex items-center justify-end gap-0.5">
                       <IconButton label="編集" onClick={() => setTitleModal({ mode: 'edit', row: t })}><Icon.Pencil /></IconButton>
@@ -127,7 +135,88 @@ export function MastersView({ clientId, firmId }: { clientId: string; firmId: st
         <PartnerEditor firmId={firmId} clientId={clientId} modal={partnerModal}
           onClose={() => setPartnerModal(null)} onSaved={async () => { setPartnerModal(null); await load() }} />
       )}
+      {subFor && (
+        <SubAccountsModal title={subFor}
+          onClose={() => setSubFor(null)}
+          onChanged={load} />
+      )}
     </>
+  )
+}
+
+function SubAccountsModal({
+  title, onClose, onChanged,
+}: {
+  title: MasterRow
+  onClose: () => void
+  onChanged: () => void | Promise<void>
+}) {
+  const toast = useToast()
+  const [rows, setRows] = useState<SubAccountRow[]>([])
+  const [code, setCode] = useState('')
+  const [name, setName] = useState('')
+  const [editId, setEditId] = useState<string | null>(null)
+  const [edit, setEdit] = useState({ code: '', name: '' })
+  const [busy, setBusy] = useState(false)
+
+  async function reload() {
+    setRows(await api.subAccounts(title.id).catch(() => []))
+  }
+  useEffect(() => {
+    void reload()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title.id])
+
+  async function add() {
+    if (!code.trim() || !name.trim()) { toast.error('コードと補助科目名は必須です。'); return }
+    setBusy(true)
+    const ok = await toast.run(() => api.createSubAccount(title.id, { code: code.trim(), name: name.trim() }), '補助科目を追加しました')
+    setBusy(false)
+    if (ok) { setCode(''); setName(''); await reload(); await onChanged() }
+  }
+  async function save(id: string) {
+    if (await toast.run(() => api.patchSubAccount(id, { code: edit.code.trim(), name: edit.name.trim() }), '補助科目を更新しました')) {
+      setEditId(null); await reload()
+    }
+  }
+  async function del(s: SubAccountRow) {
+    if (!window.confirm(`補助科目「${s.name}」を削除しますか?`)) return
+    if (await toast.run(() => api.deleteSubAccount(s.id), '補助科目を削除しました')) { await reload(); await onChanged() }
+  }
+
+  return (
+    <Modal open onClose={onClose}
+      title="補助科目"
+      description={`${title.code ? `${title.code} ` : ''}${title.name} の補助科目`}
+      footer={<Button variant="primary" onClick={onClose}>閉じる</Button>}>
+      <div className="mb-3 flex items-end gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+        <Field label="コード" className="w-24"><Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="001" /></Field>
+        <Field label="補助科目名" className="flex-1"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="みずほ銀行" onKeyDown={(e) => e.key === 'Enter' && void add()} /></Field>
+        <Button variant="primary" disabled={busy} onClick={() => void add()}><Icon.Plus /> 追加</Button>
+      </div>
+      <ul className="divide-y divide-slate-100">
+        {rows.map((s) => (
+          <li key={s.id} className="py-2">
+            {editId === s.id ? (
+              <div className="flex items-center gap-2">
+                <Input className="w-24" value={edit.code} onChange={(e) => setEdit({ ...edit, code: e.target.value })} />
+                <Input className="flex-1" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
+                <Button size="sm" variant="primary" onClick={() => void save(s.id)}>保存</Button>
+                <Button size="sm" variant="ghost" onClick={() => setEditId(null)}>取消</Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="w-16 font-mono text-xs text-slate-500">{s.code}</span>
+                <span className="flex-1 text-sm text-slate-800">{s.name}</span>
+                <IconButton label="編集" onClick={() => { setEditId(s.id); setEdit({ code: s.code ?? '', name: s.name }) }}><Icon.Pencil /></IconButton>
+                <IconButton label="削除" className="hover:!text-red-600" onClick={() => void del(s)}><Icon.Trash /></IconButton>
+              </div>
+            )}
+          </li>
+        ))}
+        {rows.length === 0 && <li className="py-6 text-center text-sm text-slate-400">補助科目がありません</li>}
+      </ul>
+    </Modal>
   )
 }
 
