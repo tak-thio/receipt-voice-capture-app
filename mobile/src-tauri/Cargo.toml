@@ -24,3 +24,10 @@ uuid = { version = "1", features = ["v4", "serde"] }
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+# iOS/Android 起動クラッシュ回避のための vendor パッチ。
+# tauri-runtime-wry の起動時 wry::webview_version() 呼び出しが、モバイルで
+# NSBundle bundleWithIdentifier(@"com.apple.WebKit") の over-release により SIGTRAP する。
+# vendor/tauri-runtime-wry/src/lib.rs:2817 付近を参照（crates.io の 2.10.1 に一致）。
+[patch.crates-io]
+tauri-runtime-wry = { path = "vendor/tauri-runtime-wry" }
