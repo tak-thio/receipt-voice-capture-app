@@ -108,14 +108,23 @@ function Login({ onLogin }: { onLogin: (me: Me) => void }) {
 }
 
 type Tab = 'receipts' | 'journal' | 'export' | 'masters' | 'clients' | 'settings'
-type NavItem = { id: Tab; label: string; icon: IconComponent; needsClient: boolean; firmOnly?: boolean }
+// Capability context derived from the principal's memberships.
+type Perms = {
+  isFirm: boolean        // 職員 (firm_owner/firm_staff)
+  isFirmOwner: boolean   // 管理者(職員)
+  canJournal: boolean    // 仕分け/出力: 職員 + 利用者(管理者/経理担当者)
+  canMasters: boolean    // マスタ: 職員 + 利用者(管理者)
+  canClients: boolean    // 顧問先管理: 職員のみ
+  canSettings: boolean   // 設定: 管理者(職員)のみ
+}
+type NavItem = { id: Tab; label: string; icon: IconComponent; needsClient: boolean; can: (p: Perms) => boolean }
 const NAV: NavItem[] = [
-  { id: 'receipts', label: '受信箱', icon: Icon.Inbox, needsClient: true },
-  { id: 'journal', label: '仕分け', icon: Icon.Sort, needsClient: true },
-  { id: 'export', label: '出力', icon: Icon.Download, needsClient: true },
-  { id: 'masters', label: 'マスタ', icon: Icon.Database, needsClient: true },
-  { id: 'clients', label: '顧問先', icon: Icon.Building, needsClient: false },
-  { id: 'settings', label: '設定', icon: Icon.Sliders, needsClient: false, firmOnly: true },
+  { id: 'receipts', label: '受信箱', icon: Icon.Inbox, needsClient: true, can: () => true },
+  { id: 'journal', label: '仕分け', icon: Icon.Sort, needsClient: true, can: (p) => p.canJournal },
+  { id: 'export', label: '出力', icon: Icon.Download, needsClient: true, can: (p) => p.canJournal },
+  { id: 'masters', label: 'マスタ', icon: Icon.Database, needsClient: true, can: (p) => p.canMasters },
+  { id: 'clients', label: '顧問先', icon: Icon.Building, needsClient: false, can: (p) => p.canClients },
+  { id: 'settings', label: '設定', icon: Icon.Sliders, needsClient: false, can: (p) => p.canSettings },
 ]
 
 function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
@@ -128,11 +137,18 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [tab, setTab] = useState<Tab>('receipts')
   const [navOpen, setNavOpen] = useState(false)
 
-  // 設定(事務所/AI/職員管理)は管理者のみ。一般社員(職員)には表示しない。
-  const isFirmOwner = me.memberships.some(
-    (m) => m.client_id === null && m.role === 'firm_owner',
-  )
-  const nav = NAV.filter((t) => !t.firmOnly || isFirmOwner)
+  // Role-aware capabilities. 職員=firm-level membership; 利用者=client-level.
+  const firmRole = me.memberships.find((m) => m.client_id === null)?.role ?? null
+  const clientRole = me.memberships.find((m) => m.client_id !== null)?.role ?? null
+  const perms: Perms = {
+    isFirm: firmRole !== null,
+    isFirmOwner: firmRole === 'firm_owner',
+    canJournal: firmRole !== null || clientRole === 'client_admin' || clientRole === 'client_accountant',
+    canMasters: firmRole !== null || clientRole === 'client_admin',
+    canClients: firmRole !== null,
+    canSettings: firmRole === 'firm_owner',
+  }
+  const nav = NAV.filter((t) => t.can(perms))
   const active = nav.find((t) => t.id === tab) ?? nav[0]
 
   async function reloadClients() {
@@ -166,7 +182,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
           <button className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 lg:hidden" onClick={() => setNavOpen(true)} aria-label="メニュー">
             <Icon.Menu className="text-xl" />
           </button>
-          {active.needsClient && (
+          {active.needsClient && perms.isFirm && (
             <div className="flex items-center gap-2">
               <Icon.Building className="text-slate-400" />
               <Select value={clientId} onChange={(e) => setClientId(e.target.value)} className="w-44 sm:w-56">
@@ -186,7 +202,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {tab === 'journal' && <JournalView clientId={clientId} />}
           {tab === 'export' && <ExportView clientId={clientId} />}
           {tab === 'masters' && <MastersView clientId={clientId} firmId={firmId} />}
-          {tab === 'clients' && <ClientsView onChanged={reloadClients} canManage={isFirmOwner} />}
+          {tab === 'clients' && <ClientsView onChanged={reloadClients} canManage={perms.isFirmOwner} />}
           {tab === 'settings' && <SettingsView firmId={firmId} />}
         </main>
       </div>
