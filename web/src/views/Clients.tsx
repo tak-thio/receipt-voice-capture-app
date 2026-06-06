@@ -33,8 +33,20 @@ type Screen = { kind: 'list' } | { kind: 'create' } | { kind: 'edit'; id: string
 
 // 顧問先マスタ: 会計事務所向けに「一覧 / 新規 / 編集」を別画面に分離(1画面に詰め込まない)。
 // canManage(管理者のみ): 新規登録・削除を許可。一般社員は担当顧問先の閲覧・編集のみ。
-export function ClientsView({ onChanged, canManage }: { onChanged: () => Promise<void> | void; canManage: boolean }) {
+// selfClientId: 利用者(管理者)が自社を管理するモード — 同じ編集画面を自社に固定して流用。
+export function ClientsView({
+  onChanged, canManage, selfClientId,
+}: {
+  onChanged: () => Promise<void> | void
+  canManage: boolean
+  selfClientId?: string
+}) {
   const [screen, setScreen] = useState<Screen>({ kind: 'list' })
+
+  // 利用者(管理者)は自社の編集画面に直結(一覧・新規なし)。
+  if (selfClientId) {
+    return <EditScreen id={selfClientId} canManage={false} selfMode onChanged={onChanged} onBack={() => {}} />
+  }
 
   if (screen.kind === 'create' && canManage) {
     return (
@@ -190,7 +202,7 @@ function CreateScreen({ onCancel, onCreated }: { onCancel: () => void; onCreated
 
 /* ----------------------------------------------------------------- 編集 */
 
-function EditScreen({ id, canManage, onBack, onChanged }: { id: string; canManage: boolean; onBack: () => void; onChanged: () => Promise<void> | void }) {
+function EditScreen({ id, canManage, onBack, onChanged, selfMode }: { id: string; canManage: boolean; onBack: () => void; onChanged: () => Promise<void> | void; selfMode?: boolean }) {
   const toast = useToast()
   const [detail, setDetail] = useState<ClientDetail | null>(null)
   const [busy, setBusy] = useState(false)
@@ -218,14 +230,14 @@ function EditScreen({ id, canManage, onBack, onChanged }: { id: string; canManag
     }
   }
 
-  if (!detail) return <><Crumb onBack={onBack} /><Card><EmptyState icon={<Icon.Building />} title="読み込み中…" /></Card></>
+  if (!detail) return <>{!selfMode && <Crumb onBack={onBack} />}<Card><EmptyState icon={<Icon.Building />} title="読み込み中…" /></Card></>
 
   return (
     <>
-      <Crumb onBack={onBack} />
+      {!selfMode && <Crumb onBack={onBack} />}
       <PageHeader
-        title={detail.name}
-        description={`顧問先の編集${detail.code ? ` · コード ${detail.code}` : ''}`}
+        title={selfMode ? '自社' : detail.name}
+        description={selfMode ? '自社情報と利用者を管理します。' : `顧問先の編集${detail.code ? ` · コード ${detail.code}` : ''}`}
         actions={canManage ? <Button variant="danger-ghost" onClick={() => void remove()}><Icon.Trash /> 削除</Button> : undefined}
       />
       <div className="space-y-5">

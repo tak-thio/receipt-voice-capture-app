@@ -139,16 +139,22 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
   // Role-aware capabilities. 職員=firm-level membership; 利用者=client-level.
   const firmRole = me.memberships.find((m) => m.client_id === null)?.role ?? null
-  const clientRole = me.memberships.find((m) => m.client_id !== null)?.role ?? null
+  const clientMembership = me.memberships.find((m) => m.client_id !== null)
+  const clientRole = clientMembership?.role ?? null
   const perms: Perms = {
     isFirm: firmRole !== null,
     isFirmOwner: firmRole === 'firm_owner',
     canJournal: firmRole !== null || clientRole === 'client_admin' || clientRole === 'client_accountant',
     canMasters: firmRole !== null || clientRole === 'client_admin',
-    canClients: firmRole !== null,
+    // 顧問先: 職員は全件管理、利用者(管理者)は自社のみ(同じ編集画面を流用)。
+    canClients: firmRole !== null || clientRole === 'client_admin',
     canSettings: firmRole === 'firm_owner',
   }
-  const nav = NAV.filter((t) => t.can(perms))
+  // For a client_admin the 顧問先 screen IS their own company — relabel & lock to it.
+  const selfClientId = !perms.isFirm ? clientMembership?.client_id ?? undefined : undefined
+  const nav = NAV.filter((t) => t.can(perms)).map((t) =>
+    t.id === 'clients' && !perms.isFirm ? { ...t, label: '自社' } : t,
+  )
   const active = nav.find((t) => t.id === tab) ?? nav[0]
 
   async function reloadClients() {
@@ -202,7 +208,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {tab === 'journal' && <JournalView clientId={clientId} />}
           {tab === 'export' && <ExportView clientId={clientId} />}
           {tab === 'masters' && <MastersView clientId={clientId} firmId={firmId} />}
-          {tab === 'clients' && <ClientsView onChanged={reloadClients} canManage={perms.isFirmOwner} />}
+          {tab === 'clients' && <ClientsView onChanged={reloadClients} canManage={perms.isFirmOwner} selfClientId={selfClientId} />}
           {tab === 'settings' && <SettingsView firmId={firmId} />}
         </main>
       </div>
