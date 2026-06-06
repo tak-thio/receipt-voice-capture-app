@@ -1,0 +1,24 @@
+# iOS ビルド時の compiler-rt リンク問題への対応（このマシンの Xcode に依存）。
+#
+# 症状: `ld: library 'clang_rt.iossim' not found`（リンク段階で失敗）
+# 原因: rustc 1.96.0 はリンク時に compiler-rt を usr/lib/clang/17/lib/darwin から
+#       探すが、Xcode 26.5 の clang は version 21 で、libclang_rt.iossim.a は
+#       clang/21/lib/darwin にある（17 は存在しない）。
+# 対応: その実パスをリンカ検索パスに -L で追加し、clang_rt.iossim を解決する。
+#
+# この config を mobile/ 直下に置く理由:
+#   tauri ios build は Xcode の Build Phase から `npm run -- tauri ios xcode-script`
+#   を呼ぶ。npm は package.json のある mobile/ でスクリプトを実行するため、cargo の
+#   cwd は mobile/ になる。cargo の config 探索は cwd から親方向なので、その子である
+#   mobile/src-tauri/.cargo では見つからない。mobile/.cargo なら tauri 経由(cwd=mobile)
+#   と直接ビルド(cwd=src-tauri は mobile の子→親方向に到達)の双方から読まれる。
+#
+# 注意: Xcode 更新で clang のメジャーバージョンが上がったら下のパスを更新すること
+#       （現在: clang 21 / Xcode 26.5）。確認: `find $(xcode-select -p) -name libclang_rt.iossim.a`
+#       Android/デスクトップのビルドには影響しない（iOS ターゲット限定）。
+
+[target.aarch64-apple-ios-sim]
+rustflags = ["-L", "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin"]
+
+[target.aarch64-apple-ios]
+rustflags = ["-L", "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin"]

@@ -21,5 +21,10 @@
     "security": {
       "csp": null
     }
+  },
+  "bundle": {
+    "iOS": {
+      "developmentTeam": "UHPB9Y4TX2"
+    }
   }
 }
