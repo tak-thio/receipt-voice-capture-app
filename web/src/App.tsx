@@ -5,6 +5,7 @@ import { JournalView } from './views/Journal'
 import { MastersView } from './views/Masters'
 import { ClientsView } from './views/Clients'
 import { SettingsView } from './views/Settings'
+import { ExportView } from './views/Export'
 import { InviteRedeem } from './views/InviteRedeem'
 import { Alert, Button, Card, cn, Icon, Input, Select } from './ui'
 import type { IconComponent } from './ui/icons'
@@ -106,11 +107,12 @@ function Login({ onLogin }: { onLogin: (me: Me) => void }) {
   )
 }
 
-type Tab = 'receipts' | 'journal' | 'masters' | 'clients' | 'settings'
+type Tab = 'receipts' | 'journal' | 'export' | 'masters' | 'clients' | 'settings'
 type NavItem = { id: Tab; label: string; icon: IconComponent; needsClient: boolean; firmOnly?: boolean }
 const NAV: NavItem[] = [
   { id: 'receipts', label: '受信箱', icon: Icon.Inbox, needsClient: true },
   { id: 'journal', label: '仕分け', icon: Icon.Sort, needsClient: true },
+  { id: 'export', label: '出力', icon: Icon.Download, needsClient: true },
   { id: 'masters', label: 'マスタ', icon: Icon.Database, needsClient: true },
   { id: 'clients', label: '顧問先', icon: Icon.Building, needsClient: false },
   { id: 'settings', label: '設定', icon: Icon.Sliders, needsClient: false, firmOnly: true },
@@ -181,6 +183,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
         <main className="mx-auto w-full max-w-7xl flex-1 p-5 sm:p-6">
           {tab === 'receipts' && <ReceiptsView clientId={clientId} />}
           {tab === 'journal' && <JournalView clientId={clientId} />}
+          {tab === 'export' && <ExportView clientId={clientId} />}
           {tab === 'masters' && <MastersView clientId={clientId} firmId={firmId} />}
           {tab === 'clients' && <ClientsView onChanged={reloadClients} />}
           {tab === 'settings' && <SettingsView firmId={firmId} />}

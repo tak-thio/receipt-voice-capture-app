@@ -258,6 +258,12 @@ export const api = {
 
   exportUrl: (clientId: string, format: string) =>
     `${BASE}/export?client_id=${clientId}&format=${format}`,
+  ledgerUrl: (clientId: string, from?: string, to?: string) => {
+    const p = new URLSearchParams({ client_id: clientId })
+    if (from) p.set('date_from', from)
+    if (to) p.set('date_to', to)
+    return `${BASE}/export/ledger?${p.toString()}`
+  },
 }
 
 export interface FirmInfo {

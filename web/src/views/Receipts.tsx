@@ -7,8 +7,6 @@ import {
 import { NoteChips, NotePickerModal } from '../notes'
 import { useToast } from '../ui/toast'
 
-const FORMATS = ['generic', 'mas', 'freee', 'yayoi']
-
 export function ReceiptsView({ clientId }: { clientId: string }) {
   const toast = useToast()
   const [rows, setRows] = useState<ReceiptRow[]>([])
@@ -58,17 +56,6 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
       <PageHeader
         title="受信箱"
         description="顧問先に届いた領収書の一覧です。"
-        actions={
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400">CSV出力</span>
-            {FORMATS.map((f) => (
-              <a key={f} href={api.exportUrl(clientId, f)}
-                className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                <Icon.Download /> {f}
-              </a>
-            ))}
-          </div>
-        }
       />
 
       <div className="mb-4 flex items-center gap-2">
