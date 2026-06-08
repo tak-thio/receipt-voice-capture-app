@@ -29,7 +29,7 @@ git checkout feature/mobile-ios
 
 | パス | 中身 |
 |---|---|
-| `mobile/` | **モバイル/デスクトップ Tauri 2 アプリ**(React UI + Rust)。今回の主作業対象。 |
+| `mobile/` | **モバイル(iOS/Android)Tauri 2 アプリ**(React UI + Rust)。今回の主作業対象。 |
 | `api/` | SaaS バックエンド(FastAPI + SQLAlchemy + Postgres、RLS でテナント分離) |
 | `web/` | SaaS 管理画面(React + Vite + Tailwind。事務所/利用者が PC で使う) |
 | `docker-compose.yml` / `Caddyfile` | サーバ一式(api/db/minio/caddy)。`http://localhost:8088` |
@@ -123,7 +123,7 @@ git checkout feature/mobile-ios
 - **WebView 権限**: iOS は Info.plist 文言、Android は実行時権限 + `WebChromeClient.onPermissionRequest`。`getUserMedia` 失敗時は要対応。
 - **ストレージ**: 絶対パス指定が無い時のみ `app_data_dir` に解決(`mobile/src-tauri/src/commands/mod.rs:resolve_storage_root`)。保存JSONに端末固有パスを焼かない設計。
 - **LAN 越し実機テスト**: サーバは `http://`(自己署名でない)。Mac のファイアウォール/同一LAN を確認。`serverUrl` は末尾 `/api`。
-- **rustls**: `reqwest` は `default-features=false` + `rustls-tls`。デスクトップ含め TLS 経路はこれ。
+- **rustls**: `reqwest` は `default-features=false` + `rustls-tls`。全プラットフォームで TLS 経路はこれ。
 - 既存の詳細・トラブルシュートは `docs/mobile-checklist.md`。
 
 ---
@@ -152,9 +152,9 @@ git checkout feature/mobile-ios
 
 - `docs/mobile-checklist.md` — Android/iOS の詳細ビルド手順(まず読む)
 - `docs/saas-design.md` — サーバ(テナント/RLS/QR/AI)設計
-- `docs/architecture.md` / `docs/requirements.md` — 全体像・要件
-- `docs/windows-checklist.md` — デスクトップ(Windows)向け手順
+- `docs/architecture.md` — 全体像(現行)
+- `docs/legacy/` — 旧版(デスクトップ単体・Windows・端末ローカルAI前提)。歴史参照用。
 
 ---
 
-最終更新: 2026-06-06 / 引き継ぎ元ブランチ `feature/saas-backend`(37 commits ahead of `origin/main`)。
+最終更新: 2026-06-08 / メインリポジトリ: 会社GitLab `git@git.itsherpa.net:itsherpa/ai/receipt-voice-capture-app.git`。基点ブランチ `developer`。

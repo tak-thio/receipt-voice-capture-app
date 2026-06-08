@@ -1,6 +1,6 @@
 # モバイル(Android / iOS)ビルド手順
 
-このアプリは Tauri 2 のモバイル対応で iOS / Android アプリ化しています。デスクトップ版の React UI と TS ロジックをそのまま流用し、モバイルでは STT / OCR / AI 整形をクラウドAPI(OpenAI / Gemini)に統一しています(ローカルの Python STT / Tesseract OCR サイドカーはモバイルでは動かないため非表示)。
+このアプリは Tauri 2 で iOS / Android アプリ化しています。既存の React UI と TS ロジックを流用し、STT / OCR / AI 整形は**すべて外部API**(OpenAI / Gemini など)で実行します(端末ローカルの STT / OCR サイドカーは廃止)。
 
 > 📁 **このドキュメントのコマンドとパスはすべて `mobile/` ディレクトリ基準です。** まず `cd mobile` してから実行してください(モノレポ構成: `mobile/` にモバイルアプリ、`api/`・`web/` がサーバ側)。
 
@@ -10,7 +10,7 @@
 - Rust ツールチェーン(`rustup`, `cargo`)
 - `cd mobile && npm install` 済み
 
-モバイルでは保存先が **アプリ専用データ領域**(`app_data_dir/receipt-sessions`)に解決されます(`mobile/src-tauri/src/commands/mod.rs` の `resolve_storage_root`)。設定画面の「保存先ルート」はデスクトップ専用で、モバイルでは非表示・空送信になります。
+モバイルでは保存先が **アプリ専用データ領域**(`app_data_dir/receipt-sessions`)に解決されます(`mobile/src-tauri/src/commands/mod.rs` の `resolve_storage_root`)。設定画面の「保存先ルート」(絶対パス指定)はモバイルでは非表示・空送信になります。
 
 APIキーは設定画面で保存するか、環境変数(`OPENAI_API_KEY` / `GEMINI_API_KEY`)で渡します。
 

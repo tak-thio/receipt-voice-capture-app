@@ -31,8 +31,8 @@ docker compose up --build      # web/api は Caddy 単一オリジン http://loc
 ```bash
 cd mobile
 npm install
-npm run app:test               # Tauri デスクトップ起動
-# Android: docs/mobile-checklist.md 参照
+npm run app:test               # ローカルでアプリ起動(UI確認用 / Tauri dev)
+# iOS / Android のビルドは docs/mobile-checklist.md・docs/handoff-mac-mobile.md 参照
 ```
 詳細は [`mobile/README.md`](mobile/README.md)。
 
