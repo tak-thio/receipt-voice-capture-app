@@ -88,7 +88,7 @@ receipt-app の構造を踏襲しつつ、全テーブルに **テナントキ�
 ```
 firms(id, name, ai_config(jsonb), created_at, plan, status)
   -- ai_config = { stt:{provider,key_enc?}, ocr:{provider,key_enc?}, format:{provider,key_enc?} }
-  --   provider ∈ openai | gemini | ollama | whisper(self-host)。自前(ollama/whisper)はkey不要
+  --   provider ∈ openai | gemini | ollama | whisper。すべて外部API。ollama/whisper はkey不要(接続先URL指定)
 users(id, email, name, created_at)                       -- グローバル ID
 memberships(id, user_id, firm_id, client_id?, role)      -- client_id NULL=事務所レベル
 clients(id, firm_id, name, code, export_default, status)
@@ -166,21 +166,23 @@ PostgreSQL の **Row Level Security** で強制。接続時に `SET app.current_
 
 ---
 
-## 7. AI処理(サーバ側・プロバイダ選択式)
+## 7. AI処理(プロバイダ選択式・すべて外部API)
 
-**事務所ごとに、能力単位でプロバイダを選択**できる(`firms.ai_config`)。自前(Ollama/whisper)と外部API(OpenAI/Gemini)を混在可。
+> **AIはサーバ機上でモデルを動かさない。すべて外部APIエンドポイントへの呼び出し。** Ollama / whisper も「別サーバのLLM/STTエンドポイントをAPIで呼ぶ」構成(接続先URLを設定)。
+
+**事務所ごとに、能力単位でプロバイダを選択**できる(`firms.ai_config`)。OpenAI/Gemini と Ollama/whisper を能力単位で混在可。
 
 | 能力 | 選べるプロバイダ | 備考 |
 |---|---|---|
-| **STT**(音声→文字) | openai / gemini / **whisper(自前:faster-whisper)** | Ollama(qwen2.5vl)は音声非対応。自前なら faster-whisper を VM 常駐(元モバイルのsidecarをサーバ化) |
-| **OCR**(画像→文字) | **ollama(qwen2.5vl)** / openai / gemini | 自前Ollamaは外部課金なし(receipt-app 流用) |
-| **整形**(文字→構造化) | **ollama(qwen2.5)** / openai / gemini | |
+| **STT**(音声→文字) | openai / gemini / **whisper** | whisper は別サーバの STT エンドポイント(`whisper_host/transcribe`)をAPI呼び出し。Ollama(qwen2.5vl)は音声非対応 |
+| **OCR**(画像→文字) | **ollama(qwen2.5vl)** / openai / gemini | ollama は別サーバのエンドポイント(`ollama_host`)をAPI呼び出し。キー不要 |
+| **整形**(文字→構造化) | **ollama(qwen2.5)** / openai / gemini | 同上 |
 
-- サーバに **プロバイダ抽象層**(`stt/ocr/format` の各アダプタ)。receipt-app の Ollama 直結を一般化し、プロバイダを差し替え可能に。
-- **キー**: 外部(openai/gemini)は事務所ごと `ai_config.*.key_enc`(暗号化)。**自前(ollama/whisper)は外部キー不要**(コスト=自社VMの計算資源)。
-- フロー: スマホ → 生データ(画像/音声)→ サーバが選択プロバイダで **STT/OCR/整形** → `receipts` 作成。モバイル側の端末内AIは撤去し「アップロードのみ」に。
+- サーバに **プロバイダ抽象層**(`api/app/ai/`: `factory.py` / `providers.py`)。能力ごとにプロバイダを差し替え可能。
+- **キー / 接続先**: OpenAI/Gemini は事務所ごと `ai_config.*.key_enc`(暗号化)。**Ollama/whisper はキー不要**で、接続先URL(`ollama_host` / `whisper_host`)を設定して別サーバのエンドポイントを呼ぶ。
+- フロー: スマホ → 生データ(画像/音声)→ サーバが選択プロバイダ(外部API)で **STT/OCR/整形** → `receipts` 作成。モバイル側の端末内AI(サイドカー)は撤去し「アップロードのみ」に。
 
-> コスト帰属: 外部API=事務所キーで事務所負担 / 自前=自社VM。使用量メータリングは Phase 3。
+> コスト帰属: OpenAI/Gemini=事務所キーで事務所負担 / Ollama・whisper=自社が運用する別サーバの計算資源。使用量メータリングは Phase 3。
 
 ---
 
@@ -230,14 +232,14 @@ PostgreSQL の **Row Level Security** で強制。接続時に `SET app.current_
 | DB | **PostgreSQL + RLS** | テナント分離を DB で強制 |
 | ストレージ | **MinIO(S3互換) or ローカルボリューム** | 自社VM内。画像/音声/PDF。sha256重複排除 |
 | 非同期 | ジョブワーカー(既存jobs方式)+ スケジューラ | STT/OCR/取込 |
-| AI | プロバイダ抽象(**OpenAI/Gemini/Ollama/whisper**、能力ごと選択) | 事務所ごと設定。自前と外部を混在可 |
+| AI | プロバイダ抽象(**OpenAI/Gemini/Ollama/whisper**、能力ごと選択) | すべて外部API。事務所ごと設定 |
 | Web | React + Vite + Tailwind | receipt-app web 流用 |
 | モバイル | 既存 Tauri(Android/iOS) | 撮影クライアント。保存をAPI化 |
 | 配信 | Caddy(単一オリジン) | CORS回避・SPA+APIプロキシ・TLS終端 |
 
 ### ホスティング / 運用(自社VM)
 - **自社の VM 上に Docker Compose** で一式(api / postgres / minio / caddy)。receipt-app と同じ運用パターンを踏襲。
-- **Ollama / faster-whisper は VM ホストに常駐**(コンテナ外、`host.docker.internal` 経由)。GPUがあれば活用。
+- **AIはすべて外部API**。アプリ機上でモデルは動かさない。Ollama / whisper を使う場合も**別サーバのエンドポイント**(`ollama_host` / `whisper_host`)をAPI呼び出しする。
 - TLSは Caddy。バックアップ(PG dump + ストレージ)は VM 側で運用。
 
 ### リポジトリ構成
@@ -289,8 +291,8 @@ PostgreSQL の **Row Level Security** で強制。接続時に `SET app.current_
 
 ### 決定済み
 - **リポジトリ**: 新規 `receipt-saas`(api+web)。`receipt-app` は温存・参照実装。
-- **ホスティング**: **自社VM + Docker Compose**(Ollama/whisper はホスト常駐)。
-- **AI**: **能力ごとにプロバイダ選択式**(openai/gemini/ollama/whisper)。事務所ごと設定、自前と外部を混在可。
+- **ホスティング**: **自社VM + Docker Compose**(api/postgres/minio/caddy)。AIはコンテナ外で動かさない。
+- **AI**: **能力ごとにプロバイダ選択式**(openai/gemini/ollama/whisper)、**すべて外部API**。Ollama/whisper も別サーバのエンドポイントを呼ぶ。事務所ごと設定。
 - **マスタ**: 勘定科目/補助科目=**事務所テンプレ＋顧問先上書き**、取引先/学習=顧問先単位。
 
 ### 未決(着手後に詰める)
@@ -324,7 +326,7 @@ PostgreSQL の **Row Level Security** で強制。接続時に `SET app.current_
 - **設計**: 撮影UIは共通。`Backend` インターフェースを `LocalBackend`(既存)/`ServerBackend`(新規)で差し替え。`src/api/session-api.ts` 等が継ぎ目。
 - **モード判定**: 初回選択 or **QRスキャンで自動的に連携モードへ**。設定画面はモードでキー欄/接続先表示を出し分け。
 - **注意**: 撮影フローとBackend I/Fは1本に保つ。モード切替時のデータは v1 では非移行(別物として扱う)。
-- **実装済み(scaffold)**: 設定のモード切替、サーバURL+QR/トークンでのペアリング接続(`mobile/src/api/server-api.ts`・`lib/qr-scan.ts`)、サーバ連携モードでの撮影→`/captures` アップロード。残: ローカル/サーバの完全な Backend 統一、オフライン送信キュー、音声STTのサーバ実装(faster-whisper)。
+- **実装済み(scaffold)**: 設定のモード切替、サーバURL+QR/トークンでのペアリング接続(`mobile/src/api/server-api.ts`・`lib/qr-scan.ts`)、サーバ連携モードでの撮影→`/captures` アップロード。残: ローカル/サーバの完全な Backend 統一、オフライン送信キュー、サーバ側STTプロバイダの実通信確認(whisper/OpenAI/Gemini)。
 
 ## 18. Phase 1 進捗(scaffold 済み・検証済み)
 

@@ -16,14 +16,14 @@
 
 - **テナント分離**: `firm（事務所）→ client（顧問先）` を PostgreSQL の RLS で強制。
 - **認証**: Web=セッション、モバイル=QRペアリング。
-- **AI**: 事務所ごとにプロバイダ選択（OpenAI / Gemini / Ollama / whisper）、サーバ側実行。
+- **AI**: 事務所ごとに能力(STT/OCR/整形)単位でプロバイダ選択（OpenAI / Gemini / Ollama / whisper）。**すべて外部APIで実行**し、サーバ機上ではモデルを動かさない（Ollama/whisper も別サーバのエンドポイントをAPI呼び出し）。
 
 ## 開発
 
 ### サーバ（api + web + db）
 ```bash
 cp api/.env.example api/.env   # ENCRYPTION_KEY などを設定
-docker compose up --build      # api:8000 / minio:9000 / caddy:8080（単一オリジン）
+docker compose up --build      # web/api は Caddy 単一オリジン http://localhost:8088
 ```
 詳細は [`api/README.md`](api/README.md)。
 
@@ -37,4 +37,5 @@ npm run app:test               # Tauri デスクトップ起動
 詳細は [`mobile/README.md`](mobile/README.md)。
 
 ## ブランチ
-- `main` → `developer` → `feature/mobile-app`（モバイル対応）/ `feature/saas-backend`（SaaS backend）
+- **`developer`（統合基点）** → `feature/saas-backend`（サーバ作業）/ `feature/mobile`（アプリ作業）
+- メインリポジトリ: 会社GitLab `git@git.itsherpa.net:itsherpa/ai/receipt-voice-capture-app.git`
