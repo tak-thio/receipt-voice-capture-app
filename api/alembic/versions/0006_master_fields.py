@@ -25,16 +25,24 @@ CLIENT_COLUMNS = [
 
 
 def upgrade() -> None:
+    # Idempotent (fresh db: columns may already exist via 0001 create_all).
+    insp = sa.inspect(op.get_bind())
+    clients_cols = {c["name"] for c in insp.get_columns("clients")}
+    users_cols = {c["name"] for c in insp.get_columns("users")}
     for name, type_ in CLIENT_COLUMNS:
-        op.add_column("clients", sa.Column(name, type_, nullable=True))
-    op.add_column(
-        "clients",
-        sa.Column("staff_user_id", sa.Uuid(), sa.ForeignKey("users.id"), nullable=True),
-    )
-    op.add_column("users", sa.Column("phone", sa.String(50), nullable=True))
-    op.add_column(
-        "users", sa.Column("status", sa.String(20), nullable=False, server_default="active")
-    )
+        if name not in clients_cols:
+            op.add_column("clients", sa.Column(name, type_, nullable=True))
+    if "staff_user_id" not in clients_cols:
+        op.add_column(
+            "clients",
+            sa.Column("staff_user_id", sa.Uuid(), sa.ForeignKey("users.id"), nullable=True),
+        )
+    if "phone" not in users_cols:
+        op.add_column("users", sa.Column("phone", sa.String(50), nullable=True))
+    if "status" not in users_cols:
+        op.add_column(
+            "users", sa.Column("status", sa.String(20), nullable=False, server_default="active")
+        )
 
 
 def downgrade() -> None:

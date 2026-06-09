@@ -17,7 +17,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("users", sa.Column("job_title", sa.String(length=100), nullable=True))
+    # Idempotent (fresh db: column may already exist via 0001 create_all).
+    if "job_title" not in {c["name"] for c in sa.inspect(op.get_bind()).get_columns("users")}:
+        op.add_column("users", sa.Column("job_title", sa.String(length=100), nullable=True))
 
 
 def downgrade() -> None:

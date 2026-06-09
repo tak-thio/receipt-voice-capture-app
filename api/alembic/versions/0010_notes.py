@@ -18,22 +18,27 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "notes",
-        sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column("firm_id", sa.Uuid(), sa.ForeignKey("firms.id", ondelete="CASCADE"), index=True),
-        sa.Column("client_id", sa.Uuid(), sa.ForeignKey("clients.id", ondelete="CASCADE"), index=True),
-        sa.Column("text", sa.String(length=100), nullable=False),
-        sa.Column("color", sa.String(length=20), nullable=False, server_default="amber"),
-        sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.true()),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
-    )
+    # Idempotent: on a FRESH db 0001's create_all already made `notes` and the
+    # receipts.note_ids column. Skip the schema parts if present; always (re)apply RLS.
+    insp = sa.inspect(op.get_bind())
+    if not insp.has_table("notes"):
+        op.create_table(
+            "notes",
+            sa.Column("id", sa.Uuid(), primary_key=True),
+            sa.Column("firm_id", sa.Uuid(), sa.ForeignKey("firms.id", ondelete="CASCADE"), index=True),
+            sa.Column("client_id", sa.Uuid(), sa.ForeignKey("clients.id", ondelete="CASCADE"), index=True),
+            sa.Column("text", sa.String(length=100), nullable=False),
+            sa.Column("color", sa.String(length=20), nullable=False, server_default="amber"),
+            sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.true()),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        )
     op.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON notes TO receipt_app")
 
     # Client-scoped RLS (mirrors partners under the 0007 rebuild).
     op.execute("ALTER TABLE notes ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE notes FORCE ROW LEVEL SECURITY")
+    op.execute("DROP POLICY IF EXISTS tenant_rbac ON notes")
     op.execute(
         "CREATE POLICY tenant_rbac ON notes FOR ALL "
         "USING (app_client_access(notes.client_id) <> 'none') "
@@ -41,15 +46,16 @@ def upgrade() -> None:
     )
 
     # Attached note ids on each receipt (resolved to text/colour client-side).
-    op.add_column(
-        "receipts",
-        sa.Column(
-            "note_ids",
-            postgresql.JSONB(),
-            nullable=False,
-            server_default=sa.text("'[]'::jsonb"),
-        ),
-    )
+    if "note_ids" not in {c["name"] for c in insp.get_columns("receipts")}:
+        op.add_column(
+            "receipts",
+            sa.Column(
+                "note_ids",
+                postgresql.JSONB(),
+                nullable=False,
+                server_default=sa.text("'[]'::jsonb"),
+            ),
+        )
 
 
 def downgrade() -> None:

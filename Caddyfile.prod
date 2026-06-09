@@ -1,0 +1,20 @@
+# Production single-origin host. Caddy auto-provisions TLS via Let's Encrypt
+# (requires: DNS of the domain -> this VM, and ports 80/443 reachable).
+# Replace the domain and email with yours.
+{
+	email kawano@itsherpa.com
+}
+
+receipt.billpo.jp {
+	# API under /api/* -> FastAPI (strip the /api prefix).
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+
+	# Everything else -> the built SPA, with history fallback for client routing.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

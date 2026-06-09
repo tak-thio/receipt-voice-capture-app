@@ -24,15 +24,17 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "staff_clients",
-        sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column("firm_id", sa.Uuid(), sa.ForeignKey("firms.id", ondelete="CASCADE"), index=True),
-        sa.Column("user_id", sa.Uuid(), sa.ForeignKey("users.id", ondelete="CASCADE"), index=True),
-        sa.Column("client_id", sa.Uuid(), sa.ForeignKey("clients.id", ondelete="CASCADE"), index=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
-        sa.UniqueConstraint("user_id", "client_id"),
-    )
+    # Idempotent: staff_clients may already exist via 0001 create_all (fresh db).
+    if not sa.inspect(op.get_bind()).has_table("staff_clients"):
+        op.create_table(
+            "staff_clients",
+            sa.Column("id", sa.Uuid(), primary_key=True),
+            sa.Column("firm_id", sa.Uuid(), sa.ForeignKey("firms.id", ondelete="CASCADE"), index=True),
+            sa.Column("user_id", sa.Uuid(), sa.ForeignKey("users.id", ondelete="CASCADE"), index=True),
+            sa.Column("client_id", sa.Uuid(), sa.ForeignKey("clients.id", ondelete="CASCADE"), index=True),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+            sa.UniqueConstraint("user_id", "client_id"),
+        )
     op.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON staff_clients TO receipt_app")
 
     # Access level the current user has for a client: 'all' | 'own' | 'none'.

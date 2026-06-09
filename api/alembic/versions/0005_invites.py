@@ -14,6 +14,10 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Idempotent: on a FRESH db 0001's create_all already made this table (and
+    # 0002 granted receipt_app DML on all existing tables). Skip if present.
+    if sa.inspect(op.get_bind()).has_table("invites"):
+        return
     op.create_table(
         "invites",
         sa.Column("id", sa.Uuid(), primary_key=True),

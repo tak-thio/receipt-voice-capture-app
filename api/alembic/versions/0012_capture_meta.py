@@ -18,15 +18,17 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "receipts",
-        sa.Column(
-            "capture_meta",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=False,
-            server_default="{}",
-        ),
-    )
+    # Idempotent (fresh db: column may already exist via 0001 create_all).
+    if "capture_meta" not in {c["name"] for c in sa.inspect(op.get_bind()).get_columns("receipts")}:
+        op.add_column(
+            "receipts",
+            sa.Column(
+                "capture_meta",
+                postgresql.JSONB(astext_type=sa.Text()),
+                nullable=False,
+                server_default="{}",
+            ),
+        )
 
 
 def downgrade() -> None:
