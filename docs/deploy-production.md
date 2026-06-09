@@ -46,17 +46,25 @@
    CORS_ORIGINS=           # 単一オリジンなので空
    ```
    `chmod 600 .env api/.env`。**`ENCRYPTION_KEY` を失うと各事務所の暗号化AIキーが復号不能**になるので必ず保管。
-4. **起動**(初回はビルド + Caddyが証明書取得):
+4. **WAF ルール取得**(Coraza + OWASP CRS。`./coraza` を caddy がマウント):
+   ```bash
+   bash caddy/fetch-crs.sh   # coraza.conf + crs-setup + rules を ./coraza に取得
+   ```
+5. **起動**(初回は Coraza入り Caddy をビルド + 証明書取得):
    ```bash
    cd ~/receipt-app && docker compose up -d --build   # 必要なら sudo
    ```
-5. **MinIO バケット作成**(モバイルのアップロード用):
+   - Caddy は `caddy/Dockerfile`(coraza-caddy 同梱)でビルドし、`Caddyfile.prod` で OWASP CRS を
+     ブロッキング(`SecRuleEngine On`)で適用。SQLi/XSS/LFI/RCE 等を 403 で遮断。
+   - 誤検知でアプリの正規リクエストが落ちる場合は CRS の除外ルール追加か `DetectionOnly` で調整。
+     特に `/captures`(画像multipart)は実機で要確認。
+6. **MinIO バケット作成**(モバイルのアップロード用):
    ```bash
    set -a; . ./.env; set +a
    docker run --rm --network receipt-app_default --entrypoint sh minio/mc -c \
      "mc alias set m http://minio:9000 \"$MINIO_ROOT_USER\" \"$MINIO_ROOT_PASSWORD\" && mc mb --ignore-existing m/receipts"
    ```
-6. **検証**:
+7. **検証**:
    ```bash
    curl -sS -o /dev/null -w "%{http_code} tls=%{ssl_verify_result}\n" https://<domain>/        # 200 tls=0
    curl -sS -o /dev/null -w "%{http_code}\n" -X POST https://<domain>/api/auth/login \

@@ -20,3 +20,6 @@ __pycache__
 # Vite cache
 .vite
 *.tsbuildinfo
+
+# Fetched OWASP CRS / coraza rules (populated by caddy/fetch-crs.sh at deploy)
+/coraza/

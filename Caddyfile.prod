@@ -1,11 +1,25 @@
 # Production single-origin host. Caddy auto-provisions TLS via Let's Encrypt
 # (requires: DNS of the domain -> this VM, and ports 80/443 reachable).
+# Requires the custom Caddy build with the Coraza WAF module (see caddy/Dockerfile).
 # Replace the domain and email with yours.
 {
 	email kawano@itsherpa.com
+	# Coraza must run before reverse_proxy / file_server.
+	order coraza_waf first
 }
 
 receipt.billpo.jp {
+	# OWASP Core Rule Set (CRS 4.x) via Coraza, in blocking mode.
+	# Rule files are mounted at /etc/caddy/coraza (see docker-compose + caddy/fetch-crs.sh).
+	coraza_waf {
+		directives `
+		Include /etc/caddy/coraza/coraza.conf
+		Include /etc/caddy/coraza/crs/crs-setup.conf
+		Include /etc/caddy/coraza/crs/rules/*.conf
+		SecRuleEngine On
+		`
+	}
+
 	# API under /api/* -> FastAPI (strip the /api prefix).
 	handle_path /api/* {
 		reverse_proxy api:8000

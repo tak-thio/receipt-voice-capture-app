@@ -58,7 +58,7 @@ services:
              uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
   caddy:
-    image: caddy:2
+    build: ./caddy   # custom Caddy with Coraza WAF + OWASP CRS
     restart: unless-stopped
     depends_on:
       - api
@@ -68,6 +68,7 @@ services:
     volumes:
       - ./Caddyfile.prod:/etc/caddy/Caddyfile
       - ./web/dist:/srv
+      - ./coraza:/etc/caddy/coraza:ro
       - caddy_data:/data
       - caddy_config:/config
 
