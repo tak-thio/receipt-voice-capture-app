@@ -65,6 +65,9 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      # Operator console/API on a dedicated port. Bound to 0.0.0.0 so the host
+      # firewall can IP-allowlist it; restrict this port at the FW (operator only).
+      - "8443:8443"
     volumes:
       - ./Caddyfile.prod:/etc/caddy/Caddyfile
       - ./web/dist:/srv

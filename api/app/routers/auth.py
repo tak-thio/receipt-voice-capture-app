@@ -1,24 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
-from ..db import get_session, set_rls_context
+from ..db import get_session
 from ..deps import Principal, get_principal
-from ..models import Firm, Membership, Role, User
-from ..security import hash_password, make_session, verify_password
-from ..seed import seed_firm_template
+from ..models import Firm, Membership, User
+from ..security import make_session, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
 
-
-class RegisterFirm(BaseModel):
-    firm_name: str
-    email: str  # TODO: EmailStr once pydantic[email] is added to requirements
-    password: str
-    name: str = ""
+# NOTE: firms are no longer created here. Creating a 税理士事務所 is a platform
+# operator action — see routers/operator.py (POST /operator/firms). The old
+# public /auth/register-firm has been removed so that firms can only be
+# provisioned by an authenticated operator.
 
 
 class Login(BaseModel):
@@ -37,33 +34,6 @@ def _set_cookie(response: Response, user_id: str) -> None:
     )
 
 
-@router.post("/register-firm", status_code=status.HTTP_201_CREATED)
-async def register_firm(
-    body: RegisterFirm, response: Response, session: AsyncSession = Depends(get_session)
-):
-    """Bootstrap: create a firm with its first owner user."""
-    exists = await session.scalar(select(User).where(User.email == body.email))
-    if exists:
-        raise HTTPException(status.HTTP_409_CONFLICT, "email already registered")
-
-    firm = Firm(name=body.firm_name)
-    user = User(email=body.email, name=body.name, password_hash=hash_password(body.password))
-    session.add_all([firm, user])
-    await session.flush()
-    session.add(
-        Membership(user_id=user.id, firm_id=firm.id, client_id=None, role=Role.firm_owner.value)
-    )
-    await session.flush()
-
-    # Bind RLS to the new owner so the template insert passes WITH CHECK, then
-    # seed the firm's default account-title template (client_id = NULL).
-    await set_rls_context(session, user.id)
-    await seed_firm_template(session, firm.id)
-
-    _set_cookie(response, str(user.id))
-    return {"firm_id": str(firm.id), "user_id": str(user.id)}
-
-
 @router.post("/login")
 async def login(body: Login, response: Response, session: AsyncSession = Depends(get_session)):
     user = await session.scalar(select(User).where(User.email == body.email))
@@ -71,6 +41,21 @@ async def login(body: Login, response: Response, session: AsyncSession = Depends
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
     if user.status == "disabled":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "account disabled")
+
+    # Block login when every firm the user belongs to is suspended by an operator.
+    # (Pre-auth, so app_uid() is NULL and the RLS NULL-escape allows these reads.)
+    firm_ids = (
+        await session.scalars(select(Membership.firm_id).where(Membership.user_id == user.id))
+    ).all()
+    if firm_ids:
+        active = await session.scalar(
+            select(func.count())
+            .select_from(Firm)
+            .where(Firm.id.in_(firm_ids), Firm.status == "active")
+        )
+        if not active:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "firm suspended")
+
     _set_cookie(response, str(user.id))
     return {"user_id": str(user.id)}
 

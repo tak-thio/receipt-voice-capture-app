@@ -11,6 +11,9 @@ from .config import get_settings
 
 settings = get_settings()
 _serializer = URLSafeTimedSerializer(settings.session_secret, salt="web-session")
+# Distinct salt so an operator cookie can never be replayed as a user cookie
+# (or vice versa), even though both are signed with the same secret.
+_op_serializer = URLSafeTimedSerializer(settings.session_secret, salt="operator-session")
 
 
 # --- passwords -------------------------------------------------------------
@@ -40,6 +43,20 @@ def read_session(token: str, max_age: int = 60 * 60 * 24 * 14) -> str | None:
     try:
         data = _serializer.loads(token, max_age=max_age)
         return data.get("uid")
+    except BadSignature:
+        return None
+
+
+# --- operator session cookie (platform 運営) -------------------------------
+
+def make_operator_session(operator_id: str) -> str:
+    return _op_serializer.dumps({"oid": operator_id})
+
+
+def read_operator_session(token: str, max_age: int = 60 * 60 * 24 * 14) -> str | None:
+    try:
+        data = _op_serializer.loads(token, max_age=max_age)
+        return data.get("oid")
     except BadSignature:
         return None
 

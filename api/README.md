@@ -16,9 +16,17 @@ app/
   security.py          passwords, sessions, token hashing, AI-key encryption
   deps.py              principal resolution + RLS binding
   ai/                  capability providers + factory
-  routers/             auth, pairing, clients, captures, receipts, masters, journal, export
+  routers/             auth, operator, pairing, clients, captures, receipts, masters, journal, export
 alembic/               migrations (0001 = schema + RLS policies)
+scripts/
+  create_operator.py   bootstrap the first platform operator (運営) account
 ```
+
+## Roles & layers
+- **operator (運営)** — platform admin, one level above a firm. Provisions and
+  manages 税理士事務所 (create / list / suspend) via `/operator/*`. Stored in the
+  separate `operators` table; has **no** access to any tenant's receipt data.
+- **firm_owner / firm_staff / client_\*** — tenant users inside a single firm.
 
 ## Run (from repo root)
 ```bash
@@ -30,10 +38,26 @@ Migrations run automatically (`alembic upgrade head`) on api start.
 
 ## Quick smoke test
 ```bash
-# Bootstrap a firm + owner
-curl -X POST localhost:8000/auth/register-firm -H 'content-type: application/json' \
-  -d '{"firm_name":"テスト会計","email":"owner@example.com","password":"pw"}'
+# 1) Bootstrap the first platform operator (運営). Prints a generated password
+#    if --password is omitted. (Run inside the api container.)
+docker compose exec api python scripts/create_operator.py \
+  --email ops@example.com --name "運営"
+
+# 2) Log in as the operator (stores the op_session cookie).
+curl -c /tmp/op.txt -X POST localhost:8000/operator/login \
+  -H 'content-type: application/json' \
+  -d '{"email":"ops@example.com","password":"<printed-password>"}'
+
+# 3) Provision a 税理士事務所 (firm) + its first owner.
+curl -b /tmp/op.txt -X POST localhost:8000/operator/firms \
+  -H 'content-type: application/json' \
+  -d '{"firm_name":"テスト会計","owner_email":"owner@example.com","owner_password":"pw"}'
+
+# 4) List firms (management metadata only).
+curl -b /tmp/op.txt localhost:8000/operator/firms
 ```
+> The old public `/auth/register-firm` has been removed: firms can only be
+> created by an authenticated operator.
 
 ## Phase-1 TODO (ported from receipt-app / mobile)
 - AI worker that consumes `jobs` (stt/ocr/format) via `ai.factory`.

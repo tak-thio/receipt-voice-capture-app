@@ -13,8 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import get_session, set_rls_context
-from .models import DeviceSession, Membership, Role, StaffClient, User
-from .security import hash_token, read_session
+from .models import DeviceSession, Membership, Operator, Role, StaffClient, User
+from .security import hash_token, read_operator_session, read_session
 
 
 @dataclass
@@ -70,6 +70,33 @@ async def get_principal(
         await session.scalars(select(Membership).where(Membership.user_id == user_id))
     )
     return Principal(user=user, memberships=memberships, device_client_id=device_client_id)
+
+
+@dataclass
+class OperatorPrincipal:
+    operator: Operator
+
+
+async def get_operator(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> OperatorPrincipal:
+    """Authenticate a platform operator via the signed `op_session` cookie.
+
+    Deliberately does NOT call set_rls_context: an operator runs with app_uid()
+    = NULL. Under the existing RLS that grants read/write on the identity tables
+    (firms/users/memberships) but exposes NO tenant data (receipts/clients have
+    no NULL escape), which is exactly the operator's scope: manage firms, never
+    see their contents.
+    """
+    cookie = request.cookies.get("op_session")
+    oid = read_operator_session(cookie) if cookie else None
+    if not oid:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "operator not authenticated")
+    operator = await session.get(Operator, UUID(oid))
+    if not operator or operator.status != "active":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid operator session")
+    return OperatorPrincipal(operator=operator)
 
 
 def require_firm_role(*roles: str):

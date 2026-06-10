@@ -266,6 +266,52 @@ export const api = {
   },
 }
 
+// --- platform operator (運営) -------------------------------------------------
+// Separate client + cookie (op_session) from the tenant `api` above. An operator
+// provisions and manages 税理士事務所; it never reads a firm's receipt data.
+
+export interface OperatorInfo {
+  id: string
+  email: string
+  name: string
+  status: string
+}
+export interface OperatorFirm {
+  id: string
+  name: string
+  plan: string
+  status: string // active | suspended
+  created_at: string | null
+  owners: string[]
+}
+
+export const operatorApi = {
+  me: () => req<OperatorInfo>('/operator/me'),
+  login: (email: string, password: string) =>
+    req<{ operator_id: string }>('/operator/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+  logout: () => req('/operator/logout', { method: 'POST' }),
+  firms: () => req<OperatorFirm[]>('/operator/firms'),
+  createFirm: (body: {
+    firm_name: string
+    owner_email: string
+    owner_password: string
+    owner_name?: string
+    plan?: string
+  }) =>
+    req<{ firm_id: string; owner_user_id: string }>('/operator/firms', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateFirm: (firmId: string, patch: { name?: string; plan?: string; status?: string }) =>
+    req<OperatorFirm>(`/operator/firms/${firmId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+}
+
 export interface FirmInfo {
   id: string
   name: string

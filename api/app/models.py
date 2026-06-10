@@ -96,6 +96,28 @@ class User(Base, TimestampMixin):
     )
 
 
+class Operator(Base, TimestampMixin):
+    """Platform operator (運営): provisions and manages 税理士事務所 (firms).
+
+    Deliberately separate from tenant `users`: an operator has NO membership and
+    therefore no RLS access to any tenant's receipt/client data. It can only act
+    through the operator endpoints (create/list/manage firms). This is the
+    account that bootstraps and administers the SaaS itself, one level above
+    firm_owner.
+    """
+
+    __tablename__ = "operators"
+
+    id: Mapped[UUID] = _uuid_pk()
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200), default="")
+    password_hash: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active | disabled
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class Client(Base, TimestampMixin):
     __tablename__ = "clients"
 
