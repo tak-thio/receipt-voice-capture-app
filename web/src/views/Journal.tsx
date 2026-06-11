@@ -12,6 +12,8 @@ function yen(n: number | null): string {
   return n == null ? '—' : `¥${n.toLocaleString()}`
 }
 
+const TAX_LABEL: Record<string, string> = { inclusive: '税込', exclusive: '税抜', unknown: '不明' }
+
 // Single-item "拡大表示" journaling, ported from receipt-app's UX: focus the top
 // item, pick the account title with a button, see the receipt image, 処理して次へ.
 export function JournalView({ clientId }: { clientId: string }) {
@@ -27,8 +29,11 @@ export function JournalView({ clientId }: { clientId: string }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  const [titleId, setTitleId] = useState('')
+  const [titleId, setTitleId] = useState('')          // 借方科目
+  const [creditTitleId, setCreditTitleId] = useState('')  // 貸方科目
   const [partnerId, setPartnerId] = useState('')
+  const [showAllDebit, setShowAllDebit] = useState(false)
+  const [showAllCredit, setShowAllCredit] = useState(false)
 
   async function loadMasters() {
     if (!clientId) return
@@ -51,10 +56,27 @@ export function JournalView({ clientId }: { clientId: string }) {
 
   const activeIdx = items.length > 0 ? Math.min(activeIndex, items.length - 1) : 0
   const top = items[activeIdx] ?? null
+  // 「よく使う(借方/貸方)」だけを既定表示（多すぎる科目を絞る）。選択中の科目は常に出す。
+  const pinnedDebit = titles.filter((t) => t.pinned_debit)
+  const pinnedCredit = titles.filter((t) => t.pinned_credit)
+  const shownDebit =
+    showAllDebit || pinnedDebit.length === 0
+      ? titles
+      : titles.filter((t) => t.pinned_debit || t.id === titleId)
+  const shownCredit =
+    showAllCredit || pinnedCredit.length === 0
+      ? titles
+      : titles.filter((t) => t.pinned_credit || t.id === creditTitleId)
+  // 消費税の内訳。欠けている値は税込から逆算して表示する。
+  const taxJpy =
+    top?.tax_jpy ?? (top?.amount_jpy != null && top?.subtotal_jpy != null ? top.amount_jpy - top.subtotal_jpy : null)
+  const subJpy =
+    top?.subtotal_jpy ?? (top?.amount_jpy != null && top?.tax_jpy != null ? top.amount_jpy - top.tax_jpy : null)
 
   useEffect(() => {
     if (!top) return
     setTitleId(top.account_title_id ?? top.suggestion.account_title_id ?? '')
+    setCreditTitleId(top.credit_account_title_id ?? '')
     setPartnerId(top.partner_id ?? top.suggestion.partner_id ?? '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [top?.id])
@@ -82,7 +104,13 @@ export function JournalView({ clientId }: { clientId: string }) {
   }
   function handleProcess() {
     if (!top || !titleId) return
-    void act(() => api.journalize(top.id, { account_title_id: titleId, partner_id: partnerId || null }))
+    void act(() =>
+      api.journalize(top.id, {
+        account_title_id: titleId,
+        credit_account_title_id: creditTitleId || null,
+        partner_id: partnerId || null,
+      }),
+    )
   }
   async function toggleNote(noteId: string) {
     if (!top) return
@@ -151,6 +179,20 @@ export function JournalView({ clientId }: { clientId: string }) {
                 {top.t_number && <Badge>T{top.t_number}</Badge>}
               </div>
 
+              {/* 解析できた情報の詳細 */}
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                {(subJpy != null || taxJpy != null) && (
+                  <span>
+                    内訳: 税抜 <span className="text-slate-700">{yen(subJpy)}</span>
+                    {' / '}消費税 <span className="text-slate-700">{yen(taxJpy)}</span>
+                    {' / '}税込 <span className="text-slate-700">{yen(top.amount_jpy)}</span>
+                  </span>
+                )}
+                {top.tax_mode && <span>税区分: <span className="text-slate-700">{TAX_LABEL[top.tax_mode] ?? top.tax_mode}</span></span>}
+                {top.payment_method && <span>支払方法: <span className="text-slate-700">{top.payment_method}</span></span>}
+                {top.t_number && <span>インボイス: <span className="text-slate-700">T{top.t_number}</span></span>}
+              </div>
+
               <div className="flex flex-wrap items-center gap-2">
                 <NoteChips ids={top.note_ids} notes={notes} empty={<span className="text-xs text-slate-400">付箋なし</span>} />
                 <Button size="sm" variant="secondary" onClick={() => setTagging(true)}><Icon.Plus /> 付箋</Button>
@@ -158,20 +200,66 @@ export function JournalView({ clientId }: { clientId: string }) {
 
               <div className="flex h-80 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
                 {top.image_file_id ? (
-                  <img src={api.fileUrl(top.image_file_id)} alt="領収書" className="max-h-full max-w-full object-contain" />
+                  (top.image_mime ?? '').includes('pdf') ? (
+                    <iframe src={api.fileUrl(top.image_file_id)} title="領収書PDF" className="h-full w-full" />
+                  ) : (
+                    <img src={api.fileUrl(top.image_file_id)} alt="領収書" className="max-h-full max-w-full object-contain" />
+                  )
                 ) : (
                   <span className="text-sm text-slate-400">画像なし</span>
                 )}
               </div>
 
+              {/* 借方科目 */}
               <div className="space-y-2 border-t border-slate-100 pt-3">
-                <span className="text-xs font-medium text-slate-500">勘定科目</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-500">借方科目</span>
+                  {pinnedDebit.length > 0 && (
+                    <button onClick={() => setShowAllDebit((v) => !v)} className="text-xs font-medium text-brand-600 hover:underline">
+                      {showAllDebit ? 'よく使うのみ' : `すべて表示 (${titles.length})`}
+                    </button>
+                  )}
+                </div>
                 <div className="flex flex-wrap gap-2">
-                  {titles.map((t) => (
+                  {shownDebit.map((t) => (
                     <button key={t.id} onClick={() => setTitleId(t.id)}
                       className={cn(
                         'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
                         titleId === t.id
+                          ? 'bg-brand-600 text-white shadow-sm'
+                          : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100',
+                      )}>
+                      <span className="mr-1 text-xs opacity-70">{t.code}</span>{t.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 貸方科目 */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-500">貸方科目</span>
+                  {pinnedCredit.length > 0 && (
+                    <button onClick={() => setShowAllCredit((v) => !v)} className="text-xs font-medium text-brand-600 hover:underline">
+                      {showAllCredit ? 'よく使うのみ' : `すべて表示 (${titles.length})`}
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => setCreditTitleId('')}
+                    className={cn(
+                      'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                      creditTitleId === ''
+                        ? 'bg-slate-600 text-white shadow-sm'
+                        : 'border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100',
+                    )}>
+                    (なし)
+                  </button>
+                  {shownCredit.map((t) => (
+                    <button key={t.id} onClick={() => setCreditTitleId(t.id)}
+                      className={cn(
+                        'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                        creditTitleId === t.id
                           ? 'bg-brand-600 text-white shadow-sm'
                           : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100',
                       )}>

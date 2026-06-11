@@ -34,6 +34,8 @@ class AccountTitlePatch(BaseModel):
     code: str | None = None
     name: str | None = None
     sort_order: int | None = None
+    pinned_debit: bool | None = None   # 「よく使う(借方)」: 仕分けの借方ピッカーで既定表示
+    pinned_credit: bool | None = None  # 「よく使う(貸方)」: 仕分けの貸方ピッカーで既定表示
 
 
 class PartnerIn(BaseModel):
@@ -110,6 +112,8 @@ async def list_account_titles(
             "name": r.name,
             "scope": "client" if r.client_id else "template",
             "sub_account_count": counts.get(r.id, 0),
+            "pinned_debit": r.pinned_debit,
+            "pinned_credit": r.pinned_credit,
         }
         for r in effective
     ]

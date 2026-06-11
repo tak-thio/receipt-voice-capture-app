@@ -3,7 +3,7 @@ import { api, type ClientRow, type Me } from './api'
 import { ReceiptsView } from './views/Receipts'
 import { JournalView } from './views/Journal'
 import { MastersView } from './views/Masters'
-import { ClientsView, ClientUsers } from './views/Clients'
+import { ClientsView, ClientUsers, ClientAiConfig } from './views/Clients'
 import { SettingsView } from './views/Settings'
 import { ExportView } from './views/Export'
 import { InviteRedeem } from './views/InviteRedeem'
@@ -126,7 +126,7 @@ const NAV: NavItem[] = [
   { id: 'masters', label: 'マスタ', icon: Icon.Database, needsClient: true, can: (p) => p.canMasters },
   { id: 'clients', label: '顧問先', icon: Icon.Building, needsClient: false, can: (p) => p.canClients },
   { id: 'users', label: 'ユーザー', icon: Icon.User, needsClient: false, can: (p) => p.canUsers },
-  { id: 'settings', label: '設定', icon: Icon.Sliders, needsClient: false, can: (p) => p.canSettings },
+  { id: 'settings', label: '設定', icon: Icon.Sliders, needsClient: false, can: (p) => p.canSettings || p.canUsers },
 ]
 
 function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
@@ -218,7 +218,15 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
               <ClientUsers clientId={selfClientId} />
             </>
           )}
-          {tab === 'settings' && <SettingsView firmId={firmId} />}
+          {tab === 'settings' &&
+            (perms.isFirmOwner ? (
+              <SettingsView firmId={firmId} />
+            ) : selfClientId ? (
+              <>
+                <PageHeader title="設定" description="自社のAI設定を管理します。" />
+                <ClientAiConfig clientId={selfClientId} />
+              </>
+            ) : null)}
         </main>
       </div>
     </div>

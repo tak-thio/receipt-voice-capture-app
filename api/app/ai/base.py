@@ -16,7 +16,9 @@ class ExtractedReceipt:
     """Structured fields parsed from a receipt (the `format` step output)."""
 
     vendor: str | None = None
-    amount_jpy: int | None = None
+    amount_jpy: int | None = None  # 税込合計
+    subtotal_jpy: int | None = None  # 税抜金額
+    tax_jpy: int | None = None  # 消費税額
     tax_mode: str | None = None
     payment_method: str | None = None
     t_number: str | None = None
@@ -34,6 +36,12 @@ class OcrProvider(ABC):
     @abstractmethod
     async def extract_text(self, image: bytes, mime: str) -> str:
         """Image bytes -> raw OCR text."""
+
+    async def extract_fields(self, image: bytes, mime: str) -> ExtractedReceipt | None:
+        """Optional one-call path: a vision LLM can read the image AND return
+        structured fields directly, making a separate `format` step unnecessary.
+        Return None if unsupported (the caller falls back to extract_text + format)."""
+        return None
 
 
 class FormatProvider(ABC):

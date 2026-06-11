@@ -8,6 +8,7 @@ step to extract structured fields.
 """
 
 import asyncio
+import json
 from uuid import UUID
 
 from sqlalchemy import select
@@ -17,12 +18,36 @@ from starlette.concurrency import run_in_threadpool
 from . import storage
 from .ai import factory
 from .config import get_settings
-from .models import File, Firm, Job, Receipt
+from .models import UNPARSED_VENDOR, Client, File, Firm, Job, Receipt
 
 settings = get_settings()
 # Owner engine — trusted worker, bypasses RLS (scopes by job.firm_id/client_id).
 _engine = create_async_engine(settings.database_url, pool_pre_ping=True)
 _Session = async_sessionmaker(_engine, expire_on_commit=False)
+
+
+def _apply_fields(receipt: Receipt, fields) -> None:
+    """Fill receipt fields from an extraction. Replaces the 未解析 upload placeholder
+    but never clobbers a value a human already entered."""
+    if receipt.vendor == UNPARSED_VENDOR and fields.vendor:
+        receipt.vendor = fields.vendor
+    else:
+        receipt.vendor = receipt.vendor or fields.vendor
+    receipt.amount_jpy = receipt.amount_jpy or fields.amount_jpy
+    receipt.subtotal_jpy = receipt.subtotal_jpy or fields.subtotal_jpy
+    receipt.tax_jpy = receipt.tax_jpy or fields.tax_jpy
+    receipt.tax_mode = receipt.tax_mode or fields.tax_mode
+    receipt.payment_method = receipt.payment_method or fields.payment_method
+    receipt.t_number = receipt.t_number or fields.t_number
+
+
+def _resolve_ai(firm_cfg: dict | None, client_cfg: dict | None) -> dict:
+    """Resolve AI provider config as client > firm, capability by capability."""
+    merged = dict(firm_cfg or {})
+    for cap, v in (client_cfg or {}).items():
+        if v and v.get("provider"):
+            merged[cap] = v
+    return merged
 
 
 async def _process(session, job: Job) -> None:
@@ -32,25 +57,31 @@ async def _process(session, job: Job) -> None:
     if not (firm and receipt and file):
         raise ValueError("missing firm/receipt/file for job")
 
+    # Per-client AI config overrides the firm's (client > firm).
+    client = await session.get(Client, job.client_id) if job.client_id else None
+    cfg = _resolve_ai(firm.ai_config, client.ai_config if client else None)
+
     data = await run_in_threadpool(storage.get, file.path)
 
     if job.kind == "ocr":
-        receipt.ocr_raw = await factory.ocr_for(firm.ai_config).extract_text(data, file.mime)
+        ocr = factory.ocr_for(cfg)
+        # Vision LLMs (Gemini / OpenAI) read the image AND return structured fields
+        # in ONE call — apply them and skip the separate text→fields format step.
+        fields = await ocr.extract_fields(data, file.mime)
+        if fields is not None:
+            receipt.ocr_raw = json.dumps(fields.raw, ensure_ascii=False) if fields.raw else None
+            _apply_fields(receipt, fields)
+            return
+        receipt.ocr_raw = await ocr.extract_text(data, file.mime)
     elif job.kind == "stt":
-        receipt.stt_raw = await factory.stt_for(firm.ai_config).transcribe(data, file.mime)
+        receipt.stt_raw = await factory.stt_for(cfg).transcribe(data, file.mime)
     else:
         raise ValueError(f"unsupported job kind: {job.kind}")
 
-    # Format step: turn the raw text into structured fields (don't overwrite
-    # values a human may have already entered).
+    # Fallback / audio path: structure the raw OCR/STT text with the format provider.
     combined = " ".join(filter(None, [receipt.stt_raw, receipt.ocr_raw])).strip()
     if combined:
-        fields = await factory.format_for(firm.ai_config).to_fields(combined)
-        receipt.vendor = receipt.vendor or fields.vendor
-        receipt.amount_jpy = receipt.amount_jpy or fields.amount_jpy
-        receipt.tax_mode = receipt.tax_mode or fields.tax_mode
-        receipt.payment_method = receipt.payment_method or fields.payment_method
-        receipt.t_number = receipt.t_number or fields.t_number
+        _apply_fields(receipt, await factory.format_for(cfg).to_fields(combined))
 
 
 async def _tick() -> bool:

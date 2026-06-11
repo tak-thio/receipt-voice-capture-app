@@ -27,6 +27,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
 
+# Placeholder vendor for a receipt uploaded but not yet AI-parsed. The worker
+# replaces it once OCR/format extracts the real vendor.
+UNPARSED_VENDOR = "未解析"
+
 
 # --- enums -----------------------------------------------------------------
 
@@ -124,6 +128,9 @@ class Client(Base, TimestampMixin):
     id: Mapped[UUID] = _uuid_pk()
     firm_id: Mapped[UUID] = mapped_column(ForeignKey("firms.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(200))
+    # Per-client AI provider override (same shape as Firm.ai_config). Resolved as
+    # client > firm in the worker. Keys are Fernet-encrypted; never returned raw.
+    ai_config: Mapped[dict] = mapped_column(JSONB, default=dict)
     code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     export_default: Mapped[str] = mapped_column(String(50), default="generic")
     status: Mapped[str] = mapped_column(String(50), default="active")
@@ -249,14 +256,19 @@ class Receipt(Base, TimestampMixin):
 
     captured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     vendor: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    amount_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    amount_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 税込合計
+    subtotal_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 税抜金額
+    tax_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 消費税額
     tax_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
     payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
     t_number: Mapped[str | None] = mapped_column(String(20), nullable=True)  # インボイス番号
 
     account_title_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("account_titles.id"), nullable=True
-    )
+    )  # 借方科目 (debit)
+    credit_account_title_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("account_titles.id"), nullable=True
+    )  # 貸方科目 (credit)
     sub_account_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("sub_accounts.id"), nullable=True
     )
@@ -304,6 +316,9 @@ class AccountTitle(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(200))
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # 「よく使う」科目: 仕分けで既定表示する。借方/貸方で別々に指定する。
+    pinned_debit: Mapped[bool] = mapped_column(Boolean, default=False)
+    pinned_credit: Mapped[bool] = mapped_column(Boolean, default=False)
     # When a client row supersedes/hides a firm-template row.
     override_of: Mapped[UUID | None] = mapped_column(
         ForeignKey("account_titles.id"), nullable=True

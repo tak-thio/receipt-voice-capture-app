@@ -32,6 +32,11 @@ export function MastersView({ clientId, firmId }: { clientId: string; firmId: st
     if (!window.confirm(`勘定科目「${t.name}」を削除しますか?`)) return
     if (await toast.run(() => api.deleteAccountTitle(t.id), '勘定科目を削除しました')) await load()
   }
+  async function togglePin(t: MasterRow, side: 'debit' | 'credit') {
+    const patch =
+      side === 'debit' ? { pinned_debit: !t.pinned_debit } : { pinned_credit: !t.pinned_credit }
+    if (await toast.run(() => api.patchAccountTitle(t.id, patch))) await load()
+  }
   async function delPartner(p: MasterRow) {
     if (!window.confirm(`取引先「${p.name}」を削除しますか?`)) return
     if (await toast.run(() => api.deletePartner(p.id), '取引先を削除しました')) await load()
@@ -62,6 +67,7 @@ export function MastersView({ clientId, firmId }: { clientId: string; firmId: st
               <tr>
                 <Th className="w-20">コード</Th>
                 <Th>科目名</Th>
+                <Th className="w-36">よく使う</Th>
                 <Th className="w-28">補助科目</Th>
                 <Th className="w-px text-right">操作</Th>
               </tr>
@@ -73,6 +79,16 @@ export function MastersView({ clientId, firmId }: { clientId: string; firmId: st
                   <Td className="font-medium text-slate-800">
                     {t.name}
                     {t.scope !== 'client' && <Badge className="ml-2">テンプレ</Badge>}
+                  </Td>
+                  <Td>
+                    <div className="flex gap-1">
+                      <Button size="sm" variant={t.pinned_debit ? 'primary' : 'ghost'} onClick={() => void togglePin(t, 'debit')}>
+                        {t.pinned_debit ? '★借方' : '借方'}
+                      </Button>
+                      <Button size="sm" variant={t.pinned_credit ? 'primary' : 'ghost'} onClick={() => void togglePin(t, 'credit')}>
+                        {t.pinned_credit ? '★貸方' : '貸方'}
+                      </Button>
+                    </div>
                   </Td>
                   <Td>
                     <Button size="sm" variant="secondary" onClick={() => setSubFor(t)}>
@@ -88,7 +104,7 @@ export function MastersView({ clientId, firmId }: { clientId: string; firmId: st
                 </Tr>
               ))}
               {titles.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-400">勘定科目がありません</td></tr>
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">勘定科目がありません</td></tr>
               )}
             </Tbody>
           </Table>

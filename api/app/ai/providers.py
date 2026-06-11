@@ -20,11 +20,20 @@ settings = get_settings()
 
 _FORMAT_PROMPT = (
     "次の領収書テキストから JSON で抽出してください。"
-    'キー: date(YYYY-MM-DD), vendor(支払先), amount_jpy(整数), '
+    'キー: date(YYYY-MM-DD), vendor(支払先), amount_jpy(税込合計,整数), '
+    "subtotal_jpy(税抜金額,整数), tax_jpy(消費税額,整数), "
     "tax_mode(inclusive/exclusive/unknown), payment_method, t_number(インボイス番号)。"
     "値が不明なものは null。JSON以外は出力しないこと。\n\n"
 )
 _OCR_PROMPT = "この領収書画像に書かれている文字を、改行を保ちつつ全て書き出してください。"
+# One-call vision extraction: read the image AND return structured JSON directly.
+_VISION_EXTRACT_PROMPT = (
+    "この領収書画像から JSON で抽出してください。"
+    'キー: date(YYYY-MM-DD), vendor(支払先), amount_jpy(税込合計,整数), '
+    "subtotal_jpy(税抜金額,整数), tax_jpy(消費税額,整数), "
+    "tax_mode(inclusive/exclusive/unknown), payment_method, t_number(インボイス番号)。"
+    "値が不明なものは null。JSON以外は出力しないこと。"
+)
 
 
 def _json_from_text(text: str) -> dict:
@@ -37,15 +46,19 @@ def _json_from_text(text: str) -> dict:
         return {}
 
 
-def _to_extracted(data: dict) -> ExtractedReceipt:
-    amount = data.get("amount_jpy")
+def _int(v) -> int | None:
     try:
-        amount = int(amount) if amount not in (None, "") else None
+        return int(v) if v not in (None, "") else None
     except (TypeError, ValueError):
-        amount = None
+        return None
+
+
+def _to_extracted(data: dict) -> ExtractedReceipt:
     return ExtractedReceipt(
         vendor=data.get("vendor"),
-        amount_jpy=amount,
+        amount_jpy=_int(data.get("amount_jpy")),
+        subtotal_jpy=_int(data.get("subtotal_jpy")),
+        tax_jpy=_int(data.get("tax_jpy")),
         tax_mode=data.get("tax_mode"),
         payment_method=data.get("payment_method"),
         t_number=data.get("t_number"),
@@ -162,6 +175,29 @@ class OpenAiOcr(OcrProvider):
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"]
 
+    async def extract_fields(self, image: bytes, mime: str) -> ExtractedReceipt:
+        data_url = f"data:{mime or 'image/jpeg'};base64,{base64.b64encode(image).decode()}"
+        async with httpx.AsyncClient(timeout=180) as client:
+            resp = await client.post(
+                f"{_OPENAI}/chat/completions",
+                headers={"Authorization": f"Bearer {self.key}"},
+                json={
+                    "model": self.model,
+                    "response_format": {"type": "json_object"},
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": _VISION_EXTRACT_PROMPT},
+                                {"type": "image_url", "image_url": {"url": data_url}},
+                            ],
+                        }
+                    ],
+                },
+            )
+            resp.raise_for_status()
+            return _to_extracted(_json_from_text(resp.json()["choices"][0]["message"]["content"]))
+
 
 class OpenAiFormat(FormatProvider):
     def __init__(self, key: str, model: str | None = None) -> None:
@@ -227,6 +263,15 @@ class GeminiOcr(OcrProvider):
         ]
         return await _gemini_generate(self.key, self.model, parts)
 
+    async def extract_fields(self, image: bytes, mime: str) -> ExtractedReceipt:
+        # One Gemini vision call: image -> structured JSON (no separate format step).
+        parts = [
+            {"text": _VISION_EXTRACT_PROMPT},
+            {"inline_data": {"mime_type": mime or "image/jpeg", "data": base64.b64encode(image).decode()}},
+        ]
+        out = await _gemini_generate(self.key, self.model, parts)
+        return _to_extracted(_json_from_text(out))
+
 
 class GeminiFormat(FormatProvider):
     def __init__(self, key: str, model: str | None = None) -> None:
@@ -265,6 +310,8 @@ class MockFormat(FormatProvider):
             {
                 "vendor": "テスト商店",
                 "amount_jpy": 1500,
+                "subtotal_jpy": 1364,
+                "tax_jpy": 136,
                 "tax_mode": "inclusive",
                 "payment_method": "cash",
                 "date": "2026-06-05",

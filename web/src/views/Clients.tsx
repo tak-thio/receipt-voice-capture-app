@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, type ClientDetail, type ClientRow, type MemberRow } from '../api'
+import { api, type AiConfigPatch, type ClientDetail, type ClientRow, type MemberRow } from '../api'
 import {
   Badge, Button, Card, EmptyState, Field, Icon, IconButton, Input, Modal,
   PageHeader, Section, Select, Table, Tbody, Td, Th, Thead, Textarea, Tr,
@@ -245,8 +245,100 @@ function EditScreen({ id, canManage, onBack, onChanged, selfMode }: { id: string
           <ClientForm initial={detail} submitLabel="保存" busy={busy} onSubmit={submit} onCancel={onBack} />
         </Section>
         <ClientUsers clientId={id} />
+        <ClientAiConfig clientId={id} />
       </div>
     </>
+  )
+}
+
+/* -------------------------------------------------- per-client AI config */
+
+const AI_PROVIDERS: Record<string, string[]> = {
+  stt: ['openai', 'gemini', 'whisper', 'mock'],
+  ocr: ['ollama', 'openai', 'gemini', 'mock'],
+  format: ['ollama', 'openai', 'gemini', 'mock'],
+}
+const AI_CAP_LABEL: Record<string, string> = { stt: '音声(STT)', ocr: '画像(OCR)', format: '整形' }
+const AI_SELF_HOSTED = new Set(['ollama', 'whisper', 'mock'])
+type AiCap = { provider: string; key: string; model: string }
+
+// Per-client AI provider keys. Used both by 事務所職員 (in the 顧問先 edit screen)
+// and by the client_admin (自社の設定). Keys are write-only: the server returns
+// only key_set, never the raw key.
+export function ClientAiConfig({ clientId }: { clientId: string }) {
+  const toast = useToast()
+  const [masked, setMasked] = useState<ClientDetail['ai_config']>(undefined)
+  const [caps, setCaps] = useState<Record<string, AiCap>>({})
+
+  async function load() {
+    const d = await api.client(clientId)
+    const cfg = d.ai_config ?? {}
+    setMasked(cfg)
+    const next: Record<string, AiCap> = {}
+    for (const cap of Object.keys(AI_PROVIDERS)) {
+      const c = cfg[cap]
+      next[cap] = { provider: c?.provider ?? '', key: '', model: c?.model ?? '' }
+    }
+    setCaps(next)
+  }
+  useEffect(() => {
+    load().catch((e) => toast.error(String(e)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId])
+
+  function updateCap(cap: string, patch: Partial<AiCap>) {
+    setCaps((prev) => ({ ...prev, [cap]: { ...prev[cap], ...patch } }))
+  }
+  async function save() {
+    const body: AiConfigPatch = {}
+    for (const cap of Object.keys(AI_PROVIDERS)) {
+      const c = caps[cap]
+      if (!c || !c.provider) continue
+      const entry: { provider: string; key?: string; model?: string } = { provider: c.provider }
+      if (c.key) entry.key = c.key
+      if (c.model) entry.model = c.model
+      body[cap as keyof AiConfigPatch] = entry
+    }
+    if (await toast.run(() => api.setClientAiConfig(clientId, body), 'AIキーを保存しました')) await load()
+  }
+
+  return (
+    <Section
+      title="AI設定（この顧客）"
+      description="未設定の能力は事務所全体の設定を使用します。キーは暗号化保存され、表示はされません。"
+      actions={<Button variant="primary" size="sm" onClick={() => void save()}>保存</Button>}
+    >
+      <div className="space-y-3">
+        {Object.keys(AI_PROVIDERS).map((cap) => {
+          const c = caps[cap]
+          const needsKey = !!c?.provider && !AI_SELF_HOSTED.has(c.provider)
+          const keySet = masked?.[cap]?.key_set
+          return (
+            <div key={cap} className="grid grid-cols-1 items-center gap-2 sm:grid-cols-12">
+              <span className="text-sm font-medium text-slate-600 sm:col-span-2">{AI_CAP_LABEL[cap]}</span>
+              <div className="sm:col-span-3">
+                <Select value={c?.provider ?? ''} onChange={(e) => updateCap(cap, { provider: e.target.value })}>
+                  <option value="">（事務所設定を使用）</option>
+                  {AI_PROVIDERS[cap].map((p) => <option key={p} value={p}>{p}</option>)}
+                </Select>
+              </div>
+              <div className="sm:col-span-3">
+                <Input placeholder="モデル(任意)" value={c?.model ?? ''} onChange={(e) => updateCap(cap, { model: e.target.value })} />
+              </div>
+              <div className="sm:col-span-4">
+                <Input
+                  type="password"
+                  disabled={!needsKey}
+                  placeholder={needsKey ? (keySet ? '設定済み(変更時のみ入力)' : 'APIキー') : 'キー不要'}
+                  value={c?.key ?? ''}
+                  onChange={(e) => updateCap(cap, { key: e.target.value })}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </Section>
   )
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { api, type NoteRow, type ReceiptRow } from '../api'
 import {
   Badge, Button, Card, EmptyState, Icon, IconButton, Input, PageHeader,
@@ -14,6 +14,18 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
   const [q, setQ] = useState('')
   const [loading, setLoading] = useState(false)
   const [tagging, setTagging] = useState<ReceiptRow | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+
+  async function onUpload(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-selecting the same file
+    if (!file || !clientId) return
+    setUploading(true)
+    const ok = await toast.run(() => api.uploadReceipt(clientId, file), '領収書をアップロードしました')
+    setUploading(false)
+    if (ok) void load()
+  }
 
   async function load() {
     if (!clientId) {
@@ -66,6 +78,17 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
         </div>
         <Button onClick={() => void load()}>検索</Button>
         <span className="ml-1 text-sm text-slate-500">{rows.length}件</span>
+        <div className="flex-1" />
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,application/pdf"
+          className="hidden"
+          onChange={(e) => void onUpload(e)}
+        />
+        <Button variant="primary" onClick={() => fileRef.current?.click()} disabled={uploading}>
+          <Icon.Plus /> {uploading ? 'アップロード中…' : 'アップロード'}
+        </Button>
       </div>
 
       <Card>
@@ -77,6 +100,7 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
               <Th className="text-right">金額</Th>
               <Th>付箋</Th>
               <Th className="w-24">状態</Th>
+              <Th className="w-16">画像</Th>
             </tr>
           </Thead>
           <Tbody>
@@ -100,11 +124,25 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
                     ? <Badge tone="success">仕分済</Badge>
                     : <Badge tone="warning">未仕分</Badge>}
                 </Td>
+                <Td>
+                  {r.image_file_id ? (
+                    <a
+                      href={api.fileUrl(r.image_file_id)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-brand-600 hover:underline"
+                    >
+                      表示
+                    </a>
+                  ) : (
+                    <span className="text-slate-300">—</span>
+                  )}
+                </Td>
               </Tr>
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-400">
+                <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">
                   {loading ? '読み込み中…' : '領収書がありません'}
                 </td>
               </tr>

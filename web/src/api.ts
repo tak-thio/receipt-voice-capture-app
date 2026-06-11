@@ -47,6 +47,7 @@ export interface ClientDetail extends ClientRow {
   industry: string | null
   memo: string | null
   staff_user_id: string | null
+  ai_config?: FirmInfo['ai_config'] // masked (key_set only); per-client AI provider override
 }
 
 export interface ReceiptRow {
@@ -63,6 +64,7 @@ export interface ReceiptRow {
   approval_status: string
   journalized_at: string | null
   note_ids: string[]
+  image_file_id?: string | null
 }
 
 export interface NoteRow {
@@ -78,6 +80,8 @@ export interface MasterRow {
   scope?: string
   domain?: string | null
   sub_account_count?: number
+  pinned_debit?: boolean
+  pinned_credit?: boolean
 }
 
 export interface SubAccountRow {
@@ -96,11 +100,17 @@ export interface QueueItem {
   id: string
   vendor: string | null
   amount_jpy: number | null
+  subtotal_jpy: number | null
+  tax_jpy: number | null
   date: string | null
   source: string
   t_number: string | null
   image_file_id: string | null
+  image_mime: string | null
+  tax_mode: string | null
+  payment_method: string | null
   account_title_id: string | null
+  credit_account_title_id: string | null
   partner_id: string | null
   note_ids: string[]
   suggestion: Suggestion
@@ -129,6 +139,12 @@ export const api = {
   client: (id: string) => req<ClientDetail>(`/clients/${id}`),
   patchClient: (id: string, patch: Partial<ClientDetail>) =>
     req<ClientDetail>(`/clients/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  // Per-client AI provider keys (write-only; GET returns masked key_set only).
+  setClientAiConfig: (clientId: string, cfg: AiConfigPatch) =>
+    req<{ ai_config: FirmInfo['ai_config'] }>(`/clients/${clientId}/ai-config`, {
+      method: 'PATCH',
+      body: JSON.stringify(cfg),
+    }),
   deleteClient: (id: string) => req(`/clients/${id}`, { method: 'DELETE' }),
   createClientUser: (
     clientId: string,
@@ -148,6 +164,16 @@ export const api = {
   },
   patchReceipt: (id: string, patch: Partial<ReceiptRow>) =>
     req<ReceiptRow>(`/receipts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  // Web upload (multipart) — a logged-in user adds a receipt image/PDF to a client.
+  uploadReceipt: async (clientId: string, file: File, audio?: File) => {
+    const fd = new FormData()
+    fd.append('client_id', clientId)
+    fd.append('image', file)
+    if (audio) fd.append('audio', audio)
+    const res = await fetch(`${BASE}/captures/web`, { method: 'POST', credentials: 'include', body: fd })
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+    return (await res.json()) as { receipt_id: string; status: string }
+  },
 
   journalQueue: (clientId?: string, view: 'queue' | 'held' = 'queue') => {
     const params = new URLSearchParams({ view })
@@ -157,7 +183,12 @@ export const api = {
   suggest: (receiptId: string) => req<Suggestion>(`/journal/suggest/${receiptId}`),
   journalize: (
     receiptId: string,
-    body: { account_title_id?: string | null; sub_account_id?: string | null; partner_id?: string | null },
+    body: {
+      account_title_id?: string | null
+      credit_account_title_id?: string | null
+      sub_account_id?: string | null
+      partner_id?: string | null
+    },
   ) => req(`/journal/receipts/${receiptId}`, { method: 'POST', body: JSON.stringify(body) }),
   hold: (receiptId: string) => req(`/journal/receipts/${receiptId}/hold`, { method: 'POST' }),
   unhold: (receiptId: string) => req(`/journal/receipts/${receiptId}/unhold`, { method: 'POST' }),
@@ -170,8 +201,16 @@ export const api = {
     req<MasterRow[]>(`/masters/account-titles${clientId ? `?client_id=${clientId}` : ''}`),
   createAccountTitle: (body: { firm_id: string; client_id?: string | null; code: string; name: string }) =>
     req<{ id: string }>('/masters/account-titles', { method: 'POST', body: JSON.stringify(body) }),
-  patchAccountTitle: (id: string, patch: { code?: string; name?: string; sort_order?: number }) =>
-    req(`/masters/account-titles/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  patchAccountTitle: (
+    id: string,
+    patch: {
+      code?: string
+      name?: string
+      sort_order?: number
+      pinned_debit?: boolean
+      pinned_credit?: boolean
+    },
+  ) => req(`/masters/account-titles/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteAccountTitle: (id: string) =>
     req(`/masters/account-titles/${id}`, { method: 'DELETE' }),
   subAccounts: (titleId: string) =>

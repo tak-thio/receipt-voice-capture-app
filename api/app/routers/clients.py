@@ -17,12 +17,35 @@ from ..deps import (
     require_firm_role,
 )
 from ..models import Client, Membership, Role, User
-from ..security import hash_password
+from ..security import encrypt_secret, hash_password
 from ..seed import seed_client_chart
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
 CLIENT_ROLES = {Role.client_admin.value, Role.client_accountant.value, Role.client_user.value}
+
+# --- per-client AI provider config (same shape/handling as firm.ai_config) ---
+SELF_HOSTED_AI = {"ollama", "whisper", "mock"}
+
+
+class CapabilityConfig(BaseModel):
+    provider: str
+    key: str | None = None  # plaintext; encrypted server-side. Omit to keep existing.
+    model: str | None = None
+
+
+class AiConfigIn(BaseModel):
+    stt: CapabilityConfig | None = None
+    ocr: CapabilityConfig | None = None
+    format: CapabilityConfig | None = None
+
+
+def _mask_ai(ai_config: dict) -> dict:
+    """Write-only view: provider/model + whether a key is set, never the key."""
+    return {
+        cap: {"provider": v.get("provider"), "model": v.get("model"), "key_set": bool(v.get("key_enc"))}
+        for cap, v in (ai_config or {}).items()
+    }
 
 # Editable extended master fields on a client.
 EDITABLE = (
@@ -106,6 +129,7 @@ def _client_dict(c: Client) -> dict:
         "industry": c.industry,
         "memo": c.memo,
         "staff_user_id": str(c.staff_user_id) if c.staff_user_id else None,
+        "ai_config": _mask_ai(c.ai_config),
     }
 
 
@@ -148,6 +172,42 @@ async def get_client(
     if not c:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
     return _client_dict(c)
+
+
+@router.patch("/{client_id}/ai-config")
+async def patch_client_ai_config(
+    client_id: UUID,
+    body: AiConfigIn,
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """Set per-client AI provider keys. Allowed for 事務所職員(担当) and the client's
+    own client_admin. Write-only: keys are encrypted and never returned (only key_set)."""
+    await _guard_client(session, principal, client_id)
+    c = await session.get(Client, client_id)
+    if not c:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
+    config = dict(c.ai_config or {})
+    for cap in ("stt", "ocr", "format"):
+        cfg: CapabilityConfig | None = getattr(body, cap)
+        if cfg is None:
+            continue
+        entry: dict = {"provider": cfg.provider}
+        if cfg.model:
+            entry["model"] = cfg.model
+        if cfg.provider in SELF_HOSTED_AI:
+            pass  # no key needed
+        elif cfg.key:
+            entry["key_enc"] = encrypt_secret(cfg.key)
+        elif config.get(cap, {}).get("key_enc"):
+            entry["key_enc"] = config[cap]["key_enc"]  # keep existing key
+        else:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, f"{cap}: provider {cfg.provider} requires a key"
+            )
+        config[cap] = entry
+    c.ai_config = config  # reassign so SQLAlchemy detects the JSONB change
+    return {"ai_config": _mask_ai(config)}
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

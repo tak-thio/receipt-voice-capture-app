@@ -16,23 +16,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import journaling
 from ..db import get_session
 from ..deps import Principal, get_principal
-from ..models import Receipt, ReceiptFile
+from ..models import File, Receipt, ReceiptFile
 
 router = APIRouter(prefix="/journal", tags=["journal"])
 
 
 class Journalize(BaseModel):
-    account_title_id: UUID | None = None
+    account_title_id: UUID | None = None  # 借方科目 (debit)
+    credit_account_title_id: UUID | None = None  # 貸方科目 (credit)
     sub_account_id: UUID | None = None
     partner_id: UUID | None = None
 
 
-async def _image_file_id(session: AsyncSession, receipt_id: UUID) -> UUID | None:
-    return await session.scalar(
-        select(ReceiptFile.file_id).where(
-            ReceiptFile.receipt_id == receipt_id, ReceiptFile.kind == "capture"
+async def _capture_file(session: AsyncSession, receipt_id: UUID) -> tuple[UUID | None, str | None]:
+    """The captured file id + its mime (image/* or application/pdf) so the UI can
+    pick <img> vs an <iframe> for PDFs."""
+    row = (
+        await session.execute(
+            select(ReceiptFile.file_id, File.mime)
+            .join(File, File.id == ReceiptFile.file_id)
+            .where(ReceiptFile.receipt_id == receipt_id, ReceiptFile.kind == "capture")
         )
-    )
+    ).first()
+    return (row[0], row[1]) if row else (None, None)
 
 
 @router.get("/queue")
@@ -65,17 +71,23 @@ async def queue(
     items = []
     for r in rows:
         suggestion = await journaling.suggest(session, r)
-        img = await _image_file_id(session, r.id)
+        img, img_mime = await _capture_file(session, r.id)
         items.append(
             {
                 "id": str(r.id),
                 "vendor": r.vendor,
                 "amount_jpy": r.amount_jpy,
+                "subtotal_jpy": r.subtotal_jpy,
+                "tax_jpy": r.tax_jpy,
                 "date": r.captured_at.date().isoformat() if r.captured_at else None,
                 "source": r.source,
                 "t_number": r.t_number,
                 "image_file_id": str(img) if img else None,
+                "image_mime": img_mime,
+                "tax_mode": r.tax_mode,
+                "payment_method": r.payment_method,
                 "account_title_id": str(r.account_title_id) if r.account_title_id else None,
+                "credit_account_title_id": str(r.credit_account_title_id) if r.credit_account_title_id else None,
                 "partner_id": str(r.partner_id) if r.partner_id else None,
                 "note_ids": r.note_ids or [],
                 "suggestion": {
@@ -116,6 +128,7 @@ async def journalize(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "receipt not found")
 
     receipt.account_title_id = body.account_title_id
+    receipt.credit_account_title_id = body.credit_account_title_id
     receipt.sub_account_id = body.sub_account_id
     receipt.partner_id = body.partner_id
     receipt.journalized_at = datetime.now(timezone.utc)
