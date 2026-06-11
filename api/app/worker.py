@@ -36,6 +36,8 @@ def _apply_fields(receipt: Receipt, fields) -> None:
     receipt.amount_jpy = receipt.amount_jpy or fields.amount_jpy
     receipt.subtotal_jpy = receipt.subtotal_jpy or fields.subtotal_jpy
     receipt.tax_jpy = receipt.tax_jpy or fields.tax_jpy
+    receipt.tax_10_jpy = receipt.tax_10_jpy or fields.tax_10_jpy
+    receipt.tax_8_jpy = receipt.tax_8_jpy or fields.tax_8_jpy
     receipt.tax_mode = receipt.tax_mode or fields.tax_mode
     receipt.payment_method = receipt.payment_method or fields.payment_method
     receipt.t_number = receipt.t_number or fields.t_number

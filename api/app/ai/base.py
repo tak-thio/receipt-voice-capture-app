@@ -16,9 +16,11 @@ class ExtractedReceipt:
     """Structured fields parsed from a receipt (the `format` step output)."""
 
     vendor: str | None = None
-    amount_jpy: int | None = None  # 税込合計
+    amount_jpy: int | None = None  # 合計金額(税込)
     subtotal_jpy: int | None = None  # 税抜金額
-    tax_jpy: int | None = None  # 消費税額
+    tax_jpy: int | None = None  # 消費税合計
+    tax_10_jpy: int | None = None  # 消費税(10%対象分)
+    tax_8_jpy: int | None = None  # 消費税(8%対象分)
     tax_mode: str | None = None
     payment_method: str | None = None
     t_number: str | None = None

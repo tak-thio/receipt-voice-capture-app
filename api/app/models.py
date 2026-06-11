@@ -256,9 +256,11 @@ class Receipt(Base, TimestampMixin):
 
     captured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     vendor: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    amount_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 税込合計
+    amount_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 合計金額(税込)
     subtotal_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 税抜金額
-    tax_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 消費税額
+    tax_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 消費税合計
+    tax_10_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 消費税(10%対象分)
+    tax_8_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 消費税(8%対象分)
     tax_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
     payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
     t_number: Mapped[str | None] = mapped_column(String(20), nullable=True)  # インボイス番号

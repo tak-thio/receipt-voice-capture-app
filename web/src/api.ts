@@ -102,6 +102,8 @@ export interface QueueItem {
   amount_jpy: number | null
   subtotal_jpy: number | null
   tax_jpy: number | null
+  tax_10_jpy: number | null
+  tax_8_jpy: number | null
   date: string | null
   source: string
   t_number: string | null
@@ -188,6 +190,11 @@ export const api = {
       credit_account_title_id?: string | null
       sub_account_id?: string | null
       partner_id?: string | null
+      amount_jpy?: number | null
+      subtotal_jpy?: number | null
+      tax_jpy?: number | null
+      tax_10_jpy?: number | null
+      tax_8_jpy?: number | null
     },
   ) => req(`/journal/receipts/${receiptId}`, { method: 'POST', body: JSON.stringify(body) }),
   hold: (receiptId: string) => req(`/journal/receipts/${receiptId}/hold`, { method: 'POST' }),
@@ -196,6 +203,8 @@ export const api = {
     req(`/receipts/${receiptId}`, { method: 'PATCH', body: JSON.stringify({ approval_status: status }) }),
 
   fileUrl: (fileId: string) => `${BASE}/files/${fileId}`,
+  // Renderable image for any file (images pass through; PDFs are rendered to PNG).
+  previewUrl: (fileId: string) => `${BASE}/files/${fileId}/preview`,
 
   accountTitles: (clientId?: string) =>
     req<MasterRow[]>(`/masters/account-titles${clientId ? `?client_id=${clientId}` : ''}`),

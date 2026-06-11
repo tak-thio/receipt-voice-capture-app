@@ -16,15 +16,33 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
   const [tagging, setTagging] = useState<ReceiptRow | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
 
-  async function onUpload(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = '' // allow re-selecting the same file
-    if (!file || !clientId) return
+  async function uploadFiles(fileList: FileList | File[]) {
+    const files = Array.from(fileList).filter(
+      (f) => f.type.startsWith('image/') || f.type === 'application/pdf',
+    )
+    if (!files.length || !clientId) return
     setUploading(true)
-    const ok = await toast.run(() => api.uploadReceipt(clientId, file), '領収書をアップロードしました')
+    let ok = 0
+    for (const f of files) {
+      try {
+        await api.uploadReceipt(clientId, f)
+        ok++
+      } catch (e) {
+        toast.error(`${f.name}: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
     setUploading(false)
-    if (ok) void load()
+    if (ok) {
+      toast.success(`${ok}件アップロードしました`)
+      void load()
+    }
+  }
+  function onPick(e: ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files
+    e.target.value = '' // allow re-selecting the same files
+    if (files) void uploadFiles(files)
   }
 
   async function load() {
@@ -70,6 +88,13 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
         description="顧問先に届いた領収書の一覧です。"
       />
 
+      <div
+        className="relative"
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={(e) => { e.preventDefault(); setDragOver(false) }}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); void uploadFiles(e.dataTransfer.files) }}
+      >
+      <div className="mb-2 text-xs text-slate-400">ファイルをここにドラッグ&ドロップ、または「アップロード」ボタン（複数選択可）</div>
       <div className="mb-4 flex items-center gap-2">
         <div className="relative w-72 max-w-full">
           <Icon.Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -83,8 +108,9 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
           ref={fileRef}
           type="file"
           accept="image/*,application/pdf"
+          multiple
           className="hidden"
-          onChange={(e) => void onUpload(e)}
+          onChange={onPick}
         />
         <Button variant="primary" onClick={() => fileRef.current?.click()} disabled={uploading}>
           <Icon.Plus /> {uploading ? 'アップロード中…' : 'アップロード'}
@@ -150,6 +176,13 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
           </Tbody>
         </Table>
       </Card>
+
+        {dragOver && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-brand-400 bg-brand-50/70 text-sm font-medium text-brand-700">
+            ここにドロップしてアップロード
+          </div>
+        )}
+      </div>
 
       <NotePickerModal
         open={!!tagging}

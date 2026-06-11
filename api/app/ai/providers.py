@@ -21,7 +21,8 @@ settings = get_settings()
 _FORMAT_PROMPT = (
     "次の領収書テキストから JSON で抽出してください。"
     'キー: date(YYYY-MM-DD), vendor(支払先), amount_jpy(税込合計,整数), '
-    "subtotal_jpy(税抜金額,整数), tax_jpy(消費税額,整数), "
+    "subtotal_jpy(税抜金額,整数), tax_jpy(消費税合計,整数), "
+    "tax_10_jpy(消費税の10%対象分,整数), tax_8_jpy(消費税の8%対象分,整数), "
     "tax_mode(inclusive/exclusive/unknown), payment_method, t_number(インボイス番号)。"
     "値が不明なものは null。JSON以外は出力しないこと。\n\n"
 )
@@ -30,7 +31,8 @@ _OCR_PROMPT = "この領収書画像に書かれている文字を、改行を�
 _VISION_EXTRACT_PROMPT = (
     "この領収書画像から JSON で抽出してください。"
     'キー: date(YYYY-MM-DD), vendor(支払先), amount_jpy(税込合計,整数), '
-    "subtotal_jpy(税抜金額,整数), tax_jpy(消費税額,整数), "
+    "subtotal_jpy(税抜金額,整数), tax_jpy(消費税合計,整数), "
+    "tax_10_jpy(消費税の10%対象分,整数), tax_8_jpy(消費税の8%対象分,整数), "
     "tax_mode(inclusive/exclusive/unknown), payment_method, t_number(インボイス番号)。"
     "値が不明なものは null。JSON以外は出力しないこと。"
 )
@@ -59,6 +61,8 @@ def _to_extracted(data: dict) -> ExtractedReceipt:
         amount_jpy=_int(data.get("amount_jpy")),
         subtotal_jpy=_int(data.get("subtotal_jpy")),
         tax_jpy=_int(data.get("tax_jpy")),
+        tax_10_jpy=_int(data.get("tax_10_jpy")),
+        tax_8_jpy=_int(data.get("tax_8_jpy")),
         tax_mode=data.get("tax_mode"),
         payment_method=data.get("payment_method"),
         t_number=data.get("t_number"),

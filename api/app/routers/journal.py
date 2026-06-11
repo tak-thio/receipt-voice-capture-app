@@ -26,6 +26,12 @@ class Journalize(BaseModel):
     credit_account_title_id: UUID | None = None  # 貸方科目 (credit)
     sub_account_id: UUID | None = None
     partner_id: UUID | None = None
+    # 消費税の内訳（仕分け画面で手修正したら保存。None の項目は据え置き）。
+    amount_jpy: int | None = None
+    subtotal_jpy: int | None = None
+    tax_jpy: int | None = None
+    tax_10_jpy: int | None = None
+    tax_8_jpy: int | None = None
 
 
 async def _capture_file(session: AsyncSession, receipt_id: UUID) -> tuple[UUID | None, str | None]:
@@ -79,6 +85,8 @@ async def queue(
                 "amount_jpy": r.amount_jpy,
                 "subtotal_jpy": r.subtotal_jpy,
                 "tax_jpy": r.tax_jpy,
+                "tax_10_jpy": r.tax_10_jpy,
+                "tax_8_jpy": r.tax_8_jpy,
                 "date": r.captured_at.date().isoformat() if r.captured_at else None,
                 "source": r.source,
                 "t_number": r.t_number,
@@ -131,6 +139,16 @@ async def journalize(
     receipt.credit_account_title_id = body.credit_account_title_id
     receipt.sub_account_id = body.sub_account_id
     receipt.partner_id = body.partner_id
+    if body.amount_jpy is not None:
+        receipt.amount_jpy = body.amount_jpy
+    if body.subtotal_jpy is not None:
+        receipt.subtotal_jpy = body.subtotal_jpy
+    if body.tax_jpy is not None:
+        receipt.tax_jpy = body.tax_jpy
+    if body.tax_10_jpy is not None:
+        receipt.tax_10_jpy = body.tax_10_jpy
+    if body.tax_8_jpy is not None:
+        receipt.tax_8_jpy = body.tax_8_jpy
     receipt.journalized_at = datetime.now(timezone.utc)
     receipt.journal_hold = False
 
