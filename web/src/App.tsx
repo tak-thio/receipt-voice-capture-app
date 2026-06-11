@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { api, type ClientRow, type Me } from './api'
 import { ReceiptsView } from './views/Receipts'
 import { JournalView } from './views/Journal'
+import { LedgerView } from './views/LedgerView'
 import { MastersView } from './views/Masters'
 import { ClientsView, ClientUsers, ClientAiConfig } from './views/Clients'
 import { SettingsView } from './views/Settings'
@@ -107,7 +108,7 @@ function Login({ onLogin }: { onLogin: (me: Me) => void }) {
   )
 }
 
-type Tab = 'receipts' | 'journal' | 'export' | 'masters' | 'clients' | 'users' | 'settings'
+type Tab = 'receipts' | 'journal' | 'ledger' | 'export' | 'masters' | 'clients' | 'users' | 'settings'
 // Capability context derived from the principal's memberships.
 type Perms = {
   isFirm: boolean        // 職員 (firm_owner/firm_staff)
@@ -122,6 +123,7 @@ type NavItem = { id: Tab; label: string; icon: IconComponent; needsClient: boole
 const NAV: NavItem[] = [
   { id: 'receipts', label: '受信箱', icon: Icon.Inbox, needsClient: true, can: () => true },
   { id: 'journal', label: '仕分け', icon: Icon.Sort, needsClient: true, can: (p) => p.canJournal },
+  { id: 'ledger', label: '元帳', icon: Icon.Book, needsClient: true, can: (p) => p.canJournal },
   { id: 'export', label: '出力', icon: Icon.Download, needsClient: true, can: (p) => p.canJournal },
   { id: 'masters', label: 'マスタ', icon: Icon.Database, needsClient: true, can: (p) => p.canMasters },
   { id: 'clients', label: '顧問先', icon: Icon.Building, needsClient: false, can: (p) => p.canClients },
@@ -157,6 +159,8 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   }
   // client_admin が自社ユーザーを管理する対象 client_id。
   const selfClientId = clientMembership?.client_id ?? undefined
+  // 管理者・経理・職員は他人の領収書も見えるので登録者を表示（一般社員は自分のみ）。
+  const canSeeOthers = firmRole !== null || clientRole === 'client_admin' || clientRole === 'client_accountant'
   const nav = NAV.filter((t) => t.can(perms))
   const active = nav.find((t) => t.id === tab) ?? nav[0]
 
@@ -207,8 +211,9 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
         </header>
 
         <main className="mx-auto w-full max-w-7xl flex-1 p-5 sm:p-6">
-          {tab === 'receipts' && <ReceiptsView clientId={clientId} />}
-          {tab === 'journal' && <JournalView clientId={clientId} />}
+          {tab === 'receipts' && <ReceiptsView clientId={clientId} showCreator={canSeeOthers} />}
+          {tab === 'journal' && <JournalView clientId={clientId} showCreator={canSeeOthers} />}
+          {tab === 'ledger' && <LedgerView clientId={clientId} showCreator={canSeeOthers} />}
           {tab === 'export' && <ExportView clientId={clientId} />}
           {tab === 'masters' && <MastersView clientId={clientId} firmId={firmId} />}
           {tab === 'clients' && <ClientsView onChanged={reloadClients} canManage={perms.isFirmOwner} />}

@@ -2,14 +2,14 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import Principal, get_principal
-from ..models import Receipt, ReceiptFile
+from ..models import Receipt, ReceiptFile, User
 
 router = APIRouter(prefix="/receipts", tags=["receipts"])
 
@@ -20,6 +20,7 @@ class ReceiptPatch(BaseModel):
     tax_mode: str | None = None
     payment_method: str | None = None
     t_number: str | None = None
+    description: str | None = None  # 摘要
     account_title_id: UUID | None = None
     sub_account_id: UUID | None = None
     partner_id: UUID | None = None
@@ -27,7 +28,7 @@ class ReceiptPatch(BaseModel):
     note_ids: list[str] | None = None  # 付箋: replace the attached set
 
 
-def _serialize(r: Receipt, image_file_id=None) -> dict:
+def _serialize(r: Receipt, image_file_id=None, created_by_name=None) -> dict:
     return {
         "id": str(r.id),
         "client_id": str(r.client_id),
@@ -38,13 +39,26 @@ def _serialize(r: Receipt, image_file_id=None) -> dict:
         "tax_mode": r.tax_mode,
         "payment_method": r.payment_method,
         "t_number": r.t_number,
+        "description": r.description,
         "account_title_id": str(r.account_title_id) if r.account_title_id else None,
         "approval_status": r.approval_status,
         "journalized_at": r.journalized_at.isoformat() if r.journalized_at else None,
         "note_ids": r.note_ids or [],
         # The captured image (kind='capture'), so the UI can show/open it.
         "image_file_id": str(image_file_id) if image_file_id else None,
+        # 登録者名（管理者/経理/職員のみ意味を持つ。一般社員は自分のみ）。
+        "created_by_name": created_by_name,
     }
+
+
+async def _creator_names(session: AsyncSession, rows) -> dict:
+    ids = {r.created_by for r in rows if r.created_by}
+    if not ids:
+        return {}
+    crows = await session.execute(
+        select(User.id, User.name, User.email).where(User.id.in_(ids))
+    )
+    return {uid: (name or email) for uid, name, email in crows.all()}
 
 
 @router.get("")
@@ -72,7 +86,10 @@ async def list_receipts(
         )
         for rid, fid in rf.all():
             img_map.setdefault(rid, fid)
-    return [_serialize(r, img_map.get(r.id)) for r in rows]
+        creators = await _creator_names(session, rows)
+    else:
+        creators = {}
+    return [_serialize(r, img_map.get(r.id), creators.get(r.created_by)) for r in rows]
 
 
 @router.get("/{receipt_id}")
@@ -89,7 +106,8 @@ async def get_receipt(
             ReceiptFile.receipt_id == r.id, ReceiptFile.kind == "capture"
         )
     )
-    return _serialize(r, img)
+    creators = await _creator_names(session, [r])
+    return _serialize(r, img, creators.get(r.created_by))
 
 
 @router.patch("/{receipt_id}")
@@ -106,3 +124,20 @@ async def patch_receipt(
         setattr(r, field, value)
     await session.flush()
     return _serialize(r)
+
+
+@router.delete("/{receipt_id}")
+async def delete_receipt(
+    receipt_id: UUID,
+    _: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete an un-approved (not yet journalized) receipt. RLS scopes which
+    receipts the caller can touch — own for 一般社員, all for 管理者/経理/職員."""
+    r = await session.get(Receipt, receipt_id)
+    if not r:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "receipt not found")
+    if r.journalized_at is not None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "確定済みの領収書は削除できません")
+    await session.delete(r)
+    return {"ok": True}

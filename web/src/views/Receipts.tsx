@@ -7,7 +7,18 @@ import {
 import { NoteChips, NotePickerModal } from '../notes'
 import { useToast } from '../ui/toast'
 
-export function ReceiptsView({ clientId }: { clientId: string }) {
+const APPROVAL_LABEL: Record<string, { label: string; tone: 'danger' | 'neutral' }> = {
+  rejected: { label: '否認', tone: 'danger' },
+  mistake: { label: '間違い', tone: 'neutral' },
+  deleted: { label: '削除済', tone: 'neutral' },
+}
+function statusBadge(r: ReceiptRow) {
+  if (r.journalized_at) return <Badge tone="success">仕分済</Badge>
+  const a = APPROVAL_LABEL[r.approval_status]
+  return a ? <Badge tone={a.tone}>{a.label}</Badge> : <Badge tone="warning">未仕分</Badge>
+}
+
+export function ReceiptsView({ clientId, showCreator }: { clientId: string; showCreator?: boolean }) {
   const toast = useToast()
   const [rows, setRows] = useState<ReceiptRow[]>([])
   const [notes, setNotes] = useState<NoteRow[]>([])
@@ -62,6 +73,11 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
     if (clientId) api.notes(clientId).then(setNotes).catch(() => setNotes([]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId])
+
+  async function handleDelete(r: ReceiptRow) {
+    if (!window.confirm('この領収書を削除しますか?（受信箱に「削除済」として残ります）')) return
+    if (await toast.run(() => api.setApproval(r.id, 'deleted'), '削除しました')) void load()
+  }
 
   async function toggleNote(noteId: string) {
     if (!tagging) return
@@ -124,9 +140,12 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
               <Th className="w-28">日付</Th>
               <Th>支払先</Th>
               <Th className="text-right">金額</Th>
+              {showCreator && <Th className="w-28">登録者</Th>}
+              <Th className="w-56">摘要</Th>
               <Th>付箋</Th>
               <Th className="w-24">状態</Th>
               <Th className="w-16">画像</Th>
+              <Th className="w-12"></Th>
             </tr>
           </Thead>
           <Tbody>
@@ -137,6 +156,13 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
                 <Td className="text-right font-medium tabular-nums">
                   {r.amount_jpy != null ? `¥${r.amount_jpy.toLocaleString()}` : '—'}
                 </Td>
+                {showCreator && <Td className="text-slate-500">{r.created_by_name ?? '—'}</Td>}
+                <Td>
+                  <DescCell
+                    row={r}
+                    onSaved={(v) => setRows((rs) => rs.map((x) => (x.id === r.id ? { ...x, description: v } : x)))}
+                  />
+                </Td>
                 <Td>
                   <div className="flex items-center gap-1.5">
                     <NoteChips ids={r.note_ids} notes={notes} />
@@ -145,11 +171,7 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
                     </IconButton>
                   </div>
                 </Td>
-                <Td>
-                  {r.journalized_at
-                    ? <Badge tone="success">仕分済</Badge>
-                    : <Badge tone="warning">未仕分</Badge>}
-                </Td>
+                <Td>{statusBadge(r)}</Td>
                 <Td>
                   {r.image_file_id ? (
                     <a
@@ -164,11 +186,18 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
                     <span className="text-slate-300">—</span>
                   )}
                 </Td>
+                <Td className="text-right">
+                  {r.approval_status === 'pending' && !r.journalized_at && (
+                    <IconButton label="削除" className="h-7 w-7 hover:!text-red-600" onClick={() => void handleDelete(r)}>
+                      <Icon.Trash />
+                    </IconButton>
+                  )}
+                </Td>
               </Tr>
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">
+                <td colSpan={showCreator ? 9 : 8} className="px-4 py-12 text-center text-sm text-slate-400">
                   {loading ? '読み込み中…' : '領収書がありません'}
                 </td>
               </tr>
@@ -192,5 +221,41 @@ export function ReceiptsView({ clientId }: { clientId: string }) {
         onToggle={(id) => void toggleNote(id)}
       />
     </>
+  )
+}
+
+// 摘要のインライン編集セル。AIが入れた値を表示し、フォーカスを外した時に変更があれば保存。
+function DescCell({ row, onSaved }: { row: ReceiptRow; onSaved: (v: string) => void }) {
+  const toast = useToast()
+  const [v, setV] = useState(row.description ?? '')
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    setV(row.description ?? '')
+  }, [row.id, row.description])
+
+  async function commit() {
+    const next = v.trim()
+    if (next === (row.description ?? '')) return
+    setSaving(true)
+    try {
+      await api.patchReceipt(row.id, { description: next || null })
+      onSaved(next)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+      setV(row.description ?? '')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Input
+      value={v}
+      disabled={saving}
+      placeholder="摘要"
+      className="min-w-[12rem] text-sm"
+      onChange={(e) => setV(e.target.value)}
+      onBlur={() => void commit()}
+    />
   )
 }

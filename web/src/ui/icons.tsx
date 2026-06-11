@@ -145,6 +145,13 @@ export const Icon = {
       <path d="M7 10l5 5 5-5M12 15V3" />
     </Svg>
   ),
+  Book: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+      <path d="M9 7h7M9 11h7" />
+    </Svg>
+  ),
 }
 
 export type IconComponent = (props: IconProps) => ReactElement

@@ -1,12 +1,12 @@
 """仕分け (journaling) engine — ported & adapted from receipt-app app/journal.py.
 
-Learning (per 顧問先 / client, rule-based — no ML):
-1. vendor -> account RULE (journal_rules.vendor_key): learned on every 確定;
-   exact normalized-vendor match is the strongest suggestion.
-2. partner alias (vendor -> partner) + account from that partner's history.
-3. cold-start dictionary (keyword -> account-category name) for receipts with
-   no learned rule yet.
-Priority for the account: rule > partner-history > dictionary.
+設計方針（素直・推測しない）:
+- 記録される取引先(partner)は **完全一致のみ**で引き当てる。外れたら空のまま
+  （あいまい一致やキーワード辞書での推測はしない。疑問は領収書の原本で確認する）。
+  キー優先順: 1) T番号(登録番号)一致 → 2) 学習エイリアス(正規化vendor完全一致)
+  → 3) 取引先名の完全一致(正規化)。
+- 勘定科目は「自分が過去に確定した」学習ルール(vendor完全一致)＋取引先履歴から
+  **サジェスト**するのみ（あくまで助言。確定は人が行う）。
 """
 
 from __future__ import annotations
@@ -18,47 +18,57 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import dictionaries
-from .models import AccountTitle, JournalRule, Partner, PartnerAlias, Receipt
+from .models import JournalRule, Partner, PartnerAlias, Receipt
 
 
 def normalize_vendor(vendor: str | None) -> str:
     return re.sub(r"\s+", " ", (vendor or "").strip()).lower()
 
 
-# --- partner lookup --------------------------------------------------------
+# --- partner lookup (完全一致のみ) -----------------------------------------
 
 async def _lookup_partner(db: AsyncSession, receipt: Receipt) -> UUID | None:
-    """1) learned alias (exact vendor) 2) fuzzy partner-name match. Client-scoped."""
-    key = normalize_vendor(receipt.vendor)
-    if key:
-        alias = await db.scalar(
-            select(PartnerAlias).where(
-                PartnerAlias.client_id == receipt.client_id,
-                PartnerAlias.raw_vendor == key,
+    """取引先を完全一致だけで引き当てる（推測しない）。Client-scoped。
+    1) T番号一致（最も確実） 2) 学習エイリアス(正規化vendor完全一致) 3) 名称完全一致。"""
+    # 1) インボイス登録番号(T番号)が完全一致する取引先。
+    tnum = (receipt.t_number or "").strip()
+    if tnum:
+        pid = await db.scalar(
+            select(Partner.id).where(
+                Partner.client_id == receipt.client_id,
+                Partner.active.is_(True),
+                Partner.t_number == tnum,
             )
         )
-        if alias is not None:
-            return alias.partner_id
+        if pid is not None:
+            return pid
 
-    partners = list(
-        await db.scalars(
-            select(Partner).where(
-                Partner.client_id == receipt.client_id, Partner.active.is_(True)
-            )
+    key = normalize_vendor(receipt.vendor)
+    if not key:
+        return None
+
+    # 2) 学習エイリアス（過去の確定: 正規化vendor の完全一致）。
+    alias = await db.scalar(
+        select(PartnerAlias.partner_id).where(
+            PartnerAlias.client_id == receipt.client_id,
+            PartnerAlias.raw_vendor == key,
         )
     )
-    if key:
-        best_id: UUID | None = None
-        best_len = 0
-        for p in partners:
-            pname = normalize_vendor(p.name)
-            if len(pname) < 2:
-                continue
-            if (pname == key or pname in key or key in pname) and len(pname) > best_len:
-                best_id, best_len = p.id, len(pname)
-        return best_id
+    if alias is not None:
+        return alias
+
+    # 3) 取引先名が完全一致（正規化後）。部分一致・あいまい一致はしない。
+    for p in await db.scalars(
+        select(Partner).where(Partner.client_id == receipt.client_id, Partner.active.is_(True))
+    ):
+        if normalize_vendor(p.name) == key:
+            return p.id
     return None
+
+
+async def exact_partner_id(db: AsyncSession, receipt: Receipt) -> UUID | None:
+    """OCR直後など、完全一致で取引先を自動引当するための公開ヘルパー。"""
+    return await _lookup_partner(db, receipt)
 
 
 # --- account suggestion (rule > history > dictionary) ----------------------
@@ -92,33 +102,19 @@ async def _account_from_history(
     return Counter(rows).most_common(1)[0][0] if rows else None
 
 
-async def _account_from_dictionary(db: AsyncSession, receipt: Receipt) -> UUID | None:
-    """Keyword in vendor/OCR text -> category name -> the client's account_title."""
-    text = " ".join(filter(None, [receipt.vendor, receipt.ocr_raw, receipt.stt_raw]))
-    category = dictionaries.match_category(text)
-    if not category:
-        return None
-    # Resolve to a client-visible account title with that name (client row first,
-    # then the firm template). RLS already restricts to the principal's tenants.
-    return await db.scalar(
-        select(AccountTitle.id)
-        .where(AccountTitle.name == category, AccountTitle.active.is_(True))
-        .order_by(AccountTitle.client_id.is_(None))  # client-specific before template
-    )
-
-
 async def suggest(db: AsyncSession, receipt: Receipt) -> dict:
-    """Suggest {partner_id, account_title_id, sub_account_id}."""
+    """Suggest {partner_id, account_title_id, sub_account_id}.
+
+    取引先は完全一致のみ（推測しない）。勘定科目は自分の学習ルール(vendor完全一致)＞
+    取引先履歴 の順でサジェスト（助言のみ）。キーワード辞書での推測はしない。"""
+    partner_id = await _lookup_partner(db, receipt)
     rule = await _rule_for_vendor(db, receipt)
-    partner_id = (rule.partner_id if rule else None) or await _lookup_partner(db, receipt)
 
     if rule and rule.account_title_id:
         account_title_id = rule.account_title_id
         sub_account_id = rule.sub_account_id
     else:
         account_title_id = await _account_from_history(db, receipt.client_id, partner_id)
-        if account_title_id is None:
-            account_title_id = await _account_from_dictionary(db, receipt)
         sub_account_id = None
 
     return {

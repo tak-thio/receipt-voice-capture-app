@@ -18,24 +18,20 @@ from .base import ExtractedReceipt, FormatProvider, OcrProvider, SttProvider
 
 settings = get_settings()
 
-_FORMAT_PROMPT = (
-    "次の領収書テキストから JSON で抽出してください。"
+# 抽出フィールド仕様（OCR/整形で共通）。摘要(description)は AI に作らせる。
+_FIELDS_SPEC = (
     'キー: date(YYYY-MM-DD), vendor(支払先), amount_jpy(税込合計,整数), '
     "subtotal_jpy(税抜金額,整数), tax_jpy(消費税合計,整数), "
     "tax_10_jpy(消費税の10%対象分,整数), tax_8_jpy(消費税の8%対象分,整数), "
-    "tax_mode(inclusive/exclusive/unknown), payment_method, t_number(インボイス番号)。"
-    "値が不明なものは null。JSON以外は出力しないこと。\n\n"
-)
-_OCR_PROMPT = "この領収書画像に書かれている文字を、改行を保ちつつ全て書き出してください。"
-# One-call vision extraction: read the image AND return structured JSON directly.
-_VISION_EXTRACT_PROMPT = (
-    "この領収書画像から JSON で抽出してください。"
-    'キー: date(YYYY-MM-DD), vendor(支払先), amount_jpy(税込合計,整数), '
-    "subtotal_jpy(税抜金額,整数), tax_jpy(消費税合計,整数), "
-    "tax_10_jpy(消費税の10%対象分,整数), tax_8_jpy(消費税の8%対象分,整数), "
-    "tax_mode(inclusive/exclusive/unknown), payment_method, t_number(インボイス番号)。"
+    "tax_mode(inclusive/exclusive/unknown), payment_method, t_number(インボイス番号), "
+    "description(摘要: 会計仕訳に使える簡潔な説明。店名や主な品目・用途から30文字程度で作成。"
+    "例『会議用 飲食代』『事務用品 購入』)。"
     "値が不明なものは null。JSON以外は出力しないこと。"
 )
+_FORMAT_PROMPT = "次の領収書テキストから JSON で抽出してください。" + _FIELDS_SPEC + "\n\n"
+_OCR_PROMPT = "この領収書画像に書かれている文字を、改行を保ちつつ全て書き出してください。"
+# One-call vision extraction: read the image AND return structured JSON directly.
+_VISION_EXTRACT_PROMPT = "この領収書画像から JSON で抽出してください。" + _FIELDS_SPEC
 
 
 def _json_from_text(text: str) -> dict:
@@ -67,6 +63,7 @@ def _to_extracted(data: dict) -> ExtractedReceipt:
         payment_method=data.get("payment_method"),
         t_number=data.get("t_number"),
         date=data.get("date"),
+        description=data.get("description"),
         raw=data,
     )
 
@@ -319,5 +316,6 @@ class MockFormat(FormatProvider):
                 "tax_mode": "inclusive",
                 "payment_method": "cash",
                 "date": "2026-06-05",
+                "description": "テスト商店 物品購入",
             }
         )

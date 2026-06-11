@@ -43,12 +43,14 @@ class PartnerIn(BaseModel):
     client_id: UUID
     name: str
     code: str | None = None
+    t_number: str | None = None  # インボイス登録番号
     domain: str | None = None
 
 
 class PartnerPatch(BaseModel):
     name: str | None = None
     code: str | None = None
+    t_number: str | None = None  # インボイス登録番号
     domain: str | None = None
 
 
@@ -178,7 +180,10 @@ async def list_partners(
     if client_id:
         stmt = stmt.where(Partner.client_id == client_id)
     rows = await session.scalars(stmt.order_by(Partner.name))
-    return [{"id": str(p.id), "code": p.code, "name": p.name, "domain": p.domain} for p in rows]
+    return [
+        {"id": str(p.id), "code": p.code, "name": p.name, "t_number": p.t_number, "domain": p.domain}
+        for p in rows
+    ]
 
 
 @router.post("/partners", status_code=201)
@@ -192,6 +197,7 @@ async def create_partner(
         client_id=body.client_id,
         name=body.name,
         code=body.code,
+        t_number=body.t_number,
         domain=body.domain,
     )
     session.add(partner)
@@ -212,7 +218,7 @@ async def patch_partner(
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(p, field, value)
     await session.flush()
-    return {"id": str(p.id), "code": p.code, "name": p.name, "domain": p.domain}
+    return {"id": str(p.id), "code": p.code, "name": p.name, "t_number": p.t_number, "domain": p.domain}
 
 
 @router.delete("/partners/{partner_id}")

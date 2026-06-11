@@ -51,8 +51,9 @@ class ReceiptSource(str, enum.Enum):
 
 class ApprovalStatus(str, enum.Enum):
     pending = "pending"
-    rejected = "rejected"
-    mistake = "mistake"
+    rejected = "rejected"   # 否認
+    mistake = "mistake"     # 間違い
+    deleted = "deleted"     # 削除
     duplicate = "duplicate"
 
 
@@ -264,6 +265,7 @@ class Receipt(Base, TimestampMixin):
     tax_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
     payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
     t_number: Mapped[str | None] = mapped_column(String(20), nullable=True)  # インボイス番号
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)  # 摘要 (仕訳の説明。AI生成 + 手修正可)
 
     account_title_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("account_titles.id"), nullable=True
@@ -366,6 +368,9 @@ class Partner(Base, TimestampMixin):
     client_id: Mapped[UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
     code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     name: Mapped[str] = mapped_column(String(200))
+    # インボイス登録番号(T番号)。取引先=適格請求書発行事業者の単位で持つ。
+    # 領収書のT番号と完全一致したら自動引当のキーになる。
+    t_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 

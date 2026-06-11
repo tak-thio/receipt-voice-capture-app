@@ -25,6 +25,7 @@ class ExtractedReceipt:
     payment_method: str | None = None
     t_number: str | None = None
     date: str | None = None
+    description: str | None = None  # 摘要 (仕訳の説明)
     raw: dict = field(default_factory=dict)
 
 

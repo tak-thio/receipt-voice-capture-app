@@ -60,11 +60,13 @@ export interface ReceiptRow {
   tax_mode: string | null
   payment_method: string | null
   t_number: string | null
+  description: string | null // 摘要
   account_title_id: string | null
   approval_status: string
   journalized_at: string | null
   note_ids: string[]
   image_file_id?: string | null
+  created_by_name?: string | null
 }
 
 export interface NoteRow {
@@ -79,6 +81,7 @@ export interface MasterRow {
   name: string
   scope?: string
   domain?: string | null
+  t_number?: string | null // 取引先のインボイス登録番号
   sub_account_count?: number
   pinned_debit?: boolean
   pinned_credit?: boolean
@@ -99,6 +102,7 @@ export interface Suggestion {
 export interface QueueItem {
   id: string
   vendor: string | null
+  created_by_name: string | null
   amount_jpy: number | null
   subtotal_jpy: number | null
   tax_jpy: number | null
@@ -107,6 +111,7 @@ export interface QueueItem {
   date: string | null
   source: string
   t_number: string | null
+  description: string | null // 摘要
   image_file_id: string | null
   image_mime: string | null
   tax_mode: string | null
@@ -121,6 +126,53 @@ export interface JournalQueue {
   items: QueueItem[]
   total: number
   held_count: number
+}
+
+// 元帳 (ledger) = 仕分け済みの仕訳一覧。借方/貸方/取引先は解決済みの表示文字列。
+export interface LedgerRow {
+  id: string
+  date: string | null // 取引日 (領収書の日付)
+  journalized_at: string | null
+  vendor: string | null
+  partner: string | null
+  debit: string | null // 借方科目 "code name"
+  credit: string | null // 貸方科目 "code name"
+  amount_jpy: number | null
+  tax_jpy: number | null
+  t_number: string | null
+  description: string | null // 摘要
+  // 直接編集（仕分けと同じ画面）用の生の値。
+  account_title_id: string | null
+  credit_account_title_id: string | null
+  partner_id: string | null
+  subtotal_jpy: number | null
+  tax_10_jpy: number | null
+  tax_8_jpy: number | null
+  tax_mode: string | null
+  payment_method: string | null
+  source: string | null
+  image_file_id: string | null
+  image_mime: string | null
+  note_ids: string[]
+}
+
+// 仕訳/元帳編集の共通ボディ。
+export interface JournalizeBody {
+  account_title_id?: string | null
+  credit_account_title_id?: string | null
+  sub_account_id?: string | null
+  partner_id?: string | null
+  vendor?: string | null
+  date?: string | null // YYYY-MM-DD (領収書の日付)
+  amount_jpy?: number | null
+  subtotal_jpy?: number | null
+  tax_jpy?: number | null
+  tax_10_jpy?: number | null
+  tax_8_jpy?: number | null
+  tax_mode?: string | null
+  payment_method?: string | null
+  t_number?: string | null
+  description?: string | null // 摘要
 }
 
 export const api = {
@@ -166,6 +218,7 @@ export const api = {
   },
   patchReceipt: (id: string, patch: Partial<ReceiptRow>) =>
     req<ReceiptRow>(`/receipts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteReceipt: (id: string) => req(`/receipts/${id}`, { method: 'DELETE' }),
   // Web upload (multipart) — a logged-in user adds a receipt image/PDF to a client.
   uploadReceipt: async (clientId: string, file: File, audio?: File) => {
     const fd = new FormData()
@@ -182,21 +235,14 @@ export const api = {
     if (clientId) params.set('client_id', clientId)
     return req<JournalQueue>(`/journal/queue?${params.toString()}`)
   },
+  ledger: (clientId?: string) =>
+    req<LedgerRow[]>(`/journal/ledger${clientId ? `?client_id=${clientId}` : ''}`),
+  // 元帳(仕分け済)の1件を直接修正。仕訳日時は維持される。
+  updateLedger: (receiptId: string, body: JournalizeBody) =>
+    req(`/journal/ledger/${receiptId}`, { method: 'PATCH', body: JSON.stringify(body) }),
   suggest: (receiptId: string) => req<Suggestion>(`/journal/suggest/${receiptId}`),
-  journalize: (
-    receiptId: string,
-    body: {
-      account_title_id?: string | null
-      credit_account_title_id?: string | null
-      sub_account_id?: string | null
-      partner_id?: string | null
-      amount_jpy?: number | null
-      subtotal_jpy?: number | null
-      tax_jpy?: number | null
-      tax_10_jpy?: number | null
-      tax_8_jpy?: number | null
-    },
-  ) => req(`/journal/receipts/${receiptId}`, { method: 'POST', body: JSON.stringify(body) }),
+  journalize: (receiptId: string, body: JournalizeBody) =>
+    req(`/journal/receipts/${receiptId}`, { method: 'POST', body: JSON.stringify(body) }),
   hold: (receiptId: string) => req(`/journal/receipts/${receiptId}/hold`, { method: 'POST' }),
   unhold: (receiptId: string) => req(`/journal/receipts/${receiptId}/unhold`, { method: 'POST' }),
   setApproval: (receiptId: string, status: string) =>
@@ -232,9 +278,9 @@ export const api = {
     req(`/masters/sub-accounts/${id}`, { method: 'DELETE' }),
   partners: (clientId?: string) =>
     req<MasterRow[]>(`/masters/partners${clientId ? `?client_id=${clientId}` : ''}`),
-  createPartner: (body: { firm_id: string; client_id: string; name: string; domain?: string }) =>
+  createPartner: (body: { firm_id: string; client_id: string; name: string; code?: string; t_number?: string; domain?: string }) =>
     req<{ id: string }>('/masters/partners', { method: 'POST', body: JSON.stringify(body) }),
-  patchPartner: (id: string, patch: { name?: string; code?: string; domain?: string }) =>
+  patchPartner: (id: string, patch: { name?: string; code?: string; t_number?: string; domain?: string }) =>
     req(`/masters/partners/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deletePartner: (id: string) => req(`/masters/partners/${id}`, { method: 'DELETE' }),
 

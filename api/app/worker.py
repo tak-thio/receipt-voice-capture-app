@@ -9,13 +9,14 @@ step to extract structured fields.
 
 import asyncio
 import json
+from datetime import date, datetime, time, timezone
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from starlette.concurrency import run_in_threadpool
 
-from . import storage
+from . import journaling, storage
 from .ai import factory
 from .config import get_settings
 from .models import UNPARSED_VENDOR, Client, File, Firm, Job, Receipt
@@ -26,6 +27,17 @@ _engine = create_async_engine(settings.database_url, pool_pre_ping=True)
 _Session = async_sessionmaker(_engine, expire_on_commit=False)
 
 
+def _parse_date(s) -> datetime | None:
+    """OCR の date(YYYY-MM-DD 等) を captured_at 用の datetime に。失敗時 None。"""
+    if not s:
+        return None
+    txt = str(s).strip().replace("/", "-").replace(".", "-")[:10]
+    try:
+        return datetime.combine(date.fromisoformat(txt), time(0, 0), tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
 def _apply_fields(receipt: Receipt, fields) -> None:
     """Fill receipt fields from an extraction. Replaces the 未解析 upload placeholder
     but never clobbers a value a human already entered."""
@@ -33,6 +45,10 @@ def _apply_fields(receipt: Receipt, fields) -> None:
         receipt.vendor = fields.vendor
     else:
         receipt.vendor = receipt.vendor or fields.vendor
+    # 日付: アップロード時は登録日(今日)。解析できたら領収書の日付に置き換える。
+    parsed_date = _parse_date(getattr(fields, "date", None))
+    if parsed_date:
+        receipt.captured_at = parsed_date
     receipt.amount_jpy = receipt.amount_jpy or fields.amount_jpy
     receipt.subtotal_jpy = receipt.subtotal_jpy or fields.subtotal_jpy
     receipt.tax_jpy = receipt.tax_jpy or fields.tax_jpy
@@ -41,6 +57,13 @@ def _apply_fields(receipt: Receipt, fields) -> None:
     receipt.tax_mode = receipt.tax_mode or fields.tax_mode
     receipt.payment_method = receipt.payment_method or fields.payment_method
     receipt.t_number = receipt.t_number or fields.t_number
+    receipt.description = receipt.description or getattr(fields, "description", None)
+
+
+async def _autolink_partner(session, receipt: Receipt) -> None:
+    """OCR後、取引先が未設定なら完全一致だけで自動引当する（推測はしない）。"""
+    if receipt.partner_id is None:
+        receipt.partner_id = await journaling.exact_partner_id(session, receipt)
 
 
 def _resolve_ai(firm_cfg: dict | None, client_cfg: dict | None) -> dict:
@@ -73,6 +96,7 @@ async def _process(session, job: Job) -> None:
         if fields is not None:
             receipt.ocr_raw = json.dumps(fields.raw, ensure_ascii=False) if fields.raw else None
             _apply_fields(receipt, fields)
+            await _autolink_partner(session, receipt)
             return
         receipt.ocr_raw = await ocr.extract_text(data, file.mime)
     elif job.kind == "stt":
@@ -84,6 +108,7 @@ async def _process(session, job: Job) -> None:
     combined = " ".join(filter(None, [receipt.stt_raw, receipt.ocr_raw])).strip()
     if combined:
         _apply_fields(receipt, await factory.format_for(cfg).to_fields(combined))
+    await _autolink_partner(session, receipt)
 
 
 async def _tick() -> bool:

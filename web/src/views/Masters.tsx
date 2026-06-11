@@ -119,15 +119,19 @@ export function MastersView({ clientId, firmId }: { clientId: string; firmId: st
           <Table>
             <Thead>
               <tr>
+                <Th className="w-24">取引先ID</Th>
                 <Th>取引先名</Th>
-                <Th className="w-48">ドメイン</Th>
+                <Th className="w-40">T番号</Th>
+                <Th className="w-40">ドメイン</Th>
                 <Th className="w-px text-right">操作</Th>
               </tr>
             </Thead>
             <Tbody>
               {partners.map((p) => (
                 <Tr key={p.id}>
+                  <Td className="font-mono text-xs text-slate-500">{p.code || '—'}</Td>
                   <Td className="font-medium text-slate-800">{p.name}</Td>
+                  <Td className="font-mono text-xs text-slate-500">{p.t_number || <span className="text-slate-300">—</span>}</Td>
                   <Td className="text-slate-500">{p.domain ?? <span className="text-slate-300">—</span>}</Td>
                   <Td className="text-right">
                     <div className="flex items-center justify-end gap-0.5">
@@ -138,7 +142,7 @@ export function MastersView({ clientId, firmId }: { clientId: string; firmId: st
                 </Tr>
               ))}
               {partners.length === 0 && (
-                <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">取引先がありません</td></tr>
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">取引先がありません</td></tr>
               )}
             </Tbody>
           </Table>
@@ -291,6 +295,8 @@ function PartnerEditor({
   const toast = useToast()
   const editing = modal.mode === 'edit'
   const [name, setName] = useState(editing ? modal.row.name : '')
+  const [code, setCode] = useState(editing ? modal.row.code ?? '' : '')
+  const [tNumber, setTNumber] = useState(editing ? modal.row.t_number ?? '' : '')
   const [domain, setDomain] = useState(editing ? modal.row.domain ?? '' : '')
   const [busy, setBusy] = useState(false)
 
@@ -301,8 +307,8 @@ function PartnerEditor({
     }
     setBusy(true)
     const ok = await toast.run(async () => {
-      if (editing) await api.patchPartner(modal.row.id, { name: name.trim(), domain: domain.trim() || undefined })
-      else await api.createPartner({ firm_id: firmId, client_id: clientId, name: name.trim(), domain: domain.trim() || undefined })
+      if (editing) await api.patchPartner(modal.row.id, { name: name.trim(), code: code.trim(), t_number: tNumber.trim(), domain: domain.trim() || undefined })
+      else await api.createPartner({ firm_id: firmId, client_id: clientId, name: name.trim(), code: code.trim() || undefined, t_number: tNumber.trim() || undefined, domain: domain.trim() || undefined })
     }, editing ? '取引先を更新しました' : '取引先を追加しました')
     setBusy(false)
     if (ok) await onSaved()
@@ -316,6 +322,8 @@ function PartnerEditor({
       </>}>
       <div className="space-y-4">
         <Field label="取引先名" required><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label="取引先ID" hint="会計ソフトの取引先コード等。任意。"><Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="例: 1001" /></Field>
+        <Field label="T番号(インボイス登録番号)" hint="領収書のT番号と完全一致したら自動で引き当てます。"><Input value={tNumber} onChange={(e) => setTNumber(e.target.value)} placeholder="T1234567890123" /></Field>
         <Field label="ドメイン" hint="メール取込時の自動引当に使用します。"><Input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="example.co.jp" /></Field>
       </div>
     </Modal>
