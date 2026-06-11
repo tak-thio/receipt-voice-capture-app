@@ -331,7 +331,7 @@ function ClientForm({
 
 type UserModalState = { mode: 'add' } | { mode: 'edit'; user: MemberRow } | null
 
-function ClientUsers({ clientId }: { clientId: string }) {
+export function ClientUsers({ clientId }: { clientId: string }) {
   const toast = useToast()
   const [users, setUsers] = useState<MemberRow[]>([])
   const [modal, setModal] = useState<UserModalState>(null)

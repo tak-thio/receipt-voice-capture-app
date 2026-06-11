@@ -3,11 +3,11 @@ import { api, type ClientRow, type Me } from './api'
 import { ReceiptsView } from './views/Receipts'
 import { JournalView } from './views/Journal'
 import { MastersView } from './views/Masters'
-import { ClientsView } from './views/Clients'
+import { ClientsView, ClientUsers } from './views/Clients'
 import { SettingsView } from './views/Settings'
 import { ExportView } from './views/Export'
 import { InviteRedeem } from './views/InviteRedeem'
-import { Alert, Button, Card, cn, Icon, Input, Select } from './ui'
+import { Alert, Button, Card, cn, Icon, Input, PageHeader, Select } from './ui'
 import type { IconComponent } from './ui/icons'
 import { ToastProvider } from './ui/toast'
 
@@ -107,7 +107,7 @@ function Login({ onLogin }: { onLogin: (me: Me) => void }) {
   )
 }
 
-type Tab = 'receipts' | 'journal' | 'export' | 'masters' | 'clients' | 'settings'
+type Tab = 'receipts' | 'journal' | 'export' | 'masters' | 'clients' | 'users' | 'settings'
 // Capability context derived from the principal's memberships.
 type Perms = {
   isFirm: boolean        // 職員 (firm_owner/firm_staff)
@@ -115,6 +115,7 @@ type Perms = {
   canJournal: boolean    // 仕分け/出力: 職員 + 利用者(管理者/経理担当者)
   canMasters: boolean    // マスタ: 職員 + 利用者(管理者)
   canClients: boolean    // 顧問先管理: 職員のみ
+  canUsers: boolean      // 自社ユーザー管理: 顧客(client_admin)のみ
   canSettings: boolean   // 設定: 管理者(職員)のみ
 }
 type NavItem = { id: Tab; label: string; icon: IconComponent; needsClient: boolean; can: (p: Perms) => boolean }
@@ -124,6 +125,7 @@ const NAV: NavItem[] = [
   { id: 'export', label: '出力', icon: Icon.Download, needsClient: true, can: (p) => p.canJournal },
   { id: 'masters', label: 'マスタ', icon: Icon.Database, needsClient: true, can: (p) => p.canMasters },
   { id: 'clients', label: '顧問先', icon: Icon.Building, needsClient: false, can: (p) => p.canClients },
+  { id: 'users', label: 'ユーザー', icon: Icon.User, needsClient: false, can: (p) => p.canUsers },
   { id: 'settings', label: '設定', icon: Icon.Sliders, needsClient: false, can: (p) => p.canSettings },
 ]
 
@@ -146,15 +148,16 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
     isFirmOwner: firmRole === 'firm_owner',
     canJournal: firmRole !== null || clientRole === 'client_admin' || clientRole === 'client_accountant',
     canMasters: firmRole !== null || clientRole === 'client_admin',
-    // 顧問先: 職員は全件管理、利用者(管理者)は自社のみ(同じ編集画面を流用)。
-    canClients: firmRole !== null || clientRole === 'client_admin',
+    // 顧問先は「事務所が抱える顧客」の概念。顧客(client)自身のログインでは顧問先を持たない
+    // ので表示しない（管理は事務所職員=firm_owner/firm_staff のみ）。
+    canClients: firmRole !== null,
+    // 顧客側(client_admin)は自社のユーザーのみ管理できる（顧問先一覧は出さない）。
+    canUsers: clientRole === 'client_admin',
     canSettings: firmRole === 'firm_owner',
   }
-  // For a client_admin the 顧問先 screen IS their own company — relabel & lock to it.
-  const selfClientId = !perms.isFirm ? clientMembership?.client_id ?? undefined : undefined
-  const nav = NAV.filter((t) => t.can(perms)).map((t) =>
-    t.id === 'clients' && !perms.isFirm ? { ...t, label: '自社' } : t,
-  )
+  // client_admin が自社ユーザーを管理する対象 client_id。
+  const selfClientId = clientMembership?.client_id ?? undefined
+  const nav = NAV.filter((t) => t.can(perms))
   const active = nav.find((t) => t.id === tab) ?? nav[0]
 
   async function reloadClients() {
@@ -188,7 +191,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
           <button className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 lg:hidden" onClick={() => setNavOpen(true)} aria-label="メニュー">
             <Icon.Menu className="text-xl" />
           </button>
-          {active.needsClient && perms.isFirm && (
+          {active.needsClient && perms.isFirm && clients.length > 1 && (
             <div className="flex items-center gap-2">
               <Icon.Building className="text-slate-400" />
               <Select value={clientId} onChange={(e) => setClientId(e.target.value)} className="w-44 sm:w-56">
@@ -208,7 +211,13 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {tab === 'journal' && <JournalView clientId={clientId} />}
           {tab === 'export' && <ExportView clientId={clientId} />}
           {tab === 'masters' && <MastersView clientId={clientId} firmId={firmId} />}
-          {tab === 'clients' && <ClientsView onChanged={reloadClients} canManage={perms.isFirmOwner} selfClientId={selfClientId} />}
+          {tab === 'clients' && <ClientsView onChanged={reloadClients} canManage={perms.isFirmOwner} />}
+          {tab === 'users' && selfClientId && (
+            <>
+              <PageHeader title="ユーザー" description="自社のユーザーを管理します。" />
+              <ClientUsers clientId={selfClientId} />
+            </>
+          )}
           {tab === 'settings' && <SettingsView firmId={firmId} />}
         </main>
       </div>
