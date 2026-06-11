@@ -18,6 +18,10 @@
 		directives `
 		Include /etc/caddy/coraza/coraza.conf
 		Include /etc/caddy/coraza/crs/crs-setup.conf
+		# アプリAPIは REST(PATCH/PUT/DELETE)を使う。CRS 911100 は既定で
+		# GET/HEAD/POST/OPTIONS しか許さず、編集/削除系が 403 になるため明示的に許可する。
+		# (crs-setup の include 後・rules の include 前に置くことで 911100 より先に効く)
+		SecAction "id:90100,phase:1,nolog,pass,t:none,setvar:'tx.allowed_methods=GET HEAD POST OPTIONS PUT PATCH DELETE'"
 		Include /etc/caddy/coraza/crs/rules/*.conf
 		SecRuleEngine On
 		`
