@@ -18,6 +18,17 @@ function statusBadge(r: ReceiptRow) {
   return a ? <Badge tone={a.tone}>{a.label}</Badge> : <Badge tone="warning">未仕分</Badge>
 }
 
+// 取込元(source): メール / アップロード / アプリ。
+const SOURCE_LABEL: Record<string, { label: string; tone: 'info' | 'neutral' }> = {
+  email: { label: 'メール', tone: 'info' },
+  manual: { label: 'アップロード', tone: 'neutral' },
+  mobile: { label: 'アプリ', tone: 'neutral' },
+}
+function sourceBadge(source: string | null) {
+  const s = SOURCE_LABEL[source ?? '']
+  return s ? <Badge tone={s.tone}>{s.label}</Badge> : <Badge tone="neutral">{source ?? '—'}</Badge>
+}
+
 export function ReceiptsView({ clientId, showCreator }: { clientId: string; showCreator?: boolean }) {
   const toast = useToast()
   const [rows, setRows] = useState<ReceiptRow[]>([])
@@ -138,6 +149,7 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
           <Thead>
             <tr>
               <Th className="w-28">日付</Th>
+              <Th className="w-24">取込元</Th>
               <Th>支払先</Th>
               <Th className="text-right">金額</Th>
               {showCreator && <Th className="w-28">登録者</Th>}
@@ -152,6 +164,7 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
             {rows.map((r) => (
               <Tr key={r.id}>
                 <Td className="text-slate-500">{r.captured_at?.slice(0, 10) ?? '—'}</Td>
+                <Td>{sourceBadge(r.source)}</Td>
                 <Td className="font-medium text-slate-800">{r.vendor ?? '—'}</Td>
                 <Td className="text-right font-medium tabular-nums">
                   {r.amount_jpy != null ? `¥${r.amount_jpy.toLocaleString()}` : '—'}
@@ -197,7 +210,7 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={showCreator ? 9 : 8} className="px-4 py-12 text-center text-sm text-slate-400">
+                <td colSpan={showCreator ? 10 : 9} className="px-4 py-12 text-center text-sm text-slate-400">
                   {loading ? '読み込み中…' : '領収書がありません'}
                 </td>
               </tr>
