@@ -414,3 +414,45 @@ class Job(Base, TimestampMixin):
     progress: Mapped[int] = mapped_column(Integer, default=0)
     result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# --- Gmail 取り込み ----------------------------------------------------------
+
+class GmailAccount(Base, TimestampMixin):
+    """顧問先(client)に紐付く Gmail メールボックス。顧客のユーザーが「連携」して登録。
+    そのメールに届いた領収書(添付/本文)は client_id の受信箱に取り込まれる。
+    トークンは Fernet で暗号化して保存(AIキーと同方式)。"""
+
+    __tablename__ = "gmail_accounts"
+    __table_args__ = (UniqueConstraint("client_id", "email", name="uq_gmail_accounts_client_email"),)
+
+    id: Mapped[UUID] = _uuid_pk()
+    firm_id: Mapped[UUID] = mapped_column(ForeignKey("firms.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    email: Mapped[str] = mapped_column(String(255))
+    auth_type: Mapped[str] = mapped_column(String(8), default="oauth")  # oauth | dwd
+    access_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scopes: Mapped[str] = mapped_column(String(1024), default="")
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    connected_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class GmailMessage(Base):
+    """取り込み済みメールの記録(重複排除＆突合)。msg_id はアカウント内で一意。"""
+
+    __tablename__ = "gmail_messages"
+    __table_args__ = (UniqueConstraint("account_id", "msg_id", name="uq_gmail_messages_account_msg"),)
+
+    id: Mapped[UUID] = _uuid_pk()
+    client_id: Mapped[UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    account_id: Mapped[UUID] = mapped_column(ForeignKey("gmail_accounts.id", ondelete="CASCADE"), index=True)
+    msg_id: Mapped[str] = mapped_column(String(255))  # Gmail のメッセージID
+    message_id: Mapped[str | None] = mapped_column(String(998), nullable=True)  # RFC822 Message-ID
+    receipt_id: Mapped[UUID | None] = mapped_column(ForeignKey("receipts.id", ondelete="SET NULL"), nullable=True)
+    internal_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )

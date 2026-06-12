@@ -5,6 +5,7 @@ import { JournalView } from './views/Journal'
 import { LedgerView } from './views/LedgerView'
 import { MastersView } from './views/Masters'
 import { ClientsView, ClientUsers, ClientAiConfig } from './views/Clients'
+import { GmailLink } from './views/GmailLink'
 import { SettingsView } from './views/Settings'
 import { ExportView } from './views/Export'
 import { InviteRedeem } from './views/InviteRedeem'
@@ -228,8 +229,11 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
               <SettingsView firmId={firmId} />
             ) : selfClientId ? (
               <>
-                <PageHeader title="設定" description="自社のAI設定を管理します。" />
-                <ClientAiConfig clientId={selfClientId} />
+                <PageHeader title="設定" description="自社のAI設定・メール連携を管理します。" />
+                <div className="space-y-5">
+                  <ClientAiConfig clientId={selfClientId} />
+                  <GmailLink clientId={selfClientId} />
+                </div>
               </>
             ) : null)}
         </main>

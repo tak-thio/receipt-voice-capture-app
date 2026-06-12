@@ -5,6 +5,7 @@ import {
   PageHeader, Section, Select, Table, Tbody, Td, Th, Thead, Textarea, Tr,
 } from '../ui'
 import { useToast } from '../ui/toast'
+import { GmailLink } from './GmailLink'
 
 const FORMATS = ['generic', 'mas', 'freee', 'yayoi']
 const ROLE_LABEL: Record<string, string> = {
@@ -246,6 +247,7 @@ function EditScreen({ id, canManage, onBack, onChanged, selfMode }: { id: string
         </Section>
         <ClientUsers clientId={id} />
         <ClientAiConfig clientId={id} />
+        <GmailLink clientId={id} />
       </div>
     </>
   )

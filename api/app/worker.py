@@ -78,17 +78,20 @@ def _resolve_ai(firm_cfg: dict | None, client_cfg: dict | None) -> dict:
 async def _process(session, job: Job) -> None:
     firm = await session.get(Firm, job.firm_id)
     receipt = await session.get(Receipt, UUID(job.params["receipt_id"]))
-    file = await session.get(File, UUID(job.params["file_id"]))
-    if not (firm and receipt and file):
-        raise ValueError("missing firm/receipt/file for job")
+    if not (firm and receipt):
+        raise ValueError("missing firm/receipt for job")
+    # "format" ジョブ(メール本文など)はファイルを持たない。
+    file_id = job.params.get("file_id")
+    file = await session.get(File, UUID(file_id)) if file_id else None
 
     # Per-client AI config overrides the firm's (client > firm).
     client = await session.get(Client, job.client_id) if job.client_id else None
     cfg = _resolve_ai(firm.ai_config, client.ai_config if client else None)
 
-    data = await run_in_threadpool(storage.get, file.path)
-
     if job.kind == "ocr":
+        if not file:
+            raise ValueError("ocr job requires a file")
+        data = await run_in_threadpool(storage.get, file.path)
         ocr = factory.ocr_for(cfg)
         # Vision LLMs (Gemini / OpenAI) read the image AND return structured fields
         # in ONE call — apply them and skip the separate text→fields format step.
@@ -100,7 +103,12 @@ async def _process(session, job: Job) -> None:
             return
         receipt.ocr_raw = await ocr.extract_text(data, file.mime)
     elif job.kind == "stt":
+        if not file:
+            raise ValueError("stt job requires a file")
+        data = await run_in_threadpool(storage.get, file.path)
         receipt.stt_raw = await factory.stt_for(cfg).transcribe(data, file.mime)
+    elif job.kind == "format":
+        pass  # 本文テキストは receipt.ocr_raw に既に入っている。下の整形ステップで処理。
     else:
         raise ValueError(f"unsupported job kind: {job.kind}")
 

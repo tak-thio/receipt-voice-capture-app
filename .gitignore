@@ -23,3 +23,8 @@ __pycache__
 
 # Fetched OWASP CRS / coraza rules (populated by caddy/fetch-crs.sh at deploy)
 /coraza/
+
+# Secrets — never commit
+.env
+client_secret_*.json
+*.apps.googleusercontent.com.json

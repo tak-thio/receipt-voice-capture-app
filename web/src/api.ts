@@ -156,6 +156,18 @@ export interface LedgerRow {
   note_ids: string[]
 }
 
+// メール連携(Gmail) — 顧問先に紐付いたメールボックス。
+export interface GmailAccountRow {
+  id: string
+  email: string
+  active: boolean
+  auth_type: string
+  scopes: string
+  has_refresh_token: boolean
+  last_synced_at: string | null
+  connected_at: string | null
+}
+
 // 仕訳/元帳編集の共通ボディ。
 export interface JournalizeBody {
   account_title_id?: string | null
@@ -358,6 +370,18 @@ export const api = {
     if (to) p.set('date_to', to)
     return `${BASE}/export/ledger?${p.toString()}`
   },
+
+  // --- メール連携 (Gmail) ---
+  // 連携開始はGoogleへのリダイレクトなので fetch ではなくブラウザ遷移で使うURL。
+  gmailConnectUrl: (clientId: string) => `${BASE}/gmail/connect?client_id=${clientId}`,
+  gmailAccounts: (clientId: string) =>
+    req<GmailAccountRow[]>(`/gmail/accounts?client_id=${clientId}`),
+  gmailDisconnect: (accountId: string) =>
+    req(`/gmail/accounts/${accountId}`, { method: 'DELETE' }),
+  gmailSync: (accountId: string, days = 90) =>
+    req<{ seen: number; appended: number }>(`/gmail/accounts/${accountId}/sync?days=${days}`, {
+      method: 'POST',
+    }),
 }
 
 // --- platform operator (運営) -------------------------------------------------

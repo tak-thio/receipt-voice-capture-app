@@ -14,6 +14,20 @@ _serializer = URLSafeTimedSerializer(settings.session_secret, salt="web-session"
 # Distinct salt so an operator cookie can never be replayed as a user cookie
 # (or vice versa), even though both are signed with the same secret.
 _op_serializer = URLSafeTimedSerializer(settings.session_secret, salt="operator-session")
+# Short-lived signed `state` for the Gmail OAuth round-trip (CSRF + carries the
+# target client_id / user across the redirect to Google and back).
+_oauth_serializer = URLSafeTimedSerializer(settings.session_secret, salt="gmail-oauth-state")
+
+
+def make_oauth_state(data: dict) -> str:
+    return _oauth_serializer.dumps(data)
+
+
+def read_oauth_state(token: str, max_age: int = 600) -> dict | None:
+    try:
+        return _oauth_serializer.loads(token, max_age=max_age)
+    except BadSignature:
+        return None
 
 
 # --- passwords -------------------------------------------------------------

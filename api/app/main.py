@@ -15,6 +15,7 @@ from .routers import (
     export,
     files,
     firm,
+    gmail,
     invites,
     journal,
     masters,
@@ -59,6 +60,6 @@ async def health():
 
 for r in (
     auth, operator, pairing, invites, firm, members, clients,
-    captures, receipts, masters, journal, export, files,
+    captures, receipts, masters, journal, export, files, gmail,
 ):
     app.include_router(r.router)
