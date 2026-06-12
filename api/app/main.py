@@ -48,7 +48,7 @@ app = FastAPI(title="Receipt SaaS API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_origin_regex=r"^(tauri|https?)://tauri\.localhost$",
+    allow_origin_regex=r"^(tauri|https?)://(tauri\.)?localhost$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
