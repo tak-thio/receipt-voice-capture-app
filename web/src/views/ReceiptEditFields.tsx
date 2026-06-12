@@ -151,7 +151,7 @@ export function ReceiptEditFields({
   )
 
   return (
-    <div className="grid gap-5 p-5 sm:p-6 lg:grid-cols-2">
+    <div className="grid gap-4 p-4 lg:grid-cols-2">
       {/* 左: 領収書イメージ（縦長対応で大きく） */}
       <div className="space-y-1">
         {item.image_file_id ? (
@@ -160,10 +160,10 @@ export function ReceiptEditFields({
             key={item.image_file_id}
             src={api.previewUrl(item.image_file_id)}
             alt="領収書"
-            className="h-[28rem] rounded-xl border border-slate-200 lg:h-full lg:min-h-[32rem]"
+            className="h-[22rem] rounded-xl border border-slate-200 lg:h-full lg:min-h-[24rem] lg:max-h-[42rem]"
           />
         ) : (
-          <div className="flex h-[28rem] items-center justify-center rounded-xl border border-slate-200 bg-slate-50 lg:h-full lg:min-h-[32rem]">
+          <div className="flex h-[22rem] items-center justify-center rounded-xl border border-slate-200 bg-slate-50 lg:h-full lg:min-h-[24rem] lg:max-h-[42rem]">
             <span className="text-sm text-slate-400">画像なし</span>
           </div>
         )}
@@ -183,7 +183,7 @@ export function ReceiptEditFields({
       </div>
 
       {/* 右: 店舗名/日付 → 取引先+T番号 → 借方 → 貸方 → 金額・消費税 → 操作 */}
-      <div className="space-y-4">
+      <div className="space-y-3">
         {/* 店舗名 + 日付（編集可能） */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <label className="block space-y-1 sm:col-span-2">
@@ -230,7 +230,7 @@ export function ReceiptEditFields({
         </label>
 
         {/* 借方科目 */}
-        <div className="space-y-2 border-t border-slate-100 pt-3">
+        <div className="space-y-1.5 border-t border-slate-100 pt-2.5">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-slate-500">借方科目</span>
             {pinnedDebit.length > 0 && (
@@ -277,9 +277,9 @@ export function ReceiptEditFields({
         </div>
 
         {/* 金額・消費税（すべて編集可能）: 合計金額 / 税抜 / 消費税合計 / 10% / 8% */}
-        <div className="space-y-2 border-t border-slate-100 pt-3">
+        <div className="space-y-1.5 border-t border-slate-100 pt-2.5">
           <span className="text-xs font-medium text-slate-500">金額・消費税</span>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
             <label className="space-y-1">
               <span className="text-xs text-slate-500">合計金額(税込)</span>
               <Input inputMode="numeric" value={amountInput} onChange={(e) => setAmountInput(e.target.value)} className="text-right tabular-nums" />
@@ -322,7 +322,7 @@ export function ReceiptEditFields({
         </div>
 
         {/* 操作（呼び出し側が差し込む） */}
-        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
           {renderActions(getValues, !!titleId)}
         </div>
       </div>

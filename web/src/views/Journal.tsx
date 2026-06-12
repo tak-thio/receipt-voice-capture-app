@@ -126,7 +126,7 @@ export function JournalView({ clientId, showCreator }: { clientId: string; showC
           />
         </Card>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <Card className="ring-2 ring-brand-500/60">
             <ReceiptEditFields
               key={top.id}
@@ -163,6 +163,7 @@ export function JournalView({ clientId, showCreator }: { clientId: string; showC
 
           {items.length > 1 && (
             <Section title={`${mode === 'queue' ? '未仕分け' : '保留'}キュー`} bodyClassName="p-0">
+              <div className="max-h-44 overflow-auto">
               <Table>
                 <Thead>
                   <tr>
@@ -186,6 +187,7 @@ export function JournalView({ clientId, showCreator }: { clientId: string; showC
                   })}
                 </Tbody>
               </Table>
+              </div>
             </Section>
           )}
         </div>
