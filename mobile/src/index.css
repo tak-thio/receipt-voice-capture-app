@@ -780,3 +780,10 @@ button:disabled { opacity: .6; }
 .src-chips { animation-delay: .12s; }
 .recent { animation-delay: .16s; }
 @keyframes dashIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* 自動シャッター(YOLO)トグル — カメラ上部のオーバーレイ */
+.auto-toggle { position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  background: rgba(15,23,42,.7); color: #e2e8f0; border: 1px solid #334155; border-radius: 999px;
+  padding: 8px 16px; font-size: 13px; font-weight: 600; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.auto-toggle.on { background: rgba(16,185,129,.28); border-color: #10b981; color: #6ee7b7; }
+.auto-toggle.off { opacity: .85; }

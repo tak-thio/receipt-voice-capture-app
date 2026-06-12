@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { uploadCapture } from '../api/server-api'
 import { MediaRecorderService, getMediaRecordingSupport } from '../services/audio/media-recorder-service'
+import { createDetector, playShutterSound, unlockShutterAudio } from '../services/detection'
+import type { ObjectDetector } from '../services/detection'
 import type { RecordedAudioClip } from '../types/audio'
 import { useAppStore } from '../store/app-store'
 
-/** 撮影画面: 写真＋(任意)音声メモを撮ってサーバへアップロード。AI処理はサーバ側。 */
+type AutoStatus = 'off' | 'loading' | 'on' | 'unavailable'
+
+/** 撮影画面: 写真(自動シャッター/手動)＋(任意)音声メモ → サーバへアップロード。 */
 export function CaptureScreen() {
   const connection = useAppStore((state) => state.connection)!
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -17,6 +21,17 @@ export function CaptureScreen() {
   const [message, setMessage] = useState('')
   const [sentCount, setSentCount] = useState(0)
 
+  // 自動シャッター(YOLO)
+  const [autoStatus, setAutoStatus] = useState<AutoStatus>('off')
+  const detectorRef = useRef<ObjectDetector | null>(null)
+  const capturedRef = useRef<string | null>(null)
+  const stableRef = useRef(0)
+
+  useEffect(() => {
+    capturedRef.current = captured
+  }, [captured])
+
+  // カメラ起動
   useEffect(() => {
     let stream: MediaStream | null = null
     let stopped = false
@@ -39,13 +54,15 @@ export function CaptureScreen() {
       try {
         await video.play()
       } catch {
-        /* autoplay 差異は無視 */
+        /* ignore */
       }
     }
     void start()
     return () => {
       stopped = true
-      stream?.getTracks().forEach((track) => track.stop())
+      stream?.getTracks().forEach((t) => t.stop())
+      detectorRef.current?.dispose()
+      detectorRef.current = null
     }
   }, [])
 
@@ -63,6 +80,66 @@ export function CaptureScreen() {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
     setCaptured(canvas.toDataURL('image/jpeg', 0.85))
     setMessage('')
+  }
+  const shootRef = useRef(shoot)
+  shootRef.current = shoot
+
+  // 自動シャッターの検出ループ(autoStatus が on の間だけ回す)
+  useEffect(() => {
+    if (autoStatus !== 'on') return
+    let cancelled = false
+    let busy = false
+    const id = window.setInterval(async () => {
+      if (cancelled || busy) return
+      const det = detectorRef.current
+      const video = videoRef.current
+      if (!det || !video || !video.videoWidth || capturedRef.current) return
+      busy = true
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+        canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height)
+        const dets = await det.detect({ canvas, width: canvas.width, height: canvas.height })
+        if (dets.length > 0) {
+          stableRef.current += 1
+          if (stableRef.current >= 2) {
+            stableRef.current = 0
+            playShutterSound()
+            shootRef.current()
+          }
+        } else {
+          stableRef.current = 0
+        }
+      } catch {
+        /* per-frame error は無視 */
+      } finally {
+        busy = false
+      }
+    }, 500)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [autoStatus])
+
+  async function toggleAuto() {
+    unlockShutterAudio()
+    if (autoStatus === 'on' || autoStatus === 'loading') {
+      setAutoStatus('off')
+      return
+    }
+    setAutoStatus('loading')
+    try {
+      if (!detectorRef.current) {
+        detectorRef.current = await createDetector()
+      }
+      stableRef.current = 0
+      setAutoStatus('on')
+    } catch {
+      detectorRef.current = null
+      setAutoStatus('unavailable')
+    }
   }
 
   async function toggleRecord() {
@@ -92,6 +169,7 @@ export function CaptureScreen() {
     setCaptured(null)
     setAudioClip(null)
     setMessage('')
+    stableRef.current = 0
   }
 
   async function upload() {
@@ -118,6 +196,11 @@ export function CaptureScreen() {
     }
   }
 
+  const autoLabel =
+    autoStatus === 'loading' ? '自動: 起動中…'
+    : autoStatus === 'on' ? '🟢 自動シャッター ON'
+    : autoStatus === 'unavailable' ? '自動: モデル未配置'
+    : '自動シャッター OFF'
   const audioSecs = audioClip ? Math.round(audioClip.durationMs / 1000) : 0
 
   return (
@@ -125,6 +208,14 @@ export function CaptureScreen() {
       <div className="cam-area">
         <video ref={videoRef} className="cam-video" style={{ display: captured ? 'none' : 'block' }} />
         {captured && <img className="cam-shot" src={captured} alt="撮影画像" />}
+        {!captured && (
+          <button
+            className={`auto-toggle${autoStatus === 'on' ? ' on' : ''}${autoStatus === 'unavailable' ? ' off' : ''}`}
+            onClick={() => void toggleAuto()}
+          >
+            {autoLabel}
+          </button>
+        )}
         {camError && <div className="cam-error">{camError}</div>}
       </div>
 
@@ -134,7 +225,7 @@ export function CaptureScreen() {
             {recording ? '■ 録音停止' : '● 音声メモ'}
           </button>
           <button className="shutter" onClick={shoot} aria-label="撮影" />
-          <div className="rec-status">{recording ? '録音中…' : '　'}</div>
+          <div className="rec-status">{recording ? '録音中…' : autoStatus === 'on' ? '検出中…' : '　'}</div>
         </div>
       ) : (
         <div className="capture-controls review">
