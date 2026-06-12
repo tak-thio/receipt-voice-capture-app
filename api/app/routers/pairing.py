@@ -143,8 +143,12 @@ async def redeem(body: RedeemBody, session: AsyncSession = Depends(get_session))
             refresh_token_hash=hash_token(device_token),
         )
     )
+    await session.flush()  # 無コンテキストで確定(identity/device は RLS非依存)。
 
     # 端末の接続確認表示用に、サーバ権威の識別名を返す(QR には載せない情報)。
+    # client/firm はテナントRLS対象。紐付け先ユーザーのRLSコンテキストを張ってから
+    # 取得する(張らないと client_name / firm_name が空になる)。
+    await set_rls_context(session, pt.user_id)
     user = await session.get(User, pt.user_id)
     client = await session.get(Client, pt.client_id)
     firm = await session.get(Firm, pt.firm_id)
