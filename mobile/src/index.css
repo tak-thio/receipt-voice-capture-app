@@ -731,3 +731,12 @@ button:disabled { opacity: .6; }
 .inbox-sub .st.warn { background: #422006; color: #fcd34d; }
 .inbox-sub .st.bad { background: #450a0a; color: #fca5a5; }
 .inbox-sub .st.neutral { background: #334155; color: #cbd5e1; }
+
+/* 受信箱: タップ可能行 + 画像プレビュー */
+.inbox-row.tappable { cursor: pointer; }
+.inbox-row.tappable:active { background: #111a2e; }
+.inbox-sub .img-mark { background: #1e293b; border-radius: 6px; padding: 1px 8px; color: #93c5fd; }
+.preview-overlay { position: fixed; inset: 0; z-index: 1500; background: rgba(0,0,0,0.92);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 16px; }
+.preview-img { max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 8px; background: #fff; }
+.preview-close { padding: 12px 28px; border: none; border-radius: 999px; background: #fff; color: #111; font-weight: 600; }

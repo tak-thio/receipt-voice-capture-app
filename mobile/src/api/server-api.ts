@@ -44,6 +44,22 @@ export async function listReceipts(
   return res.json() as Promise<ServerReceipt[]>
 }
 
+/** 領収書画像のプレビュー(PDFはサーバでPNG化)を取得し objectURL を返す。
+ * Bearer ヘッダが要るので <img src> 直指定ではなく blob 取得→objectURL にする。 */
+export async function fetchPreviewObjectUrl(
+  serverUrl: string,
+  deviceToken: string,
+  fileId: string,
+): Promise<string> {
+  const res = await fetch(`${base(serverUrl)}/files/${fileId}/preview`, {
+    headers: { Authorization: `Bearer ${deviceToken}` },
+  })
+  if (!res.ok) {
+    throw new Error(`画像の取得に失敗しました (${res.status})`)
+  }
+  return URL.createObjectURL(await res.blob())
+}
+
 /** Redeem a QR pairing token for a long-lived device token. */
 export async function pairDevice(serverUrl: string, token: string): Promise<PairResult> {
   const res = await fetch(`${base(serverUrl)}/pairing/redeem`, {
