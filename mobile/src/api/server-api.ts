@@ -17,6 +17,33 @@ function base(url: string): string {
   return url.replace(/\/+$/, '')
 }
 
+// 受信箱(サーバの領収書一覧)。RLSにより端末の利用者が見える分だけ返る。
+export interface ServerReceipt {
+  id: string
+  source: string
+  captured_at: string | null
+  vendor: string | null
+  amount_jpy: number | null
+  approval_status: string
+  journalized_at: string | null
+  description: string | null
+  image_file_id?: string | null
+}
+
+export async function listReceipts(
+  serverUrl: string,
+  deviceToken: string,
+  clientId: string,
+): Promise<ServerReceipt[]> {
+  const res = await fetch(`${base(serverUrl)}/receipts?client_id=${encodeURIComponent(clientId)}`, {
+    headers: { Authorization: `Bearer ${deviceToken}` },
+  })
+  if (!res.ok) {
+    throw new Error(`受信箱の取得に失敗しました (${res.status})`)
+  }
+  return res.json() as Promise<ServerReceipt[]>
+}
+
 /** Redeem a QR pairing token for a long-lived device token. */
 export async function pairDevice(serverUrl: string, token: string): Promise<PairResult> {
   const res = await fetch(`${base(serverUrl)}/pairing/redeem`, {

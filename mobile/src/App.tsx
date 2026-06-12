@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { CaptureScreen } from './pages/CaptureScreen'
 import { ConnectScreen } from './pages/ConnectScreen'
+import { InboxScreen } from './pages/InboxScreen'
 import { SettingsScreen } from './pages/SettingsScreen'
 import { useAppStore } from './store/app-store'
 
-type Tab = 'capture' | 'settings'
+type Tab = 'capture' | 'inbox' | 'settings'
 
 export default function App() {
   const ready = useAppStore((state) => state.ready)
@@ -27,10 +28,17 @@ export default function App() {
 
   return (
     <div className="app">
-      <main className="screen">{tab === 'capture' ? <CaptureScreen /> : <SettingsScreen />}</main>
+      <main className="screen">
+        {tab === 'capture' && <CaptureScreen />}
+        {tab === 'inbox' && <InboxScreen />}
+        {tab === 'settings' && <SettingsScreen />}
+      </main>
       <nav className="tabbar" aria-label="メインナビゲーション">
         <button className={tab === 'capture' ? 'active' : ''} onClick={() => setTab('capture')}>
           撮影
+        </button>
+        <button className={tab === 'inbox' ? 'active' : ''} onClick={() => setTab('inbox')}>
+          受信箱
         </button>
         <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>
           設定
