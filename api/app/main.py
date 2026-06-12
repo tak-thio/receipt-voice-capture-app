@@ -43,14 +43,16 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Receipt SaaS API", version="0.1.0", lifespan=lifespan)
 
-if settings.cors_origin_list:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origin_list,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# モバイル(Tauri)アプリは別オリジン(tauri://localhost / http(s)://tauri.localhost)から
+# fetch するため CORS が必要。WebUIは同一オリジンなのでこの設定の影響を受けない。
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_origin_regex=r"^(tauri|https?)://tauri\.localhost$",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
