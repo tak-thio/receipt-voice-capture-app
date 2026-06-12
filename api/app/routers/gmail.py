@@ -17,10 +17,10 @@ from starlette.responses import RedirectResponse
 
 from ..config import get_settings
 from ..db import get_session
-from ..deps import Principal, can_admin_client, get_principal
+from ..deps import Principal, get_principal
 from ..ingest.gmail import GmailClient
 from ..ingest.pipeline import ingest_account
-from ..models import Client, GmailAccount
+from ..models import Client, GmailAccount, Role
 from ..security import encrypt_secret, make_oauth_state, read_oauth_state
 
 # Google が openid を自動付与してスコープ不一致になるのを避ける。
@@ -35,6 +35,19 @@ GMAIL_SCOPES = [
     "profile",
     "https://www.googleapis.com/auth/gmail.readonly",
 ]
+
+
+def _require_client_admin(principal: Principal, client_id: UUID) -> None:
+    """メール連携は顧客側の管理者(client_admin)のみ。事務所職員/オーナーは不可。
+    OAuth は「ボタンを押した本人のメールボックス」を連携するため、顧客本人が行う必要がある。"""
+    ok = any(
+        m.client_id == client_id and m.role == Role.client_admin.value
+        for m in principal.memberships
+    )
+    if not ok:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "メール連携は顧客の管理者のみ行えます"
+        )
 
 
 def _flow():
@@ -67,8 +80,7 @@ async def connect(
     session: AsyncSession = Depends(get_session),
 ):
     """顧問先に Gmail を連携開始。Google の同意画面へリダイレクトする。"""
-    if not await can_admin_client(session, principal, client_id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "cannot manage this client")
+    _require_client_admin(principal, client_id)
     flow = _flow()
     state = make_oauth_state({"cid": str(client_id), "uid": str(principal.user.id)})
     auth_url, _ = flow.authorization_url(
@@ -89,8 +101,7 @@ async def callback(
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid or expired oauth state")
     client_id = UUID(data["cid"])
-    if not await can_admin_client(session, principal, client_id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "cannot manage this client")
+    _require_client_admin(principal, client_id)
     if error or not code:
         return RedirectResponse("/?gmail=error", status_code=302)
 
@@ -146,8 +157,7 @@ async def list_accounts(
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
-    if not await can_admin_client(session, principal, client_id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "cannot manage this client")
+    _require_client_admin(principal, client_id)
     rows = await session.scalars(
         select(GmailAccount).where(GmailAccount.client_id == client_id).order_by(GmailAccount.created_at)
     )
@@ -163,8 +173,7 @@ async def disconnect(
     account = await session.get(GmailAccount, account_id)
     if not account:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
-    if not await can_admin_client(session, principal, account.client_id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "cannot manage this client")
+    _require_client_admin(principal, account.client_id)
     await session.delete(account)
     return {"ok": True}
 
@@ -180,8 +189,7 @@ async def sync_account(
     account = await session.get(GmailAccount, account_id)
     if not account:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
-    if not await can_admin_client(session, principal, account.client_id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "cannot manage this client")
+    _require_client_admin(principal, account.client_id)
     now = datetime.now(timezone.utc)
     after = (now - timedelta(days=max(1, days))).strftime("%Y/%m/%d")
     before = (now + timedelta(days=1)).strftime("%Y/%m/%d")

@@ -5,7 +5,6 @@ import {
   PageHeader, Section, Select, Table, Tbody, Td, Th, Thead, Textarea, Tr,
 } from '../ui'
 import { useToast } from '../ui/toast'
-import { GmailLink } from './GmailLink'
 
 const FORMATS = ['generic', 'mas', 'freee', 'yayoi']
 const ROLE_LABEL: Record<string, string> = {
@@ -247,7 +246,8 @@ function EditScreen({ id, canManage, onBack, onChanged, selfMode }: { id: string
         </Section>
         <ClientUsers clientId={id} />
         <ClientAiConfig clientId={id} />
-        <GmailLink clientId={id} />
+        {/* メール連携(Gmail)は顧客本人(client_admin)が自社の設定から行う。
+            OAuthは押した本人のメールボックスを連携するため、事務所側には置かない。 */}
       </div>
     </>
   )
