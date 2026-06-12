@@ -92,25 +92,24 @@ export function JournalView({ clientId, showCreator }: { clientId: string; showC
 
   return (
     <>
-      <PageHeader
-        title="仕分け"
-        description="領収書を1件ずつ確認して仕訳します。"
-        actions={
-          <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 text-sm">
-            <button onClick={() => switchMode('queue')}
-              className={cn('rounded-md px-3 py-1 font-medium', mode === 'queue' ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-slate-100')}>
-              未仕分け
-            </button>
-            <button onClick={() => switchMode('held')}
-              className={cn('rounded-md px-3 py-1 font-medium', mode === 'held' ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-slate-100')}>
-              保留 {heldCount > 0 && <span className="ml-0.5">{heldCount}</span>}
-            </button>
-          </div>
-        }
-      />
-
-      <div className="mb-4 flex items-center justify-between text-sm text-slate-500">
-        <span>{mode === 'queue' ? '未仕分け' : '保留'} 残り <span className="font-semibold text-slate-700">{total}</span> 件</span>
+      {/* タイトル・残り件数・モード切替を1行に集約（縦の無駄を削減） */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="flex items-baseline gap-3">
+          <h2 className="text-xl font-bold tracking-tight text-slate-900">仕分け</h2>
+          <span className="text-sm text-slate-500">
+            {mode === 'queue' ? '未仕分け' : '保留'} 残り <span className="font-semibold text-slate-700">{total}</span> 件
+          </span>
+        </div>
+        <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 text-sm">
+          <button onClick={() => switchMode('queue')}
+            className={cn('rounded-md px-3 py-1 font-medium', mode === 'queue' ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-slate-100')}>
+            未仕分け
+          </button>
+          <button onClick={() => switchMode('held')}
+            className={cn('rounded-md px-3 py-1 font-medium', mode === 'held' ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-slate-100')}>
+            保留 {heldCount > 0 && <span className="ml-0.5">{heldCount}</span>}
+          </button>
+        </div>
       </div>
 
       {error && <div className="mb-4"><Alert>{error}</Alert></div>}
