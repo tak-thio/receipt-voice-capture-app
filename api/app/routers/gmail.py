@@ -53,6 +53,10 @@ def _flow():
         },
         scopes=GMAIL_SCOPES,
         redirect_uri=settings.gmail_oauth_redirect_uri,
+        # PKCE を無効化。connect と callback で別の Flow インスタンスを使うため
+        # code_verifier を共有できない。confidential client (client_secret あり)なので
+        # PKCE 無しで安全。両側で無効にすることで code_challenge/verifier の不一致を避ける。
+        autogenerate_code_verifier=False,
     )
 
 
