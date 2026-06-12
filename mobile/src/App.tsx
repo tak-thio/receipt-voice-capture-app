@@ -1,34 +1,41 @@
-import { useEffect } from 'react'
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
-import { AppShell } from './components/AppShell'
-import { CapturePage } from './pages/CapturePage'
-import { ExportPage } from './pages/ExportPage'
-import { ReviewPage } from './pages/ReviewPage'
-import { SettingsPage } from './pages/SettingsPage'
-import { useSessionStore } from './store/session-store'
+import { useEffect, useState } from 'react'
+import { CaptureScreen } from './pages/CaptureScreen'
+import { ConnectScreen } from './pages/ConnectScreen'
+import { SettingsScreen } from './pages/SettingsScreen'
+import { useAppStore } from './store/app-store'
+
+type Tab = 'capture' | 'settings'
 
 export default function App() {
-  const initialize = useSessionStore((state) => state.initialize)
-  const isReady = useSessionStore((state) => state.isReady)
+  const ready = useAppStore((state) => state.ready)
+  const connection = useAppStore((state) => state.connection)
+  const init = useAppStore((state) => state.init)
+  const [tab, setTab] = useState<Tab>('capture')
 
   useEffect(() => {
-    void initialize()
-  }, [initialize])
+    init()
+  }, [init])
 
-  if (!isReady) {
+  if (!ready) {
     return <div className="boot-screen">アプリを読み込んでいます...</div>
   }
 
+  // 未接続なら最初に連携(ペアリング)画面。
+  if (!connection) {
+    return <ConnectScreen />
+  }
+
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route element={<AppShell />}>
-          <Route index element={<CapturePage />} />
-          <Route path="/review" element={<ReviewPage />} />
-          <Route path="/export" element={<ExportPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <div className="app">
+      <main className="screen">{tab === 'capture' ? <CaptureScreen /> : <SettingsScreen />}</main>
+      <nav className="tabbar" aria-label="メインナビゲーション">
+        <button className={tab === 'capture' ? 'active' : ''} onClick={() => setTab('capture')}>
+          撮影
+        </button>
+        <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>
+          設定
+        </button>
+      </nav>
+    </div>
   )
 }

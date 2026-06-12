@@ -649,3 +649,67 @@ tbody tr:hover {
   font-weight: 600;
   font-size: 15px;
 }
+
+/* ===================================================================== */
+/* サーバ連携専用アプリ (モバイル) — 旧standaloneスタイルは未使用              */
+/* ===================================================================== */
+html, body, #root { height: 100%; }
+body { margin: 0; padding: 0; display: block; background: #0f172a; color: #e2e8f0;
+  font-family: system-ui, -apple-system, 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif; }
+.boot-screen { display: grid; place-items: center; height: 100dvh; color: #94a3b8; }
+
+.app { display: flex; flex-direction: column; height: 100dvh; }
+.screen { flex: 1; min-height: 0; overflow-y: auto; }
+.tabbar { display: flex; border-top: 1px solid #1e293b; background: #0b1220; }
+.tabbar button { flex: 1; padding: 14px; background: none; border: none; color: #94a3b8;
+  font-size: 15px; font-weight: 600; }
+.tabbar button.active { color: #fff; box-shadow: inset 0 2px 0 #6366f1; }
+
+.primary-button, .accent-button, .danger-button, .ghost-button {
+  border: none; border-radius: 12px; padding: 12px 18px; font-size: 15px; font-weight: 600; cursor: pointer; }
+.primary-button { background: #6366f1; color: #fff; }
+.accent-button { background: #4f46e5; color: #fff; }
+.danger-button { background: #ef4444; color: #fff; }
+.ghost-button { background: #e2e8f0; color: #0f172a; }
+.big { width: 100%; padding: 15px; font-size: 16px; }
+.link { background: none; border: none; color: #4f46e5; text-decoration: underline; cursor: pointer; padding: 0; font-size: 13px; }
+button:disabled { opacity: .6; }
+
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #475569; margin-top: 8px; }
+.field input { padding: 10px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 15px; }
+.muted { color: #94a3b8; }
+.small { font-size: 12px; }
+.center { text-align: center; }
+.mono { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
+
+/* 接続(ペアリング) */
+.connect-screen { min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.connect-card { width: 100%; max-width: 420px; background: #fff; color: #0f172a; border-radius: 18px;
+  padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+.connect-card h1 { margin: 0; font-size: 20px; }
+.connect-card .manual { font-size: 14px; color: #475569; }
+.connect-card .manual summary { cursor: pointer; padding: 6px 0; }
+
+/* 撮影 */
+.capture-screen { display: flex; flex-direction: column; height: 100%; }
+.cam-area { position: relative; flex: 1; min-height: 0; background: #000; display: flex; align-items: center; justify-content: center; }
+.cam-video, .cam-shot { width: 100%; height: 100%; object-fit: contain; }
+.cam-error { position: absolute; color: #fca5a5; padding: 16px; text-align: center; }
+.capture-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; background: #0b1220; }
+.capture-controls.review { flex-wrap: wrap; }
+.shutter { width: 64px; height: 64px; border-radius: 50%; background: #fff; border: 4px solid #c7d2fe; cursor: pointer; }
+.rec-button { background: #1e293b; color: #fff; border: 1px solid #334155; border-radius: 999px; padding: 10px 16px; font-size: 14px; font-weight: 600; }
+.rec-button.on { background: #ef4444; border-color: #ef4444; }
+.rec-button.small { padding: 8px 12px; font-size: 13px; }
+.rec-status { min-width: 72px; text-align: right; color: #f87171; font-size: 13px; }
+.audio-chip { color: #334155; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.capture-screen > .muted.center { padding: 10px; background: #0b1220; }
+
+/* 設定 */
+.settings-screen { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.settings-screen h1 { margin: 0; font-size: 20px; }
+.info-card { background: #1e293b; border-radius: 14px; padding: 0 16px; }
+.info-row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #334155; }
+.info-row:last-child { border-bottom: none; }
+.info-row span { color: #94a3b8; font-size: 13px; }
+.info-row strong { text-align: right; }
