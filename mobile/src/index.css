@@ -658,9 +658,12 @@ body { margin: 0; padding: 0; display: block; background: #0f172a; color: #e2e8f
   font-family: system-ui, -apple-system, 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif; }
 .boot-screen { display: grid; place-items: center; height: 100dvh; color: #94a3b8; }
 
-.app { display: flex; flex-direction: column; height: 100dvh; }
+.app { display: flex; flex-direction: column; height: 100dvh; box-sizing: border-box;
+  padding-top: env(safe-area-inset-top); }
 .screen { flex: 1; min-height: 0; overflow-y: auto; }
-.tabbar { display: flex; border-top: 1px solid #1e293b; background: #0b1220; }
+/* Android15は画面端まで描画されるので、タブバーは下部システムバー分だけ上げる */
+.tabbar { display: flex; border-top: 1px solid #1e293b; background: #0b1220;
+  padding-bottom: env(safe-area-inset-bottom); }
 .tabbar button { flex: 1; padding: 14px; background: none; border: none; color: #94a3b8;
   font-size: 15px; font-weight: 600; }
 .tabbar button.active { color: #fff; box-shadow: inset 0 2px 0 #6366f1; }
@@ -683,7 +686,8 @@ button:disabled { opacity: .6; }
 .mono { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
 
 /* 接続(ペアリング) */
-.connect-screen { min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.connect-screen { min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+  padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom)); }
 .connect-card { width: 100%; max-width: 420px; background: #fff; color: #0f172a; border-radius: 18px;
   padding: 24px; display: flex; flex-direction: column; gap: 14px; }
 .connect-card h1 { margin: 0; font-size: 20px; }
