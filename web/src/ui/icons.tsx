@@ -152,6 +152,38 @@ export const Icon = {
       <path d="M9 7h7M9 11h7" />
     </Svg>
   ),
+  Mail: (p: IconProps) => (
+    <Svg {...p}>
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+    </Svg>
+  ),
+  FileText: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+      <path d="M9 13h6M9 17h6" />
+    </Svg>
+  ),
+  Image: (p: IconProps) => (
+    <Svg {...p}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <circle cx="9" cy="9" r="2" />
+      <path d="m21 15-4.5-4.5L5 21" />
+    </Svg>
+  ),
+  Phone: (p: IconProps) => (
+    <Svg {...p}>
+      <rect x="6" y="2" width="12" height="20" rx="2" />
+      <path d="M11 18h2" />
+    </Svg>
+  ),
+  Upload: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="M7 9l5-5 5 5M12 4v12" />
+    </Svg>
+  ),
 }
 
 export type IconComponent = (props: IconProps) => ReactElement

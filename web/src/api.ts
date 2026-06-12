@@ -66,6 +66,7 @@ export interface ReceiptRow {
   journalized_at: string | null
   note_ids: string[]
   image_file_id?: string | null
+  image_mime?: string | null
   created_by_name?: string | null
 }
 

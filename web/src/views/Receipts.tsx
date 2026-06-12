@@ -19,15 +19,15 @@ function statusBadge(r: ReceiptRow) {
   return a ? <Badge tone={a.tone}>{a.label}</Badge> : <Badge tone="warning">未仕分</Badge>
 }
 
-// 取込元(source): メール / アップロード / アプリ。
-const SOURCE_LABEL: Record<string, { label: string; tone: 'info' | 'neutral' }> = {
-  email: { label: 'メール', tone: 'info' },
-  manual: { label: 'アップロード', tone: 'neutral' },
-  mobile: { label: 'アプリ', tone: 'neutral' },
-}
-function sourceBadge(source: string | null) {
-  const s = SOURCE_LABEL[source ?? '']
-  return s ? <Badge tone={s.tone}>{s.label}</Badge> : <Badge tone="neutral">{source ?? '—'}</Badge>
+// 取込元(source)をアイコンで: メール / アップロード / アプリ(スマホ)。
+function SourceIcon({ source }: { source: string | null }) {
+  if (source === 'email')
+    return <span title="メール取込" className="inline-flex text-slate-500"><Icon.Mail className="text-lg" /></span>
+  if (source === 'manual')
+    return <span title="アップロード" className="inline-flex text-slate-500"><Icon.Upload className="text-lg" /></span>
+  if (source === 'mobile')
+    return <span title="アプリ(スマホ)" className="inline-flex text-slate-500"><Icon.Phone className="text-lg" /></span>
+  return <span className="text-slate-300">—</span>
 }
 
 export function ReceiptsView({ clientId, showCreator }: { clientId: string; showCreator?: boolean }) {
@@ -158,7 +158,7 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
               <Th className="w-56">摘要</Th>
               <Th>付箋</Th>
               <Th className="w-24">状態</Th>
-              <Th className="w-16">画像</Th>
+              <Th className="w-16">表示</Th>
               <Th className="w-12"></Th>
             </tr>
           </Thead>
@@ -166,7 +166,7 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
             {rows.map((r) => (
               <Tr key={r.id}>
                 <Td className="text-slate-500">{r.captured_at?.slice(0, 10) ?? '—'}</Td>
-                <Td>{sourceBadge(r.source)}</Td>
+                <Td><SourceIcon source={r.source} /></Td>
                 <Td className="font-medium text-slate-800">{r.vendor ?? '—'}</Td>
                 <Td className="text-right font-medium tabular-nums">
                   {r.amount_jpy != null ? `¥${r.amount_jpy.toLocaleString()}` : '—'}
@@ -188,24 +188,24 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
                 </Td>
                 <Td>{statusBadge(r)}</Td>
                 <Td>
-                  <div className="flex flex-col items-start gap-0.5">
-                    {r.image_file_id ? (
+                  <div className="flex items-center gap-2 text-slate-500">
+                    {r.image_file_id && (
                       <a
                         href={api.fileUrl(r.image_file_id)}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-brand-600 hover:underline"
+                        title={(r.image_mime ?? '').includes('pdf') ? 'PDFを開く' : '画像を開く'}
+                        className="inline-flex hover:text-brand-600"
                       >
-                        表示
+                        {(r.image_mime ?? '').includes('pdf') ? <Icon.FileText className="text-lg" /> : <Icon.Image className="text-lg" />}
                       </a>
-                    ) : r.source !== 'email' ? (
-                      <span className="text-slate-300">—</span>
-                    ) : null}
+                    )}
                     {r.source === 'email' && (
-                      <button onClick={() => setEmailView(r)} className="text-xs text-brand-600 hover:underline">
-                        メール
+                      <button onClick={() => setEmailView(r)} title="メール本文を表示" className="inline-flex hover:text-brand-600">
+                        <Icon.Mail className="text-lg" />
                       </button>
                     )}
+                    {!r.image_file_id && r.source !== 'email' && <span className="text-slate-300">—</span>}
                   </div>
                 </Td>
                 <Td className="text-right">

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import Principal, get_principal
-from ..models import Receipt, ReceiptFile, User
+from ..models import File, Receipt, ReceiptFile, User
 
 router = APIRouter(prefix="/receipts", tags=["receipts"])
 
@@ -28,7 +28,7 @@ class ReceiptPatch(BaseModel):
     note_ids: list[str] | None = None  # 付箋: replace the attached set
 
 
-def _serialize(r: Receipt, image_file_id=None, created_by_name=None) -> dict:
+def _serialize(r: Receipt, image_file_id=None, created_by_name=None, image_mime=None) -> dict:
     return {
         "id": str(r.id),
         "client_id": str(r.client_id),
@@ -46,6 +46,7 @@ def _serialize(r: Receipt, image_file_id=None, created_by_name=None) -> dict:
         "note_ids": r.note_ids or [],
         # The captured image (kind='capture'), so the UI can show/open it.
         "image_file_id": str(image_file_id) if image_file_id else None,
+        "image_mime": image_mime,  # application/pdf か image/* かでアイコンを出し分け
         # 登録者名（管理者/経理/職員のみ意味を持つ。一般社員は自分のみ）。
         "created_by_name": created_by_name,
     }
@@ -79,17 +80,23 @@ async def list_receipts(
     img_map: dict = {}
     if rows:
         rf = await session.execute(
-            select(ReceiptFile.receipt_id, ReceiptFile.file_id).where(
+            select(ReceiptFile.receipt_id, ReceiptFile.file_id, File.mime)
+            .join(File, File.id == ReceiptFile.file_id)
+            .where(
                 ReceiptFile.receipt_id.in_([r.id for r in rows]),
                 ReceiptFile.kind == "capture",
             )
         )
-        for rid, fid in rf.all():
-            img_map.setdefault(rid, fid)
+        for rid, fid, mime in rf.all():
+            img_map.setdefault(rid, (fid, mime))
         creators = await _creator_names(session, rows)
     else:
         creators = {}
-    return [_serialize(r, img_map.get(r.id), creators.get(r.created_by)) for r in rows]
+    out = []
+    for r in rows:
+        fid, mime = img_map.get(r.id, (None, None))
+        out.append(_serialize(r, fid, creators.get(r.created_by), mime))
+    return out
 
 
 @router.get("/{receipt_id}")
@@ -101,13 +108,16 @@ async def get_receipt(
     r = await session.get(Receipt, receipt_id)
     if not r:
         return {"error": "not found"}
-    img = await session.scalar(
-        select(ReceiptFile.file_id).where(
-            ReceiptFile.receipt_id == r.id, ReceiptFile.kind == "capture"
+    img_row = (
+        await session.execute(
+            select(ReceiptFile.file_id, File.mime)
+            .join(File, File.id == ReceiptFile.file_id)
+            .where(ReceiptFile.receipt_id == r.id, ReceiptFile.kind == "capture")
         )
-    )
+    ).first()
+    fid, mime = (img_row[0], img_row[1]) if img_row else (None, None)
     creators = await _creator_names(session, [r])
-    return _serialize(r, img, creators.get(r.created_by))
+    return _serialize(r, fid, creators.get(r.created_by), mime)
 
 
 @router.get("/{receipt_id}/email")
