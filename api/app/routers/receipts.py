@@ -110,6 +110,28 @@ async def get_receipt(
     return _serialize(r, img, creators.get(r.created_by))
 
 
+@router.get("/{receipt_id}/email")
+async def receipt_email(
+    receipt_id: UUID,
+    _: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """メール取込の領収書について、件名/差出人/本文を返す(「メール本文を印刷したような
+    画面」表示用)。RLS によりアクセス不可なら404。"""
+    r = await session.get(Receipt, receipt_id)
+    if not r:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "receipt not found")
+    m = r.capture_meta or {}
+    return {
+        "subject": m.get("gmail_subject"),
+        "from_addr": m.get("gmail_from"),
+        "account": m.get("gmail_account"),
+        "date": m.get("gmail_date"),
+        "html": m.get("gmail_body_html"),
+        "text": m.get("gmail_body_text"),
+    }
+
+
 @router.patch("/{receipt_id}")
 async def patch_receipt(
     receipt_id: UUID,

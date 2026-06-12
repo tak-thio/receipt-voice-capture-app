@@ -6,6 +6,7 @@ import {
 } from '../ui'
 import { NoteChips, NotePickerModal } from '../notes'
 import { useToast } from '../ui/toast'
+import { EmailViewModal } from './EmailViewModal'
 
 const APPROVAL_LABEL: Record<string, { label: string; tone: 'danger' | 'neutral' }> = {
   rejected: { label: '否認', tone: 'danger' },
@@ -36,6 +37,7 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
   const [q, setQ] = useState('')
   const [loading, setLoading] = useState(false)
   const [tagging, setTagging] = useState<ReceiptRow | null>(null)
+  const [emailView, setEmailView] = useState<ReceiptRow | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
@@ -186,18 +188,25 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
                 </Td>
                 <Td>{statusBadge(r)}</Td>
                 <Td>
-                  {r.image_file_id ? (
-                    <a
-                      href={api.fileUrl(r.image_file_id)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-brand-600 hover:underline"
-                    >
-                      表示
-                    </a>
-                  ) : (
-                    <span className="text-slate-300">—</span>
-                  )}
+                  <div className="flex flex-col items-start gap-0.5">
+                    {r.image_file_id ? (
+                      <a
+                        href={api.fileUrl(r.image_file_id)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-brand-600 hover:underline"
+                      >
+                        表示
+                      </a>
+                    ) : r.source !== 'email' ? (
+                      <span className="text-slate-300">—</span>
+                    ) : null}
+                    {r.source === 'email' && (
+                      <button onClick={() => setEmailView(r)} className="text-xs text-brand-600 hover:underline">
+                        メール
+                      </button>
+                    )}
+                  </div>
                 </Td>
                 <Td className="text-right">
                   {r.approval_status === 'pending' && !r.journalized_at && (
@@ -233,6 +242,7 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
         value={tagging?.note_ids ?? []}
         onToggle={(id) => void toggleNote(id)}
       />
+      {emailView && <EmailViewModal receiptId={emailView.id} onClose={() => setEmailView(null)} />}
     </>
   )
 }

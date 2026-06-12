@@ -3,6 +3,7 @@ import { api, type JournalizeBody, type MasterRow, type NoteRow, type Suggestion
 import { Button, cn, Icon, Input, Select, Textarea } from '../ui'
 import { NoteChips, NotePickerModal } from '../notes'
 import { ZoomableImage } from './ZoomableImage'
+import { EmailViewModal } from './EmailViewModal'
 
 // 仕分け・元帳編集で共通の「左:領収書画像 / 右:入力欄」エディタ。
 // 入力状態は内部で保持し、操作ボタンは renderActions(getValues, debitSelected) で親が差し込む。
@@ -48,6 +49,7 @@ export function ReceiptEditFields({
   renderActions: (getValues: () => JournalizeBody, debitSelected: boolean) => ReactNode
 }) {
   const [tagging, setTagging] = useState(false)
+  const [showEmail, setShowEmail] = useState(false)
   const [titleId, setTitleId] = useState('') // 借方科目
   const [creditTitleId, setCreditTitleId] = useState('') // 貸方科目
   const [partnerId, setPartnerId] = useState('')
@@ -165,12 +167,19 @@ export function ReceiptEditFields({
             <span className="text-sm text-slate-400">画像なし</span>
           </div>
         )}
-        {item.image_file_id && (item.image_mime ?? '').includes('pdf') && (
-          <a href={api.fileUrl(item.image_file_id)} target="_blank" rel="noreferrer"
-            className="inline-block text-xs text-brand-600 hover:underline">
-            元のPDFを開く
-          </a>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          {item.image_file_id && (item.image_mime ?? '').includes('pdf') && (
+            <a href={api.fileUrl(item.image_file_id)} target="_blank" rel="noreferrer"
+              className="text-xs text-brand-600 hover:underline">
+              元のPDFを開く
+            </a>
+          )}
+          {item.source === 'email' && (
+            <button onClick={() => setShowEmail(true)} className="text-xs text-brand-600 hover:underline">
+              メール本文を表示
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 右: 店舗名/日付 → 取引先+T番号 → 借方 → 貸方 → 金額・消費税 → 操作 */}
@@ -325,6 +334,7 @@ export function ReceiptEditFields({
         value={noteIds}
         onToggle={(id) => onToggleNote(id)}
       />
+      {showEmail && <EmailViewModal receiptId={item.id} onClose={() => setShowEmail(false)} />}
     </div>
   )
 }

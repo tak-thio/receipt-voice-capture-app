@@ -156,6 +156,16 @@ export interface LedgerRow {
   note_ids: string[]
 }
 
+// メール取込の領収書の元メール(本文表示用)。
+export interface ReceiptEmail {
+  subject: string | null
+  from_addr: string | null
+  account: string | null
+  date: string | null
+  html: string | null
+  text: string | null
+}
+
 // メール連携(Gmail) — 顧問先に紐付いたメールボックス。
 export interface GmailAccountRow {
   id: string
@@ -231,6 +241,8 @@ export const api = {
   patchReceipt: (id: string, patch: Partial<ReceiptRow>) =>
     req<ReceiptRow>(`/receipts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteReceipt: (id: string) => req(`/receipts/${id}`, { method: 'DELETE' }),
+  // メール取込の元メール本文(件名/差出人/本文)。
+  receiptEmail: (id: string) => req<ReceiptEmail>(`/receipts/${id}/email`),
   // Web upload (multipart) — a logged-in user adds a receipt image/PDF to a client.
   uploadReceipt: async (clientId: string, file: File, audio?: File) => {
     const fd = new FormData()

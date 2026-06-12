@@ -52,7 +52,15 @@ async def _message_to_receipt(session: AsyncSession, account: GmailAccount, msg:
         captured_at=captured_at,
         vendor=UNPARSED_VENDOR,
         created_by=account.connected_by,
-        capture_meta={"gmail_subject": msg.subject, "gmail_from": msg.from_addr, "gmail_account": account.email},
+        # 「メール本文を印刷したような画面」表示用に、件名/差出人/本文も保存する。
+        capture_meta={
+            "gmail_subject": msg.subject,
+            "gmail_from": msg.from_addr,
+            "gmail_account": account.email,
+            "gmail_date": captured_at.isoformat(),
+            "gmail_body_html": (msg.body_html or "")[:300000],
+            "gmail_body_text": (msg.body_text or "")[:100000],
+        },
     )
     session.add(receipt)
     await session.flush()
