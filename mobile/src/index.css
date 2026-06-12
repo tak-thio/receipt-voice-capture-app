@@ -600,3 +600,52 @@ tbody tr:hover {
     padding: 16px 14px calc(80px + env(safe-area-inset-bottom));
   }
 }
+
+/* QRスキャン: 全画面ライブプレビュー + ファインダー枠 */
+.qr-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: #000;
+}
+.qr-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.qr-mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+}
+.qr-frame {
+  width: 72vw;
+  max-width: 320px;
+  aspect-ratio: 1 / 1;
+  border: 3px solid rgba(255, 255, 255, 0.95);
+  border-radius: 18px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+}
+.qr-hint {
+  margin: 0;
+  padding: 0 24px;
+  color: #fff;
+  font-size: 14px;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+}
+.qr-cancel {
+  padding: 12px 32px;
+  border: none;
+  border-radius: 999px;
+  background: #fff;
+  color: #111;
+  font-weight: 600;
+  font-size: 15px;
+}

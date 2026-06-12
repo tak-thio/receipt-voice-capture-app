@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react'
 import { LOCAL_STT_RECOMMENDED_SETTINGS } from '../lib/constants'
 import { isMobilePlatform } from '../lib/platform'
 import { pairDevice } from '../api/server-api'
-import { isQrScanSupported, scanQrOnce } from '../lib/qr-scan'
+import { isQrScanSupported } from '../lib/qr-scan'
+import { QrScannerOverlay } from '../components/QrScannerOverlay'
 import { useSessionStore } from '../store/session-store'
 import type { AppMode, AppSettings } from '../types/settings'
 import type { AiDiagnostics } from '../api/ai-formatter-api'
@@ -98,26 +99,18 @@ export function SettingsPage() {
   const [pairingToken, setPairingToken] = useState('')
   const [isConnecting, setIsConnecting] = useState(false)
   const [serverMessage, setServerMessage] = useState('')
+  const [isScanning, setIsScanning] = useState(false)
   const qrSupported = isQrScanSupported()
 
-  async function handleScanQr() {
-    setServerMessage('QRを読み取り中...')
-    try {
-      const value = await scanQrOnce()
-      if (value) {
-        const parsed = parsePairingQr(value)
-        setPairingToken(parsed.token)
-        if (parsed.url) {
-          setDraft((current) => ({ ...current, serverUrl: parsed.url as string }))
-          setServerMessage('QRを読み取りました(接続先URLも取得)。「接続」を押してください。')
-        } else {
-          setServerMessage('QRを読み取りました。「接続」を押してください。')
-        }
-      } else {
-        setServerMessage('QRを読み取れませんでした。トークンを手入力してください。')
-      }
-    } catch {
-      setServerMessage('カメラを起動できませんでした。')
+  function handleQrResult(value: string) {
+    setIsScanning(false)
+    const parsed = parsePairingQr(value)
+    setPairingToken(parsed.token)
+    if (parsed.url) {
+      setDraft((current) => ({ ...current, serverUrl: parsed.url as string }))
+      setServerMessage('QRを読み取りました(接続先URLも取得)。「接続」を押してください。')
+    } else {
+      setServerMessage('QRを読み取りました。「接続」を押してください。')
     }
   }
 
@@ -247,7 +240,7 @@ export function SettingsPage() {
           <>
             <div className="header-actions">
               {qrSupported && (
-                <button className="ghost-button" onClick={() => void handleScanQr()}>
+                <button className="ghost-button" onClick={() => { setServerMessage(''); setIsScanning(true) }}>
                   QRスキャン
                 </button>
               )}
@@ -265,6 +258,9 @@ export function SettingsPage() {
                   ? `接続中の顧問先ID: ${draft.serverClientId}`
                   : '事務所が発行したQR(またはトークン)で接続します。AIはサーバ側(事務所)で実行されます。')}
             </p>
+            {isScanning && (
+              <QrScannerOverlay onResult={handleQrResult} onCancel={() => setIsScanning(false)} />
+            )}
           </>
         )}
       </article>
