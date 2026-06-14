@@ -787,3 +787,9 @@ button:disabled { opacity: .6; }
   padding: 8px 16px; font-size: 13px; font-weight: 600; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .auto-toggle.on { background: rgba(16,185,129,.28); border-color: #10b981; color: #6ee7b7; }
 .auto-toggle.off { opacity: .85; }
+
+/* カメラ前/背面 切替ボタン(プレビュー右下) */
+.cam-flip { position: absolute; right: 14px; bottom: 14px; width: 46px; height: 46px; border-radius: 50%;
+  border: none; background: rgba(15,23,42,.6); color: #fff; font-size: 20px; line-height: 1;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.cam-flip:active { transform: scale(.94); }

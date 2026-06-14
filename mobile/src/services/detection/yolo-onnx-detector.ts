@@ -116,7 +116,9 @@ export class YoloOnnxDetector implements ObjectDetector {
     const channelsFirst = d1 < d2 // [1, C, N] は C(=4+cls) < N(=anchors)
     const numChannels = channelsFirst ? d1 : d2
     const numAnchors = channelsFirst ? d2 : d1
-    const numClasses = numChannels - 4
+    // クラス数は box(4) を除いた残りだが、顔モデル等はランドマーク列が続くことがある。
+    // classNames の数に丸め、4..4+cls だけをスコアとして読む(ランドマーク列を誤読しない)。
+    const numClasses = Math.min(numChannels - 4, this.opts.classNames.length)
     if (numClasses <= 0) {
       return []
     }

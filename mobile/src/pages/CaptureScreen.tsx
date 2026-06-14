@@ -14,6 +14,7 @@ export function CaptureScreen() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const recorderRef = useRef<MediaRecorderService | null>(null)
   const [camError, setCamError] = useState('')
+  const [facing, setFacing] = useState<'environment' | 'user'>('environment')
   const [captured, setCaptured] = useState<string | null>(null)
   const [recording, setRecording] = useState(false)
   const [audioClip, setAudioClip] = useState<RecordedAudioClip | null>(null)
@@ -31,7 +32,7 @@ export function CaptureScreen() {
     capturedRef.current = captured
   }, [captured])
 
-  // カメラ起動
+  // カメラ起動(前/背面の切替で facing が変わると再起動)
   useEffect(() => {
     let stream: MediaStream | null = null
     let stopped = false
@@ -41,11 +42,12 @@ export function CaptureScreen() {
         return
       }
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing } })
       } catch {
         setCamError('カメラを起動できませんでした。アプリのカメラ権限を確認してください。')
         return
       }
+      setCamError('')
       const video = videoRef.current
       if (!video || stopped) return
       video.srcObject = stream
@@ -61,10 +63,17 @@ export function CaptureScreen() {
     return () => {
       stopped = true
       stream?.getTracks().forEach((t) => t.stop())
+    }
+  }, [facing])
+
+  // 検出器はアンマウント時にだけ解放(カメラ切替では保持)
+  useEffect(
+    () => () => {
       detectorRef.current?.dispose()
       detectorRef.current = null
-    }
-  }, [])
+    },
+    [],
+  )
 
   function shoot() {
     const video = videoRef.current
@@ -214,6 +223,16 @@ export function CaptureScreen() {
             onClick={() => void toggleAuto()}
           >
             {autoLabel}
+          </button>
+        )}
+        {!captured && !camError && (
+          <button
+            className="cam-flip"
+            onClick={() => setFacing((f) => (f === 'environment' ? 'user' : 'environment'))}
+            aria-label="カメラ切替"
+            title={facing === 'environment' ? '前面カメラに切替' : '背面カメラに切替'}
+          >
+            🔄
           </button>
         )}
         {camError && <div className="cam-error">{camError}</div>}
