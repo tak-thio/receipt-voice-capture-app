@@ -1,4 +1,4 @@
-import { YoloOnnxDetector } from './yolo-onnx-detector'
+import { WorkerDetector } from './worker-detector'
 import type { ObjectDetector } from './types'
 
 export type { Detection, DetectionBox, DetectorFrame, ObjectDetector } from './types'
@@ -25,7 +25,8 @@ export const DETECTION_CONFIG: DetectionConfig = {
 }
 
 export async function createDetector(config: DetectionConfig = DETECTION_CONFIG): Promise<ObjectDetector> {
-  const detector = new YoloOnnxDetector({
+  // 推論は Web Worker で実行(メインスレッドを止めない)。
+  const detector = new WorkerDetector({
     modelUrl: config.modelUrl,
     classNames: config.classNames,
     scoreThreshold: config.scoreThreshold,
