@@ -12,6 +12,7 @@ type AutoStatus = 'off' | 'loading' | 'on' | 'unavailable'
 export function CaptureScreen() {
   const connection = useAppStore((state) => state.connection)!
   const videoRef = useRef<HTMLVideoElement>(null)
+  const overlayRef = useRef<HTMLCanvasElement>(null)
   const recorderRef = useRef<MediaRecorderService | null>(null)
   const [camError, setCamError] = useState('')
   const [facing, setFacing] = useState<'environment' | 'user'>('environment')
@@ -110,6 +111,24 @@ export function CaptureScreen() {
         canvas.height = video.videoHeight
         canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height)
         const dets = await det.detect({ canvas, width: canvas.width, height: canvas.height })
+        // 検出枠を overlay に描画(ソース座標。video と同じ object-fit:contain で重なる)。
+        const overlay = overlayRef.current
+        if (overlay) {
+          overlay.width = canvas.width
+          overlay.height = canvas.height
+          const octx = overlay.getContext('2d')
+          if (octx) {
+            octx.clearRect(0, 0, overlay.width, overlay.height)
+            octx.lineWidth = Math.max(3, canvas.width / 180)
+            octx.strokeStyle = '#34d399'
+            octx.fillStyle = '#34d399'
+            octx.font = `${Math.max(16, Math.round(canvas.width / 36))}px sans-serif`
+            for (const d of dets) {
+              octx.strokeRect(d.box.x, d.box.y, d.box.width, d.box.height)
+              octx.fillText(`${d.label} ${Math.round(d.score * 100)}%`, d.box.x, Math.max(d.box.y - 6, 16))
+            }
+          }
+        }
         if (dets.length > 0) {
           stableRef.current += 1
           if (stableRef.current >= 2) {
@@ -216,6 +235,7 @@ export function CaptureScreen() {
     <div className="capture-screen">
       <div className="cam-area">
         <video ref={videoRef} className="cam-video" style={{ display: captured ? 'none' : 'block' }} />
+        {!captured && autoStatus === 'on' && <canvas ref={overlayRef} className="cam-overlay" />}
         {captured && <img className="cam-shot" src={captured} alt="撮影画像" />}
         {!captured && (
           <button
