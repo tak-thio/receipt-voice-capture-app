@@ -792,16 +792,17 @@ button:disabled { opacity: .6; }
 @keyframes dashIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
 /* 自動シャッター(YOLO)トグル — カメラ上部のオーバーレイ */
+/* backdrop-filter:blur は「ライブ映像の上」だと毎フレーム再ブラーで非常に重い → 不使用。
+   背景を少し濃いめの単色にして視認性を確保する。 */
 .auto-toggle { position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
-  background: rgba(15,23,42,.7); color: #e2e8f0; border: 1px solid #334155; border-radius: 999px;
-  padding: 8px 16px; font-size: 13px; font-weight: 600; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
-.auto-toggle.on { background: rgba(16,185,129,.28); border-color: #10b981; color: #6ee7b7; }
+  background: rgba(15,23,42,.82); color: #e2e8f0; border: 1px solid #334155; border-radius: 999px;
+  padding: 8px 16px; font-size: 13px; font-weight: 600; }
+.auto-toggle.on { background: rgba(6,78,59,.92); border-color: #10b981; color: #6ee7b7; }
 .auto-toggle.off { opacity: .85; }
 
 /* カメラ前/背面 切替ボタン(プレビュー右下) */
 .cam-flip { position: absolute; right: 14px; bottom: 14px; width: 46px; height: 46px; border-radius: 50%;
-  border: none; background: rgba(15,23,42,.6); color: #fff; font-size: 20px; line-height: 1;
-  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  border: none; background: rgba(15,23,42,.82); color: #fff; font-size: 20px; line-height: 1; }
 .cam-flip:active { transform: scale(.94); }
 
 /* 自動シャッターの検出枠オーバーレイ(video と同じ contain 表示で重ねる) */

@@ -12,7 +12,8 @@ type TrayItem = { id: number; dataUrl: string; ms: number }
 // 動きの収束判定: 主検出の中心+サイズが連続でほぼ動かなければ「収束」。
 const STABLE_FRAMES = 3
 const MOTION_THRESH = 0.03 // 画像幅に対する移動量の許容
-const DETECT_INTERVAL_MS = 350
+// 推論はメインスレッド(WASM/CPU)で重い。間引いて体感負荷を下げる。
+const DETECT_INTERVAL_MS = 500
 
 /** 撮影画面: 撮った写真はトレイに溜め(自動シャッター=赤枠→収束で緑枠+音、手動も可)、
  * 録音(セットの説明音声)を添えて「送信」で全画像+音声を1リクエストで一括送信する。
@@ -23,6 +24,7 @@ export function CaptureScreen() {
   const overlayRef = useRef<HTMLCanvasElement>(null)
   const recorderRef = useRef<MediaRecorderService | null>(null)
   const detectorRef = useRef<ObjectDetector | null>(null)
+  const loopCanvasRef = useRef<HTMLCanvasElement | null>(null) // 検出ループで使い回す(毎フレーム生成しない)
 
   const [camError, setCamError] = useState('')
   const [facing, setFacing] = useState<'environment' | 'user'>('environment')
@@ -134,9 +136,9 @@ export function CaptureScreen() {
       if (!det || !video || !video.videoWidth) return
       busy = true
       try {
-        const canvas = document.createElement('canvas')
-        canvas.width = video.videoWidth
-        canvas.height = video.videoHeight
+        const canvas = loopCanvasRef.current ?? (loopCanvasRef.current = document.createElement('canvas'))
+        if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth
+        if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight
         canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height)
         const dets = await det.detect({ canvas, width: canvas.width, height: canvas.height })
         const primary: Detection | null = dets.length
