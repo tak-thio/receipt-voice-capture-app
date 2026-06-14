@@ -141,6 +141,34 @@ export function CaptureScreen() {
   const autoUploadRef = useRef(autoCaptureAndUpload)
   autoUploadRef.current = autoCaptureAndUpload
 
+  // セッション音声トラック: 撮影と並行して録った音声を単体で送る。
+  // 各写真は captured_at_ms 付きで送られているので、サーバが音声の
+  // 開始〜終了区間と撮影時刻を突き合わせて写真に紐付ける。
+  async function uploadAudioSession(clip: RecordedAudioClip) {
+    setMessage('音声を送信中…')
+    const startMs = Date.parse(clip.startedAt) || undefined
+    const endMs = Date.parse(clip.endedAt) || undefined
+    try {
+      await uploadCapture(connection.serverUrl, connection.deviceToken, {
+        audio: clip.blob,
+        capturedAt: clip.startedAt,
+        metadata: {
+          voice_session: true, // サーバが「写真に紐付ける音声トラック」と識別する印
+          source: 'auto',
+          captured_at_ms: startMs,
+          audio_started_at: clip.startedAt,
+          audio_ended_at: clip.endedAt,
+          audio_started_at_ms: startMs,
+          audio_ended_at_ms: endMs,
+          duration_ms: clip.durationMs,
+        },
+      })
+      setMessage(`音声メモを送信しました(${Math.round(clip.durationMs / 1000)}秒)。撮影時刻で各写真に紐付きます。`)
+    } catch (e) {
+      setMessage(e instanceof Error ? `音声送信失敗: ${e.message}` : '音声の送信に失敗しました')
+    }
+  }
+
   // 自動シャッター 検出ループ
   useEffect(() => {
     if (autoStatus !== 'on') return
@@ -257,7 +285,14 @@ export function CaptureScreen() {
       const clip = (await recorderRef.current?.stop()) ?? null
       recorderRef.current = null
       setRecording(false)
-      if (clip) setAudioClip(clip)
+      if (!clip) return
+      // レビュー中(手動)はその写真へ添付。メイン画面での録音は
+      // 連続撮影と並行した「セッション音声」として単体送信する。
+      if (capturedRef.current) {
+        setAudioClip(clip)
+      } else {
+        await uploadAudioSession(clip)
+      }
       return
     }
     const support = getMediaRecordingSupport()
@@ -348,11 +383,11 @@ export function CaptureScreen() {
       {!captured ? (
         <div className="capture-controls">
           <button className={`rec-button${recording ? ' on' : ''}`} onClick={() => void toggleRecord()}>
-            {recording ? '■ 録音停止' : '● 音声メモ'}
+            {recording ? '■ 録音停止して送信' : '● 音声メモ'}
           </button>
           <button className="shutter" onClick={shoot} aria-label="撮影" />
           <div className="rec-status">
-            {recording ? '録音中…' : autoStatus === 'on' ? '自動検出中…' : '　'}
+            {recording ? '録音中…撮影しながら話す' : autoStatus === 'on' ? '自動検出中…' : '　'}
           </div>
         </div>
       ) : (
@@ -375,11 +410,13 @@ export function CaptureScreen() {
 
       <p className="muted small center">
         {message ||
-          (autoStatus === 'on'
-            ? `自動撮影中（収束で自動・対象を替えると次へ）／送信 ${sentCount}件`
-            : sentCount > 0
-              ? `この端末から送信: ${sentCount}件`
-              : `${connection.clientName ?? '顧問先'} に送信します`)}
+          (recording && !captured
+            ? '録音中…領収書を撮りながら声でメモ。停止すると音声を送信し、撮影時刻で各写真に紐付きます。'
+            : autoStatus === 'on'
+              ? `自動撮影中（収束で自動・対象を替えると次へ）／送信 ${sentCount}件`
+              : sentCount > 0
+                ? `この端末から送信: ${sentCount}件`
+                : `${connection.clientName ?? '顧問先'} に送信します`)}
       </p>
     </div>
   )
