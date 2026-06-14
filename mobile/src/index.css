@@ -796,3 +796,7 @@ button:disabled { opacity: .6; }
 
 /* 自動シャッターの検出枠オーバーレイ(video と同じ contain 表示で重ねる) */
 .cam-overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+
+/* 撮影フィードバック(白フラッシュ) */
+.cam-flash { position: absolute; inset: 0; background: #fff; pointer-events: none; animation: camFlash .18s ease-out; }
+@keyframes camFlash { from { opacity: .85; } to { opacity: 0; } }

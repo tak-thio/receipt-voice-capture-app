@@ -2,38 +2,49 @@ import { useEffect, useRef, useState } from 'react'
 import { uploadCapture } from '../api/server-api'
 import { MediaRecorderService, getMediaRecordingSupport } from '../services/audio/media-recorder-service'
 import { createDetector, playShutterSound, unlockShutterAudio } from '../services/detection'
-import type { ObjectDetector } from '../services/detection'
+import type { Detection, ObjectDetector } from '../services/detection'
 import type { RecordedAudioClip } from '../types/audio'
 import { useAppStore } from '../store/app-store'
 
 type AutoStatus = 'off' | 'loading' | 'on' | 'unavailable'
 
-/** 撮影画面: 写真(自動シャッター/手動)＋(任意)音声メモ → サーバへアップロード。 */
+// 動きの収束判定: 主検出の中心+サイズが連続でほぼ動かなければ「収束」。
+const STABLE_FRAMES = 3
+const MOTION_THRESH = 0.03 // 画像幅に対する移動量の許容
+const DETECT_INTERVAL_MS = 350
+
+/** 撮影画面: 自動シャッター(検出→赤枠、収束→緑枠+音+連続撮影) ＋ 手動シャッター。
+ * 各撮影は撮影時刻(metadata)付きでサーバへ送る(音声との突き合わせ用)。 */
 export function CaptureScreen() {
   const connection = useAppStore((state) => state.connection)!
   const videoRef = useRef<HTMLVideoElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
   const recorderRef = useRef<MediaRecorderService | null>(null)
+  const detectorRef = useRef<ObjectDetector | null>(null)
+
   const [camError, setCamError] = useState('')
   const [facing, setFacing] = useState<'environment' | 'user'>('environment')
-  const [captured, setCaptured] = useState<string | null>(null)
+  const [captured, setCaptured] = useState<string | null>(null) // 手動レビュー用
   const [recording, setRecording] = useState(false)
   const [audioClip, setAudioClip] = useState<RecordedAudioClip | null>(null)
   const [uploading, setUploading] = useState(false)
   const [message, setMessage] = useState('')
   const [sentCount, setSentCount] = useState(0)
-
-  // 自動シャッター(YOLO)
+  const [flash, setFlash] = useState(false)
   const [autoStatus, setAutoStatus] = useState<AutoStatus>('off')
-  const detectorRef = useRef<ObjectDetector | null>(null)
+
+  // 連続自動撮影の制御(ref: ループから参照)
   const capturedRef = useRef<string | null>(null)
+  const armedRef = useRef(true) // 撮ったら一旦disarm、対象が消えたら再arm
+  const lastBoxRef = useRef<{ cx: number; cy: number; size: number } | null>(null)
   const stableRef = useRef(0)
+  const captureBusyRef = useRef(false)
 
   useEffect(() => {
     capturedRef.current = captured
   }, [captured])
 
-  // カメラ起動(前/背面の切替で facing が変わると再起動)
+  // カメラ起動(前/背面切替で再起動)
   useEffect(() => {
     let stream: MediaStream | null = null
     let stopped = false
@@ -67,7 +78,6 @@ export function CaptureScreen() {
     }
   }, [facing])
 
-  // 検出器はアンマウント時にだけ解放(カメラ切替では保持)
   useEffect(
     () => () => {
       detectorRef.current?.dispose()
@@ -76,25 +86,62 @@ export function CaptureScreen() {
     [],
   )
 
-  function shoot() {
+  function grabFrame(): string | null {
     const video = videoRef.current
-    if (!video || !video.videoWidth) {
-      setMessage('カメラの準備ができていません。')
-      return
-    }
+    if (!video || !video.videoWidth) return null
     const canvas = document.createElement('canvas')
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    if (!ctx) return null
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-    setCaptured(canvas.toDataURL('image/jpeg', 0.85))
+    return canvas.toDataURL('image/jpeg', 0.85)
+  }
+
+  function triggerFlash() {
+    setFlash(true)
+    window.setTimeout(() => setFlash(false), 180)
+  }
+
+  // 手動シャッター → レビュー(captured)
+  function shoot() {
+    const url = grabFrame()
+    if (!url) {
+      setMessage('カメラの準備ができていません。')
+      return
+    }
+    triggerFlash()
+    setCaptured(url)
     setMessage('')
   }
-  const shootRef = useRef(shoot)
-  shootRef.current = shoot
 
-  // 自動シャッターの検出ループ(autoStatus が on の間だけ回す)
+  // 自動撮影: その場でアップロード(レビューせず連続)。撮影時刻メタデータ付き。
+  async function autoCaptureAndUpload(primary: Detection) {
+    const url = grabFrame()
+    if (!url) return
+    const ms = Date.now()
+    try {
+      await uploadCapture(connection.serverUrl, connection.deviceToken, {
+        imageDataUrl: url,
+        capturedAt: new Date(ms).toISOString(),
+        metadata: {
+          captured_at_ms: ms, // 音声との突き合わせ用の高精度タイムスタンプ
+          source: 'auto',
+          detector: 'yolo',
+          score: Math.round(primary.score * 100) / 100,
+          label: primary.label,
+        },
+      })
+      setSentCount((n) => n + 1)
+      setMessage('自動で撮影・送信しました')
+    } catch (e) {
+      setMessage(e instanceof Error ? `送信失敗: ${e.message}` : '送信に失敗しました')
+    }
+  }
+  const autoUploadRef = useRef(autoCaptureAndUpload)
+  autoUploadRef.current = autoCaptureAndUpload
+
+  // 自動シャッター 検出ループ
   useEffect(() => {
     if (autoStatus !== 'on') return
     let cancelled = false
@@ -103,6 +150,7 @@ export function CaptureScreen() {
       if (cancelled || busy) return
       const det = detectorRef.current
       const video = videoRef.current
+      const overlay = overlayRef.current
       if (!det || !video || !video.videoWidth || capturedRef.current) return
       busy = true
       try {
@@ -111,43 +159,77 @@ export function CaptureScreen() {
         canvas.height = video.videoHeight
         canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height)
         const dets = await det.detect({ canvas, width: canvas.width, height: canvas.height })
-        // 検出枠を overlay に描画(ソース座標。video と同じ object-fit:contain で重なる)。
-        const overlay = overlayRef.current
+        const primary = dets.length
+          ? dets.reduce((a, b) => (b.score > a.score ? b : a))
+          : null
+
+        // 収束判定
+        let converged = false
+        if (primary) {
+          const cx = primary.box.x + primary.box.width / 2
+          const cy = primary.box.y + primary.box.height / 2
+          const size = (primary.box.width + primary.box.height) / 2
+          const last = lastBoxRef.current
+          if (last) {
+            const move =
+              (Math.abs(cx - last.cx) + Math.abs(cy - last.cy) + Math.abs(size - last.size)) /
+              canvas.width
+            stableRef.current = move < MOTION_THRESH ? stableRef.current + 1 : 0
+          } else {
+            stableRef.current = 0
+          }
+          lastBoxRef.current = { cx, cy, size }
+          converged = stableRef.current >= STABLE_FRAMES
+        } else {
+          // 対象が消えたら再arm(次の領収書に備える)
+          stableRef.current = 0
+          lastBoxRef.current = null
+          armedRef.current = true
+        }
+
+        // 枠描画: 検出のみ=赤、収束=緑
         if (overlay) {
           overlay.width = canvas.width
           overlay.height = canvas.height
           const octx = overlay.getContext('2d')
           if (octx) {
             octx.clearRect(0, 0, overlay.width, overlay.height)
+            const color = converged ? '#34d399' : '#f87171'
             octx.lineWidth = Math.max(3, canvas.width / 180)
-            octx.strokeStyle = '#34d399'
-            octx.fillStyle = '#34d399'
+            octx.strokeStyle = color
+            octx.fillStyle = color
             octx.font = `${Math.max(16, Math.round(canvas.width / 36))}px sans-serif`
             for (const d of dets) {
               octx.strokeRect(d.box.x, d.box.y, d.box.width, d.box.height)
-              octx.fillText(`${d.label} ${Math.round(d.score * 100)}%`, d.box.x, Math.max(d.box.y - 6, 16))
+              octx.fillText(`${Math.round(d.score * 100)}%`, d.box.x, Math.max(d.box.y - 6, 16))
             }
           }
         }
-        if (dets.length > 0) {
-          stableRef.current += 1
-          if (stableRef.current >= 2) {
-            stableRef.current = 0
-            playShutterSound()
-            shootRef.current()
-          }
-        } else {
+
+        // 収束 & arm 済み → 連続撮影
+        if (primary && converged && armedRef.current && !captureBusyRef.current) {
+          armedRef.current = false
           stableRef.current = 0
+          captureBusyRef.current = true
+          playShutterSound()
+          triggerFlash()
+          try {
+            await autoUploadRef.current(primary)
+          } finally {
+            captureBusyRef.current = false
+          }
         }
       } catch {
         /* per-frame error は無視 */
       } finally {
         busy = false
       }
-    }, 500)
+    }, DETECT_INTERVAL_MS)
     return () => {
       cancelled = true
       clearInterval(id)
+      const overlay = overlayRef.current
+      overlay?.getContext('2d')?.clearRect(0, 0, overlay.width, overlay.height)
     }
   }, [autoStatus])
 
@@ -159,10 +241,10 @@ export function CaptureScreen() {
     }
     setAutoStatus('loading')
     try {
-      if (!detectorRef.current) {
-        detectorRef.current = await createDetector()
-      }
+      if (!detectorRef.current) detectorRef.current = await createDetector()
       stableRef.current = 0
+      lastBoxRef.current = null
+      armedRef.current = true
       setAutoStatus('on')
     } catch {
       detectorRef.current = null
@@ -197,21 +279,25 @@ export function CaptureScreen() {
     setCaptured(null)
     setAudioClip(null)
     setMessage('')
-    stableRef.current = 0
   }
 
   async function upload() {
-    if (!captured) {
-      setMessage('先に撮影してください。')
-      return
-    }
+    if (!captured) return
     setUploading(true)
     setMessage('')
+    const ms = Date.now()
     try {
       await uploadCapture(connection.serverUrl, connection.deviceToken, {
         imageDataUrl: captured,
         audio: audioClip?.blob,
-        capturedAt: new Date().toISOString(),
+        capturedAt: new Date(ms).toISOString(),
+        metadata: {
+          captured_at_ms: ms,
+          source: 'manual',
+          ...(audioClip
+            ? { audio_started_at: audioClip.startedAt, audio_ended_at: audioClip.endedAt }
+            : {}),
+        },
       })
       setSentCount((n) => n + 1)
       setCaptured(null)
@@ -237,6 +323,7 @@ export function CaptureScreen() {
         <video ref={videoRef} className="cam-video" style={{ display: captured ? 'none' : 'block' }} />
         {!captured && autoStatus === 'on' && <canvas ref={overlayRef} className="cam-overlay" />}
         {captured && <img className="cam-shot" src={captured} alt="撮影画像" />}
+        {flash && <div className="cam-flash" />}
         {!captured && (
           <button
             className={`auto-toggle${autoStatus === 'on' ? ' on' : ''}${autoStatus === 'unavailable' ? ' off' : ''}`}
@@ -264,7 +351,9 @@ export function CaptureScreen() {
             {recording ? '■ 録音停止' : '● 音声メモ'}
           </button>
           <button className="shutter" onClick={shoot} aria-label="撮影" />
-          <div className="rec-status">{recording ? '録音中…' : autoStatus === 'on' ? '検出中…' : '　'}</div>
+          <div className="rec-status">
+            {recording ? '録音中…' : autoStatus === 'on' ? '自動検出中…' : '　'}
+          </div>
         </div>
       ) : (
         <div className="capture-controls review">
@@ -286,9 +375,11 @@ export function CaptureScreen() {
 
       <p className="muted small center">
         {message ||
-          (sentCount > 0
-            ? `この端末から送信: ${sentCount}件`
-            : `${connection.clientName ?? '顧問先'} に送信します`)}
+          (autoStatus === 'on'
+            ? `自動撮影中（収束で自動・対象を替えると次へ）／送信 ${sentCount}件`
+            : sentCount > 0
+              ? `この端末から送信: ${sentCount}件`
+              : `${connection.clientName ?? '顧問先'} に送信します`)}
       </p>
     </div>
   )
