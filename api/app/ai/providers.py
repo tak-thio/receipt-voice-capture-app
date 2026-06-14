@@ -30,6 +30,15 @@ _FIELDS_SPEC = (
 )
 _FORMAT_PROMPT = "次の領収書テキストから JSON で抽出してください。" + _FIELDS_SPEC + "\n\n"
 _OCR_PROMPT = "この領収書画像に書かれている文字を、改行を保ちつつ全て書き出してください。"
+# 撮影セッション: 領収書画像(撮影順) + その説明音声 → 各領収書の摘要を順に。
+_SESSION_PROMPT = (
+    "これは同じ撮影セッションで撮った領収書の画像です(撮影順に番号付き)。"
+    "最後の音声は、それらの領収書について順番に話したメモです。"
+    "各領収書について、音声の内容を踏まえた会計仕訳用の摘要(用途・相手・主な品目を含む"
+    "簡潔な説明、30文字程度)を作成してください。画像と同じ順番・同じ件数で、"
+    '{"descriptions": ["…","…"]} の JSON だけを出力してください。'
+    "音声で触れられていない領収書は画像の内容から推測してください。"
+)
 # One-call vision extraction: read the image AND return structured JSON directly.
 _VISION_EXTRACT_PROMPT = "この領収書画像から JSON で抽出してください。" + _FIELDS_SPEC
 
@@ -273,6 +282,26 @@ class GeminiOcr(OcrProvider):
         out = await _gemini_generate(self.key, self.model, parts)
         return _to_extracted(_json_from_text(out))
 
+    async def annotate_session(
+        self, images: list[tuple[bytes, str]], audio: bytes, audio_mime: str
+    ) -> list[str] | None:
+        # One Gemini call: N receipt images (in order) + the voice memo -> 摘要 list.
+        parts: list[dict] = [{"text": _SESSION_PROMPT}]
+        for idx, (img, mime) in enumerate(images, start=1):
+            parts.append({"text": f"領収書 {idx}:"})
+            parts.append(
+                {"inline_data": {"mime_type": mime or "image/jpeg", "data": base64.b64encode(img).decode()}}
+            )
+        parts.append({"text": "音声メモ:"})
+        parts.append(
+            {"inline_data": {"mime_type": audio_mime or "audio/mp4", "data": base64.b64encode(audio).decode()}}
+        )
+        out = await _gemini_generate(self.key, self.model, parts)
+        descriptions = _json_from_text(out).get("descriptions")
+        if not isinstance(descriptions, list):
+            return None
+        return [("" if d is None else str(d)) for d in descriptions]
+
 
 class GeminiFormat(FormatProvider):
     def __init__(self, key: str, model: str | None = None) -> None:
@@ -300,6 +329,11 @@ class MockOcr(OcrProvider):
 
     async def extract_text(self, image: bytes, mime: str) -> str:
         return "領収書 テスト商店 ¥1,500 現金"
+
+    async def annotate_session(
+        self, images: list[tuple[bytes, str]], audio: bytes, audio_mime: str
+    ) -> list[str]:
+        return [f"音声メモ反映 摘要 {i + 1}" for i in range(len(images))]
 
 
 class MockFormat(FormatProvider):

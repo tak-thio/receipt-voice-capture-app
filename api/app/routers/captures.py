@@ -86,10 +86,14 @@ async def create_capture(
     if audio is not None:
         f = await _store_file(session, client.firm_id, client.id, audio, "audio", principal.user.id)
         session.add(ReceiptFile(receipt_id=receipt.id, file_id=f.id, kind="audio"))
-        session.add(Job(firm_id=client.firm_id, client_id=client.id, kind="stt",
+        # セッション音声(連続撮影中に録った1本)は、画像が無くても voice_session で処理:
+        # 同時間帯の写真群と一緒にマルチモーダルへ渡し、各写真の摘要を生成する。
+        # それ以外(手動で1枚に添付した音声)は従来どおり stt。
+        kind = "voice_session" if capture_meta.get("voice_session") else "stt"
+        session.add(Job(firm_id=client.firm_id, client_id=client.id, kind=kind,
                         params={"receipt_id": str(receipt.id), "file_id": str(f.id)}))
 
-    # TODO(Phase 1): a worker consumes the stt/ocr/format jobs using
+    # TODO(Phase 1): a worker consumes the stt/ocr/format/voice_session jobs using
     # ai.factory providers (the firm's ai_config) and fills the receipt fields.
     return {"receipt_id": str(receipt.id), "status": "queued"}
 

@@ -46,6 +46,16 @@ class OcrProvider(ABC):
         Return None if unsupported (the caller falls back to extract_text + format)."""
         return None
 
+    async def annotate_session(
+        self, images: list[tuple[bytes, str]], audio: bytes, audio_mime: str
+    ) -> list[str] | None:
+        """Optional multimodal path for a capture session: given the receipt
+        images (in capture order) PLUS one voice narration covering them, return
+        a 摘要(description) per image, aligned by index. No separate STT step —
+        the audio is passed straight to the multimodal model. Return None if the
+        provider can't accept audio (the caller treats that as an explicit error)."""
+        return None
+
 
 class FormatProvider(ABC):
     @abstractmethod

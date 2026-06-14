@@ -9,7 +9,7 @@ step to extract structured fields.
 
 import asyncio
 import json
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import select
@@ -19,7 +19,16 @@ from starlette.concurrency import run_in_threadpool
 from . import journaling, storage
 from .ai import factory
 from .config import get_settings
-from .models import UNPARSED_VENDOR, Client, File, Firm, Job, Receipt
+from .models import (
+    UNPARSED_VENDOR,
+    Client,
+    File,
+    Firm,
+    Job,
+    Receipt,
+    ReceiptFile,
+    ReceiptSource,
+)
 
 settings = get_settings()
 # Owner engine — trusted worker, bypasses RLS (scopes by job.firm_id/client_id).
@@ -66,6 +75,96 @@ async def _autolink_partner(session, receipt: Receipt) -> None:
         receipt.partner_id = await journaling.exact_partner_id(session, receipt)
 
 
+async def _image_bytes(session, receipt: Receipt) -> tuple[bytes, str] | None:
+    """そのレシートの撮影画像(capture)を1枚返す。なければ None。"""
+    rf = await session.scalar(
+        select(ReceiptFile).where(
+            ReceiptFile.receipt_id == receipt.id, ReceiptFile.kind == "capture"
+        )
+    )
+    if not rf:
+        return None
+    file = await session.get(File, rf.file_id)
+    if not file:
+        return None
+    data = await run_in_threadpool(storage.get, file.path)
+    return data, file.mime or "image/jpeg"
+
+
+async def _process_voice_session(session, job: Job, cfg: dict) -> None:
+    """音声セッション: 録音1本 + その時間帯に撮った写真群を、まとめて
+    マルチモーダルモデル(Gemini)へ渡し、各写真の摘要を生成して反映する。
+    終わったら音声だけのレシート(置き場)は削除する。STT は介さない。"""
+    audio_file = await session.get(File, UUID(job.params["file_id"]))
+    audio_receipt = await session.get(Receipt, UUID(job.params["receipt_id"]))
+    if not (audio_file and audio_receipt):
+        raise ValueError("voice_session job: missing audio file/receipt")
+
+    meta = audio_receipt.capture_meta or {}
+    start_ms = meta.get("audio_started_at_ms")
+    end_ms = meta.get("audio_ended_at_ms")
+    if start_ms is None or end_ms is None:
+        raise ValueError("voice_session job: audio window (start/end ms) missing")
+
+    # 候補は同一顧問先のモバイル写真で、音声受信の前後1時間に作られたもの(走査範囲の限定)。
+    # 確定条件は capture_meta.captured_at_ms が音声区間内にあること(下で判定)。
+    window = timedelta(hours=1)
+    candidates = (
+        await session.scalars(
+            select(Receipt).where(
+                Receipt.client_id == audio_receipt.client_id,
+                Receipt.source == ReceiptSource.mobile.value,
+                Receipt.id != audio_receipt.id,
+                Receipt.created_at >= audio_receipt.created_at - window,
+                Receipt.created_at <= audio_receipt.created_at + window,
+            )
+        )
+    ).all()
+
+    def captured_ms(r: Receipt):
+        cm = r.capture_meta or {}
+        if cm.get("voice_session"):
+            return None  # 他のセッション音声は対象外
+        return cm.get("captured_at_ms")
+
+    photos = [
+        r
+        for r in candidates
+        if (ts := captured_ms(r)) is not None and start_ms <= ts <= end_ms
+    ]
+    photos.sort(key=lambda r: r.capture_meta["captured_at_ms"])
+    if not photos:
+        return  # 紐付け対象なし。音声レシートは消さず残す(データを失わない)。
+
+    images: list[tuple[bytes, str]] = []
+    matched: list[Receipt] = []
+    for r in photos:
+        img = await _image_bytes(session, r)
+        if img is not None:
+            images.append(img)
+            matched.append(r)
+    if not images:
+        return
+
+    audio_bytes = await run_in_threadpool(storage.get, audio_file.path)
+    descriptions = await factory.ocr_for(cfg).annotate_session(
+        images, audio_bytes, audio_file.mime or "audio/mp4"
+    )
+    if descriptions is None:
+        raise ValueError(
+            "voice_session requires an audio-capable multimodal OCR provider (e.g. gemini)"
+        )
+
+    # 音声由来の摘要で上書き(セッション直後なので人手編集はまだ無い)。
+    for receipt, desc in zip(matched, descriptions):
+        text = desc.strip()
+        if text:
+            receipt.description = text
+
+    # 役目を終えた音声レシート(画像なしの置き場)は削除。ReceiptFile は cascade。
+    await session.delete(audio_receipt)
+
+
 def _resolve_ai(firm_cfg: dict | None, client_cfg: dict | None) -> dict:
     """Resolve AI provider config as client > firm, capability by capability."""
     merged = dict(firm_cfg or {})
@@ -80,13 +179,19 @@ async def _process(session, job: Job) -> None:
     receipt = await session.get(Receipt, UUID(job.params["receipt_id"]))
     if not (firm and receipt):
         raise ValueError("missing firm/receipt for job")
-    # "format" ジョブ(メール本文など)はファイルを持たない。
-    file_id = job.params.get("file_id")
-    file = await session.get(File, UUID(file_id)) if file_id else None
 
     # Per-client AI config overrides the firm's (client > firm).
     client = await session.get(Client, job.client_id) if job.client_id else None
     cfg = _resolve_ai(firm.ai_config, client.ai_config if client else None)
+
+    # 音声セッション: 1本の音声 + 同時間帯の写真群 をまとめて処理する別経路。
+    if job.kind == "voice_session":
+        await _process_voice_session(session, job, cfg)
+        return
+
+    # "format" ジョブ(メール本文など)はファイルを持たない。
+    file_id = job.params.get("file_id")
+    file = await session.get(File, UUID(file_id)) if file_id else None
 
     if job.kind == "ocr":
         if not file:
