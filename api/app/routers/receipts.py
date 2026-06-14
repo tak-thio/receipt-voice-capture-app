@@ -33,6 +33,7 @@ def _serialize(r: Receipt, image_file_id=None, created_by_name=None, image_mime=
         "id": str(r.id),
         "client_id": str(r.client_id),
         "source": r.source,
+        "doc_type": r.doc_type,  # 'receipt' | 'card_statement'
         "captured_at": r.captured_at.isoformat() if r.captured_at else None,
         "vendor": r.vendor,
         "amount_jpy": r.amount_jpy,

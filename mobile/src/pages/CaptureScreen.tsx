@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { uploadCapture } from '../api/server-api'
+import { uploadBatch } from '../api/server-api'
 import { MediaRecorderService, getMediaRecordingSupport } from '../services/audio/media-recorder-service'
 import { createDetector, playShutterSound, unlockShutterAudio } from '../services/detection'
 import type { Detection, ObjectDetector } from '../services/detection'
@@ -7,14 +7,16 @@ import type { RecordedAudioClip } from '../types/audio'
 import { useAppStore } from '../store/app-store'
 
 type AutoStatus = 'off' | 'loading' | 'on' | 'unavailable'
+type TrayItem = { id: number; dataUrl: string; ms: number }
 
 // 動きの収束判定: 主検出の中心+サイズが連続でほぼ動かなければ「収束」。
 const STABLE_FRAMES = 3
 const MOTION_THRESH = 0.03 // 画像幅に対する移動量の許容
 const DETECT_INTERVAL_MS = 350
 
-/** 撮影画面: 自動シャッター(検出→赤枠、収束→緑枠+音+連続撮影) ＋ 手動シャッター。
- * 各撮影は撮影時刻(metadata)付きでサーバへ送る(音声との突き合わせ用)。 */
+/** 撮影画面: 撮った写真はトレイに溜め(自動シャッター=赤枠→収束で緑枠+音、手動も可)、
+ * 録音(セットの説明音声)を添えて「送信」で全画像+音声を1リクエストで一括送信する。
+ * サーバが1回のAI呼び出しで全件(1枚に複数・カード明細含む)を解析する。 */
 export function CaptureScreen() {
   const connection = useAppStore((state) => state.connection)!
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -24,7 +26,7 @@ export function CaptureScreen() {
 
   const [camError, setCamError] = useState('')
   const [facing, setFacing] = useState<'environment' | 'user'>('environment')
-  const [captured, setCaptured] = useState<string | null>(null) // 手動レビュー用
+  const [tray, setTray] = useState<TrayItem[]>([])
   const [recording, setRecording] = useState(false)
   const [audioClip, setAudioClip] = useState<RecordedAudioClip | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -33,16 +35,12 @@ export function CaptureScreen() {
   const [flash, setFlash] = useState(false)
   const [autoStatus, setAutoStatus] = useState<AutoStatus>('off')
 
-  // 連続自動撮影の制御(ref: ループから参照)
-  const capturedRef = useRef<string | null>(null)
+  // 自動連続撮影の制御(ref: 検出ループから参照)
+  const idRef = useRef(1)
   const armedRef = useRef(true) // 撮ったら一旦disarm、対象が消えたら再arm
   const lastBoxRef = useRef<{ cx: number; cy: number; size: number } | null>(null)
   const stableRef = useRef(0)
   const captureBusyRef = useRef(false)
-
-  useEffect(() => {
-    capturedRef.current = captured
-  }, [captured])
 
   // カメラ起動(前/背面切替で再起動)
   useEffect(() => {
@@ -103,7 +101,15 @@ export function CaptureScreen() {
     window.setTimeout(() => setFlash(false), 180)
   }
 
-  // 手動シャッター → レビュー(captured)
+  function addToTray(dataUrl: string, ms: number) {
+    setTray((t) => [...t, { id: idRef.current++, dataUrl, ms }])
+  }
+
+  function removeFromTray(id: number) {
+    setTray((t) => t.filter((x) => x.id !== id))
+  }
+
+  // 手動シャッター → トレイへ追加(送信は「送信」ボタンでまとめて)
   function shoot() {
     const url = grabFrame()
     if (!url) {
@@ -111,62 +117,8 @@ export function CaptureScreen() {
       return
     }
     triggerFlash()
-    setCaptured(url)
+    addToTray(url, Date.now())
     setMessage('')
-  }
-
-  // 自動撮影: その場でアップロード(レビューせず連続)。撮影時刻メタデータ付き。
-  async function autoCaptureAndUpload(primary: Detection) {
-    const url = grabFrame()
-    if (!url) return
-    const ms = Date.now()
-    try {
-      await uploadCapture(connection.serverUrl, connection.deviceToken, {
-        imageDataUrl: url,
-        capturedAt: new Date(ms).toISOString(),
-        metadata: {
-          captured_at_ms: ms, // 音声との突き合わせ用の高精度タイムスタンプ
-          source: 'auto',
-          detector: 'yolo',
-          score: Math.round(primary.score * 100) / 100,
-          label: primary.label,
-        },
-      })
-      setSentCount((n) => n + 1)
-      setMessage('自動で撮影・送信しました')
-    } catch (e) {
-      setMessage(e instanceof Error ? `送信失敗: ${e.message}` : '送信に失敗しました')
-    }
-  }
-  const autoUploadRef = useRef(autoCaptureAndUpload)
-  autoUploadRef.current = autoCaptureAndUpload
-
-  // セッション音声トラック: 撮影と並行して録った音声を単体で送る。
-  // 各写真は captured_at_ms 付きで送られているので、サーバが音声の
-  // 開始〜終了区間と撮影時刻を突き合わせて写真に紐付ける。
-  async function uploadAudioSession(clip: RecordedAudioClip) {
-    setMessage('音声を送信中…')
-    const startMs = Date.parse(clip.startedAt) || undefined
-    const endMs = Date.parse(clip.endedAt) || undefined
-    try {
-      await uploadCapture(connection.serverUrl, connection.deviceToken, {
-        audio: clip.blob,
-        capturedAt: clip.startedAt,
-        metadata: {
-          voice_session: true, // サーバが「写真に紐付ける音声トラック」と識別する印
-          source: 'auto',
-          captured_at_ms: startMs,
-          audio_started_at: clip.startedAt,
-          audio_ended_at: clip.endedAt,
-          audio_started_at_ms: startMs,
-          audio_ended_at_ms: endMs,
-          duration_ms: clip.durationMs,
-        },
-      })
-      setMessage(`音声メモを送信しました(${Math.round(clip.durationMs / 1000)}秒)。撮影時刻で各写真に紐付きます。`)
-    } catch (e) {
-      setMessage(e instanceof Error ? `音声送信失敗: ${e.message}` : '音声の送信に失敗しました')
-    }
   }
 
   // 自動シャッター 検出ループ
@@ -179,7 +131,7 @@ export function CaptureScreen() {
       const det = detectorRef.current
       const video = videoRef.current
       const overlay = overlayRef.current
-      if (!det || !video || !video.videoWidth || capturedRef.current) return
+      if (!det || !video || !video.videoWidth) return
       busy = true
       try {
         const canvas = document.createElement('canvas')
@@ -187,7 +139,7 @@ export function CaptureScreen() {
         canvas.height = video.videoHeight
         canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height)
         const dets = await det.detect({ canvas, width: canvas.width, height: canvas.height })
-        const primary = dets.length
+        const primary: Detection | null = dets.length
           ? dets.reduce((a, b) => (b.score > a.score ? b : a))
           : null
 
@@ -234,15 +186,18 @@ export function CaptureScreen() {
           }
         }
 
-        // 収束 & arm 済み → 連続撮影
+        // 収束 & arm 済み → トレイへ追加(連続)
         if (primary && converged && armedRef.current && !captureBusyRef.current) {
           armedRef.current = false
           stableRef.current = 0
           captureBusyRef.current = true
-          playShutterSound()
-          triggerFlash()
           try {
-            await autoUploadRef.current(primary)
+            const url = grabFrame()
+            if (url) {
+              playShutterSound()
+              triggerFlash()
+              addToTray(url, Date.now())
+            }
           } finally {
             captureBusyRef.current = false
           }
@@ -285,14 +240,7 @@ export function CaptureScreen() {
       const clip = (await recorderRef.current?.stop()) ?? null
       recorderRef.current = null
       setRecording(false)
-      if (!clip) return
-      // レビュー中(手動)はその写真へ添付。メイン画面での録音は
-      // 連続撮影と並行した「セッション音声」として単体送信する。
-      if (capturedRef.current) {
-        setAudioClip(clip)
-      } else {
-        await uploadAudioSession(clip)
-      }
+      if (clip) setAudioClip(clip) // セットの説明音声として保持(送信時に同梱)
       return
     }
     const support = getMediaRecordingSupport()
@@ -310,34 +258,29 @@ export function CaptureScreen() {
     }
   }
 
-  function retake() {
-    setCaptured(null)
-    setAudioClip(null)
-    setMessage('')
-  }
-
-  async function upload() {
-    if (!captured) return
+  // セット送信: 全画像 + 音声(録音中なら止めて同梱)を1リクエストで一括アップロード
+  async function uploadSet() {
+    if (tray.length === 0 || uploading) return
+    let clip = audioClip
+    if (recording) {
+      clip = (await recorderRef.current?.stop()) ?? clip
+      recorderRef.current = null
+      setRecording(false)
+      setAudioClip(clip)
+    }
+    const count = tray.length
     setUploading(true)
     setMessage('')
-    const ms = Date.now()
     try {
-      await uploadCapture(connection.serverUrl, connection.deviceToken, {
-        imageDataUrl: captured,
-        audio: audioClip?.blob,
-        capturedAt: new Date(ms).toISOString(),
-        metadata: {
-          captured_at_ms: ms,
-          source: 'manual',
-          ...(audioClip
-            ? { audio_started_at: audioClip.startedAt, audio_ended_at: audioClip.endedAt }
-            : {}),
-        },
+      await uploadBatch(connection.serverUrl, connection.deviceToken, {
+        images: tray.map((t) => ({ dataUrl: t.dataUrl })),
+        audio: clip?.blob,
+        metadata: { source: 'mobile', captured_at_ms: tray.map((t) => t.ms) },
       })
-      setSentCount((n) => n + 1)
-      setCaptured(null)
+      setSentCount((n) => n + count)
+      setTray([])
       setAudioClip(null)
-      setMessage('送信しました。Webの受信箱で確認できます。')
+      setMessage(`${count}枚を送信しました。サーバで解析中…受信箱で確認できます。`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '送信に失敗しました。')
     } finally {
@@ -355,19 +298,16 @@ export function CaptureScreen() {
   return (
     <div className="capture-screen">
       <div className="cam-area">
-        <video ref={videoRef} className="cam-video" style={{ display: captured ? 'none' : 'block' }} />
-        {!captured && autoStatus === 'on' && <canvas ref={overlayRef} className="cam-overlay" />}
-        {captured && <img className="cam-shot" src={captured} alt="撮影画像" />}
+        <video ref={videoRef} className="cam-video" />
+        {autoStatus === 'on' && <canvas ref={overlayRef} className="cam-overlay" />}
         {flash && <div className="cam-flash" />}
-        {!captured && (
-          <button
-            className={`auto-toggle${autoStatus === 'on' ? ' on' : ''}${autoStatus === 'unavailable' ? ' off' : ''}`}
-            onClick={() => void toggleAuto()}
-          >
-            {autoLabel}
-          </button>
-        )}
-        {!captured && !camError && (
+        <button
+          className={`auto-toggle${autoStatus === 'on' ? ' on' : ''}${autoStatus === 'unavailable' ? ' off' : ''}`}
+          onClick={() => void toggleAuto()}
+        >
+          {autoLabel}
+        </button>
+        {!camError && (
           <button
             className="cam-flip"
             onClick={() => setFacing((f) => (f === 'environment' ? 'user' : 'environment'))}
@@ -380,43 +320,44 @@ export function CaptureScreen() {
         {camError && <div className="cam-error">{camError}</div>}
       </div>
 
-      {!captured ? (
-        <div className="capture-controls">
-          <button className={`rec-button${recording ? ' on' : ''}`} onClick={() => void toggleRecord()}>
-            {recording ? '■ 録音停止して送信' : '● 音声メモ'}
-          </button>
-          <button className="shutter" onClick={shoot} aria-label="撮影" />
-          <div className="rec-status">
-            {recording ? '録音中…撮影しながら話す' : autoStatus === 'on' ? '自動検出中…' : '　'}
-          </div>
-        </div>
-      ) : (
-        <div className="capture-controls review">
-          <button className="ghost-button" onClick={retake}>取り直し</button>
-          <div className="audio-chip">
-            {audioClip ? (
-              <span>音声メモ {audioSecs}秒</span>
-            ) : (
-              <button className={`rec-button small${recording ? ' on' : ''}`} onClick={() => void toggleRecord()}>
-                {recording ? '■ 停止' : '● 音声メモ追加'}
+      {tray.length > 0 && (
+        <div className="tray" aria-label="撮影トレイ">
+          {tray.map((item) => (
+            <div className="tray-item" key={item.id}>
+              <img src={item.dataUrl} alt="撮影" />
+              <button className="tray-del" onClick={() => removeFromTray(item.id)} aria-label="削除">
+                ×
               </button>
-            )}
-          </div>
-          <button className="accent-button big" disabled={uploading} onClick={() => void upload()}>
-            {uploading ? '送信中…' : 'アップロード'}
-          </button>
+            </div>
+          ))}
         </div>
       )}
 
+      <div className="capture-controls">
+        <button className={`rec-button${recording ? ' on' : ''}`} onClick={() => void toggleRecord()}>
+          {recording ? '■ 録音停止' : audioClip ? `● 音声 ${audioSecs}秒` : '● 音声メモ'}
+        </button>
+        <button className="shutter" onClick={shoot} aria-label="撮影" />
+        <button
+          className="accent-button send"
+          disabled={uploading || tray.length === 0}
+          onClick={() => void uploadSet()}
+        >
+          {uploading ? '送信中…' : `送信 (${tray.length})`}
+        </button>
+      </div>
+
       <p className="muted small center">
         {message ||
-          (recording && !captured
-            ? '録音中…領収書を撮りながら声でメモ。停止すると音声を送信し、撮影時刻で各写真に紐付きます。'
-            : autoStatus === 'on'
-              ? `自動撮影中（収束で自動・対象を替えると次へ）／送信 ${sentCount}件`
-              : sentCount > 0
-                ? `この端末から送信: ${sentCount}件`
-                : `${connection.clientName ?? '顧問先'} に送信します`)}
+          (recording
+            ? '録音中…領収書を撮りながら声で説明。送信時に画像とまとめて解析されます。'
+            : tray.length > 0
+              ? `${tray.length}枚をトレイに保持中。撮り終えたら「送信」。`
+              : autoStatus === 'on'
+                ? '自動撮影中(収束で自動・対象を替えると次へ)。撮った写真はトレイに溜まります。'
+                : sentCount > 0
+                  ? `この端末から送信: ${sentCount}枚`
+                  : `${connection.clientName ?? '顧問先'} に送信します`)}
       </p>
     </div>
   )

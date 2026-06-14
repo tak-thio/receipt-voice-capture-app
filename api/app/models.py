@@ -254,6 +254,9 @@ class Receipt(Base, TimestampMixin):
     firm_id: Mapped[UUID] = mapped_column(ForeignKey("firms.id", ondelete="CASCADE"), index=True)
     client_id: Mapped[UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
     source: Mapped[str] = mapped_column(String(20), default=ReceiptSource.mobile.value)
+    # 書類種別: 通常の領収書 'receipt' か、クレジットカード利用明細の1行 'card_statement'。
+    # 1枚の画像/明細から複数 Receipt を起こすとき、行/明細の性格を区別する。
+    doc_type: Mapped[str] = mapped_column(String(20), default="receipt", server_default="receipt")
 
     captured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     vendor: Mapped[str | None] = mapped_column(String(300), nullable=True)

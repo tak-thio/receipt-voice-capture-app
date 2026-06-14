@@ -26,6 +26,8 @@ class ExtractedReceipt:
     t_number: str | None = None
     date: str | None = None
     description: str | None = None  # 摘要 (仕訳の説明)
+    doc_type: str = "receipt"  # 'receipt' | 'card_statement'(カード利用明細の1行)
+    image_index: int = 0  # バッチ抽出時、何番目の画像由来か(0始まり)
     raw: dict = field(default_factory=dict)
 
 
@@ -46,14 +48,17 @@ class OcrProvider(ABC):
         Return None if unsupported (the caller falls back to extract_text + format)."""
         return None
 
-    async def annotate_session(
-        self, images: list[tuple[bytes, str]], audio: bytes, audio_mime: str
-    ) -> list[str] | None:
-        """Optional multimodal path for a capture session: given the receipt
-        images (in capture order) PLUS one voice narration covering them, return
-        a 摘要(description) per image, aligned by index. No separate STT step —
-        the audio is passed straight to the multimodal model. Return None if the
-        provider can't accept audio (the caller treats that as an explicit error)."""
+    async def extract_batch(
+        self, images: list[tuple[bytes, str]], audio: bytes | None, audio_mime: str
+    ) -> list[ExtractedReceipt] | None:
+        """One multimodal call over a capture SET: N images (in order) plus an
+        optional voice narration covering them. Returns one ExtractedReceipt per
+        receipt found — a single image may yield several (multiple receipts laid
+        out, or a credit-card statement where each line is one item). Each result
+        carries image_index (which source image) and doc_type. description is
+        drawn from the voice memo when present. No separate STT step — the audio
+        goes straight to the model. Return None if the provider can't do this
+        (the caller treats that as an explicit error)."""
         return None
 
 

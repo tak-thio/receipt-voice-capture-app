@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
+from fastapi import File as FormFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
@@ -86,16 +87,55 @@ async def create_capture(
     if audio is not None:
         f = await _store_file(session, client.firm_id, client.id, audio, "audio", principal.user.id)
         session.add(ReceiptFile(receipt_id=receipt.id, file_id=f.id, kind="audio"))
-        # セッション音声(連続撮影中に録った1本)は、画像が無くても voice_session で処理:
-        # 同時間帯の写真群と一緒にマルチモーダルへ渡し、各写真の摘要を生成する。
-        # それ以外(手動で1枚に添付した音声)は従来どおり stt。
-        kind = "voice_session" if capture_meta.get("voice_session") else "stt"
-        session.add(Job(firm_id=client.firm_id, client_id=client.id, kind=kind,
+        session.add(Job(firm_id=client.firm_id, client_id=client.id, kind="stt",
                         params={"receipt_id": str(receipt.id), "file_id": str(f.id)}))
 
-    # TODO(Phase 1): a worker consumes the stt/ocr/format/voice_session jobs using
+    # TODO(Phase 1): a worker consumes the stt/ocr/format jobs using
     # ai.factory providers (the firm's ai_config) and fills the receipt fields.
     return {"receipt_id": str(receipt.id), "status": "queued"}
+
+
+@router.post("/batch", status_code=status.HTTP_201_CREATED)
+async def create_batch(
+    images: list[UploadFile] = FormFile(...),
+    audio: UploadFile | None = None,
+    metadata: str | None = Form(default=None),
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """撮影セット一括取込: 複数画像(+任意の音声)を1リクエストで受け、`batch`
+    ジョブを1件積む。ワーカーが全画像+音声を1回のマルチモーダル呼び出しで解析し、
+    含まれる領収書/カード明細行をすべて Receipt として起こす(1画像→N件あり)。"""
+    client_id = principal.device_client_id
+    if not client_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "not a paired device")
+    client = await session.get(Client, client_id)
+    if not client:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
+    if not images:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "at least one image required")
+
+    image_file_ids: list[str] = []
+    for img in images:
+        f = await _store_file(session, client.firm_id, client.id, img, "image", principal.user.id)
+        image_file_ids.append(str(f.id))
+
+    audio_file_id: str | None = None
+    if audio is not None:
+        af = await _store_file(session, client.firm_id, client.id, audio, "audio", principal.user.id)
+        audio_file_id = str(af.id)
+
+    session.add(Job(
+        firm_id=client.firm_id,
+        client_id=client.id,
+        kind="batch",
+        params={
+            "image_file_ids": image_file_ids,
+            "audio_file_id": audio_file_id,
+            "uploaded_by": str(principal.user.id),
+        },
+    ))
+    return {"status": "queued", "images": len(image_file_ids)}
 
 
 @router.post("/web", status_code=status.HTTP_201_CREATED)

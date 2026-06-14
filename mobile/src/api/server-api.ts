@@ -121,3 +121,38 @@ export async function uploadCapture(
   }
   return res.json() as Promise<{ receipt_id: string }>
 }
+
+export interface BatchUpload {
+  images: { dataUrl: string }[]
+  audio?: Blob
+  metadata?: Record<string, unknown>
+}
+
+/** 撮影セットを一括送信: 複数画像(+任意の音声)を1リクエストで /captures/batch へ。
+ * サーバが全画像+音声を1回のAI呼び出しで解析し、含まれる領収書/明細を全件起こす
+ * (1画像から複数件あり)。画像は配列順=撮影順で送る。 */
+export async function uploadBatch(
+  serverUrl: string,
+  deviceToken: string,
+  batch: BatchUpload,
+): Promise<{ status: string; images: number }> {
+  const form = new FormData()
+  batch.images.forEach((img, i) => {
+    form.append('images', dataUrlToBlob(img.dataUrl), `capture_${i + 1}.jpg`)
+  })
+  if (batch.audio) {
+    form.append('audio', batch.audio, 'audio.webm')
+  }
+  if (batch.metadata) {
+    form.append('metadata', JSON.stringify(batch.metadata))
+  }
+  const res = await fetch(`${base(serverUrl)}/captures/batch`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${deviceToken}` },
+    body: form,
+  })
+  if (!res.ok) {
+    throw new Error(`アップロードに失敗しました (${res.status})`)
+  }
+  return res.json() as Promise<{ status: string; images: number }>
+}
