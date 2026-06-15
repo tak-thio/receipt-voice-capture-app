@@ -24,6 +24,10 @@ __pycache__
 # Fetched OWASP CRS / coraza rules (populated by caddy/fetch-crs.sh at deploy)
 /coraza/
 
+# ML モデル成果物(サイズ大・差し替え可能。public/models/ に配置してAPK同梱)
+*.pt
+*.onnx
+
 # Secrets — never commit
 .env
 client_secret_*.json

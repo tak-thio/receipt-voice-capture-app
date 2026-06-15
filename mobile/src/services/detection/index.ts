@@ -13,13 +13,13 @@ export interface DetectionConfig {
   iouThreshold: number
 }
 
-// 仮モデルは yolov8n-face(顔検出、1クラス 'face')。「枠+パシャッ」の体感&座標確認用。
-// レシート学習モデル(YOLOv8 export)を public/models/detector.onnx に置いたら、
-// classNames を ['receipt'] 等に、targetLabels をそのラベルに更新する。
+// 領収書検出モデル(YOLO11n, 1クラス '領収書' / train_624e29de.pt を ONNX export)。
+// public/models/detector.onnx に配置(gitignore・APK同梱)。差し替え時は
+// classNames / targetLabels をそのモデルの model.names に合わせる。
 export const DETECTION_CONFIG: DetectionConfig = {
   modelUrl: '/models/detector.onnx',
-  classNames: ['face'],
-  targetLabels: ['face'],
+  classNames: ['領収書'],
+  targetLabels: ['領収書'],
   scoreThreshold: 0.5,
   iouThreshold: 0.45,
 }
