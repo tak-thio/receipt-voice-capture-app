@@ -35,18 +35,44 @@ export async function createDetector(config: DetectionConfig = DETECTION_CONFIG)
     iouThreshold: config.iouThreshold,
   })
   await detector.load()
-  // ウォームアップ: 最初の推論は WASM の JIT で数倍遅い。ロード中(スピナー表示中)に
-  // ダミー入力で数回回して温めておくと、実際に映したとき最初からスムーズになる。
+  // ウォームアップ: 最初の推論は WASM の JIT で数倍遅い。ダミー入力で数回回して
+  // 温めておくと、実際に映したとき最初からスムーズになる。
   try {
     const warm = document.createElement('canvas')
     warm.width = 640
     warm.height = 640
     warm.getContext('2d')?.fillRect(0, 0, 640, 640)
-    for (let i = 0; i < 3; i += 1) {
+    for (let i = 0; i < 4; i += 1) {
       await detector.detect({ canvas: warm, width: 640, height: 640 })
     }
   } catch {
     /* ウォームアップ失敗は致命的でないので無視 */
   }
   return detector
+}
+
+// 検出器はアプリ全体で1つを使い回す(タブ往復で再ロードしない)。
+// アプリ起動直後にプリウォームしておけば、撮影タブを開いた時点で即スムーズ。
+let _shared: ObjectDetector | null = null
+let _loading: Promise<ObjectDetector> | null = null
+
+export function getDetector(config: DetectionConfig = DETECTION_CONFIG): Promise<ObjectDetector> {
+  if (_shared) return Promise.resolve(_shared)
+  if (!_loading) {
+    _loading = createDetector(config)
+      .then((d) => {
+        _shared = d
+        return d
+      })
+      .catch((e) => {
+        _loading = null // 失敗したら次回やり直せるように
+        throw e
+      })
+  }
+  return _loading
+}
+
+/** 起動時のバックグラウンド事前ロード＋ウォームアップ(失敗は無視)。 */
+export function prewarmDetector(): void {
+  void getDetector().catch(() => {})
 }

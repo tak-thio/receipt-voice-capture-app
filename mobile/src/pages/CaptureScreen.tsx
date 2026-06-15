@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { uploadBatch } from '../api/server-api'
 import { MediaRecorderService, getMediaRecordingSupport } from '../services/audio/media-recorder-service'
-import { createDetector, playShutterSound, unlockShutterAudio } from '../services/detection'
+import { getDetector, playShutterSound, unlockShutterAudio } from '../services/detection'
 import type { Detection, ObjectDetector } from '../services/detection'
 import type { RecordedAudioClip } from '../types/audio'
 import { useAppStore } from '../store/app-store'
@@ -15,25 +15,6 @@ const STABLE_FRAMES = 2
 const MOTION_THRESH = 0.05 // 画像幅に対する移動量の許容
 // 推論はメインスレッド(WASM/CPU)で重い。間引いて体感負荷を下げる。
 const DETECT_INTERVAL_MS = 500
-
-// 検出器はタブを切り替えても使い回す(再ロードで毎回数秒待たせない)。一度ロードしたら常駐。
-let sharedDetector: ObjectDetector | null = null
-let sharedLoading: Promise<ObjectDetector> | null = null
-async function ensureDetector(): Promise<ObjectDetector> {
-  if (sharedDetector) return sharedDetector
-  if (!sharedLoading) {
-    sharedLoading = createDetector()
-      .then((d) => {
-        sharedDetector = d
-        return d
-      })
-      .catch((e) => {
-        sharedLoading = null
-        throw e
-      })
-  }
-  return sharedLoading
-}
 
 /** 撮影画面: 撮った写真はトレイに溜め(自動シャッター=赤枠→収束で緑枠+音、手動も可)、
  * 録音(セットの説明音声)を添えて「送信」で全画像+音声を1リクエストで一括送信する。
@@ -249,7 +230,7 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
     if (autoStatus === 'on' || autoStatus === 'loading') return
     setAutoStatus('loading')
     try {
-      detectorRef.current = await ensureDetector()
+      detectorRef.current = await getDetector()
       stableRef.current = 0
       lastBoxRef.current = null
       armedRef.current = true
