@@ -11,11 +11,13 @@ export interface DetectionConfig {
   targetLabels: string[] | null
   scoreThreshold: number
   iouThreshold: number
+  /** モデルの入力サイズ(px)。export した imgsz と一致させる。小さいほど軽い。 */
+  inputSize: number
 }
 
-// 領収書検出モデル(YOLO11n, 1クラス '領収書' / train_624e29de.pt を ONNX export)。
-// public/models/detector.onnx に配置(gitignore・APK同梱)。差し替え時は
-// classNames / targetLabels をそのモデルの model.names に合わせる。
+// 領収書検出モデル(YOLO11n, 1クラス '領収書' / train_624e29de.pt を imgsz=480 で ONNX export)。
+// public/models/detector.onnx に配置(gitignore・APK同梱)。差し替え時は classNames /
+// targetLabels を model.names に、inputSize を export 時の imgsz に合わせる。
 export const DETECTION_CONFIG: DetectionConfig = {
   modelUrl: '/models/detector.onnx',
   classNames: ['領収書'],
@@ -23,6 +25,8 @@ export const DETECTION_CONFIG: DetectionConfig = {
   // モデルがほぼ未学習なのでデモ用に低め。枠に信頼度%が出るので実機を見て調整する。
   scoreThreshold: 0.15,
   iouThreshold: 0.45,
+  // 640→480 で推論が約1.8倍速(45%軽)。非力な端末・初回の重さ対策。
+  inputSize: 480,
 }
 
 export async function createDetector(config: DetectionConfig = DETECTION_CONFIG): Promise<ObjectDetector> {
@@ -33,6 +37,7 @@ export async function createDetector(config: DetectionConfig = DETECTION_CONFIG)
     classNames: config.classNames,
     scoreThreshold: config.scoreThreshold,
     iouThreshold: config.iouThreshold,
+    inputSize: config.inputSize,
   })
   await detector.load()
   // ウォームアップ: 最初の推論は WASM の JIT で数倍遅い。ダミー入力で数回回して
