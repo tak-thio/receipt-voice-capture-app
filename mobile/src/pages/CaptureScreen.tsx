@@ -37,10 +37,11 @@ async function ensureDetector(): Promise<ObjectDetector> {
 /** 撮影画面: 撮った写真はトレイに溜め(自動シャッター=赤枠→収束で緑枠+音、手動も可)、
  * 録音(セットの説明音声)を添えて「送信」で全画像+音声を1リクエストで一括送信する。
  * サーバが1回のAI呼び出しで全件(1枚に複数・カード明細含む)を解析する。 */
-export function CaptureScreen() {
+export function CaptureScreen({ onSent }: { onSent?: () => void }) {
   const connection = useAppStore((state) => state.connection)!
   const autoPref = useAppStore((state) => state.autoCapture)
   const setAutoPref = useAppStore((state) => state.setAutoCapture)
+  const showToast = useAppStore((state) => state.showToast)
   const videoRef = useRef<HTMLVideoElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
   const recorderRef = useRef<MediaRecorderService | null>(null)
@@ -314,7 +315,10 @@ export function CaptureScreen() {
       setSentCount((n) => n + count)
       setTray([])
       setAudioClip(null)
-      setMessage(`${count}枚を送信しました。サーバで解析中…受信箱で確認できます。`)
+      setMessage('')
+      // 完了 → ダッシュボードへ遷移し、処理中であることをトーストで知らせる。
+      showToast(`${count}枚を送信しました。サーバで現在処理しております。`)
+      onSent?.()
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '送信に失敗しました。')
     } finally {
@@ -384,7 +388,14 @@ export function CaptureScreen() {
           disabled={uploading || tray.length === 0}
           onClick={() => void uploadSet()}
         >
-          {uploading ? '送信中…' : `送信 (${tray.length})`}
+          {uploading ? (
+            <>
+              <span className="spinner" />
+              送信中…
+            </>
+          ) : (
+            `送信 (${tray.length})`
+          )}
         </button>
       </div>
 

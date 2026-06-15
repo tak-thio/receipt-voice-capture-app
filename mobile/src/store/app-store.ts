@@ -26,9 +26,12 @@ interface AppState {
   ready: boolean
   connection: Connection | null
   autoCapture: boolean
+  toast: string | null
   init: () => void
   setConnection: (connection: Connection) => void
   setAutoCapture: (on: boolean) => void
+  showToast: (message: string) => void
+  hideToast: () => void
   disconnect: () => void
 }
 
@@ -37,6 +40,7 @@ export const useAppStore = create<AppState>((set) => ({
   ready: false,
   connection: null,
   autoCapture: true,
+  toast: null,
   init: () => set({ connection: loadConnection(), autoCapture: loadAutoCapture(), ready: true }),
   setConnection: (connection) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(connection))
@@ -50,6 +54,8 @@ export const useAppStore = create<AppState>((set) => ({
     }
     set({ autoCapture: on })
   },
+  showToast: (message) => set({ toast: message }),
+  hideToast: () => set({ toast: null }),
   disconnect: () => {
     localStorage.removeItem(STORAGE_KEY)
     set({ connection: null })
