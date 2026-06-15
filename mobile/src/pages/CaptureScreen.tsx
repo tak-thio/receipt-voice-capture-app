@@ -332,9 +332,15 @@ export function CaptureScreen() {
   return (
     <div className="capture-screen">
       <div className="cam-area">
-        <video ref={videoRef} className="cam-video" />
+        <video ref={videoRef} className="cam-video" autoPlay muted playsInline />
         {autoStatus === 'on' && <canvas ref={overlayRef} className="cam-overlay" />}
         {flash && <div className="cam-flash" />}
+        {autoStatus === 'loading' && (
+          <div className="cam-spinner">
+            <span className="spinner lg" />
+            <span>AIモデルを準備中…</span>
+          </div>
+        )}
         <button
           className={`auto-toggle${autoStatus === 'on' ? ' on' : ''}${autoStatus === 'unavailable' ? ' off' : ''}`}
           onClick={toggleAuto}

@@ -698,6 +698,11 @@ button:disabled { opacity: .6; }
 .capture-screen { display: flex; flex-direction: column; height: 100%; }
 .cam-area { position: relative; flex: 1; min-height: 0; background: #000; display: flex; align-items: center; justify-content: center; }
 .cam-video, .cam-shot { width: 100%; height: 100%; object-fit: contain; }
+/* 自動再生されないとき WebView が出す「丸に▶」のネイティブ再生ボタンを消す */
+.cam-video::-webkit-media-controls,
+.cam-video::-webkit-media-controls-overlay-play-button,
+.cam-video::-webkit-media-controls-start-playback-button,
+.cam-video::-webkit-media-controls-play-button { display: none !important; -webkit-appearance: none; }
 .cam-error { position: absolute; color: #fca5a5; padding: 16px; text-align: center; }
 .capture-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; background: #0b1220; }
 .capture-controls.review { flex-wrap: wrap; }
@@ -825,3 +830,14 @@ button:disabled { opacity: .6; }
 @keyframes camFlash { from { opacity: .85; } to { opacity: 0; } }
 
 .auto-toggle:disabled { opacity: .9; }
+
+/* くるくる(ローディングスピナー) */
+.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35);
+  border-top-color: #fff; display: inline-block; vertical-align: middle; margin-right: 8px;
+  animation: spin .8s linear infinite; }
+.spinner.lg { width: 38px; height: 38px; border-width: 3px; margin: 0 0 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* モデル読込中のカメラ全面オーバーレイ */
+.cam-spinner { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 4px; background: rgba(2,6,23,.6); color: #e2e8f0; font-size: 14px; z-index: 2; }
