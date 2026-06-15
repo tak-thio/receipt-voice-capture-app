@@ -35,5 +35,18 @@ export async function createDetector(config: DetectionConfig = DETECTION_CONFIG)
     iouThreshold: config.iouThreshold,
   })
   await detector.load()
+  // ウォームアップ: 最初の推論は WASM の JIT で数倍遅い。ロード中(スピナー表示中)に
+  // ダミー入力で数回回して温めておくと、実際に映したとき最初からスムーズになる。
+  try {
+    const warm = document.createElement('canvas')
+    warm.width = 640
+    warm.height = 640
+    warm.getContext('2d')?.fillRect(0, 0, 640, 640)
+    for (let i = 0; i < 3; i += 1) {
+      await detector.detect({ canvas: warm, width: 640, height: 640 })
+    }
+  } catch {
+    /* ウォームアップ失敗は致命的でないので無視 */
+  }
   return detector
 }
