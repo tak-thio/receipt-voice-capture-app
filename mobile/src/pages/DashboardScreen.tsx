@@ -2,13 +2,18 @@ import { useEffect, useState } from 'react'
 import { listReceipts, type ServerReceipt } from '../api/server-api'
 import { useAppStore } from '../store/app-store'
 
-const SRC = { email: '✉ メール', mobile: '📱 アプリ', manual: '⬆ アップロード' } as const
+const SRC_LABEL: Record<string, string> = { email: 'メール', mobile: 'アプリ', manual: 'アップロード' }
 
 function yen(n: number): string {
   return `¥${n.toLocaleString()}`
 }
 
-/** ホーム/ダッシュボード: 今月の件数・合計・状態内訳・最近の領収書＋撮影CTA。 */
+function shortDate(iso: string | null): string {
+  if (!iso) return '—'
+  return iso.slice(5, 10).replace('-', '/') // MM/DD
+}
+
+/** ホーム: 顧問先名・当月の集計・取込元・最近の領収書。業務向けの落ち着いた表示。 */
 export function DashboardScreen({
   onGoCapture,
   onGoInbox,
@@ -40,69 +45,82 @@ export function DashboardScreen({
   const thisMonth = rows.filter((r) => (r.captured_at ?? '').slice(0, 7) === ym)
   const monthCount = thisMonth.length
   const monthSum = thisMonth.reduce((s, r) => s + (r.amount_jpy ?? 0), 0)
-  const unsorted = rows.filter((r) => !r.journalized_at && r.approval_status === 'pending').length
+  const unsorted = rows.filter((r) => !r.journalized_at).length
   const sorted = rows.filter((r) => r.journalized_at).length
   const bySource = (s: string) => rows.filter((r) => r.source === s).length
-  const recent = rows.slice(0, 5)
+  const recent = rows.slice(0, 6)
 
   return (
     <div className="dash">
-      <header className="dash-hero">
-        <p className="dash-eyebrow">{connection.clientName || '顧問先'}</p>
-        <h1>領収書ダッシュボード</h1>
-        <p className="dash-sub">
-          {[connection.firmName, connection.userName].filter(Boolean).join(' ・ ') || '　'}
-        </p>
+      <header className="dash-top">
+        <div>
+          <h1 className="dash-client">{connection.clientName || '顧問先'}</h1>
+          <p className="dash-meta">
+            {[connection.firmName, connection.userName].filter(Boolean).join(' / ') || ' '}
+          </p>
+        </div>
+        <span className="dash-period">
+          {now.getFullYear()}年{now.getMonth() + 1}月
+        </span>
       </header>
 
-      <button className="dash-cta" onClick={onGoCapture}>
-        <span className="dash-cta-icon">📷</span>
-        <span>領収書を撮影する</span>
-      </button>
+      <section className="dash-summary">
+        <div className="sum-card">
+          <span className="sum-label">今月の件数</span>
+          <span className="sum-value">
+            {monthCount}
+            <small>件</small>
+          </span>
+        </div>
+        <div className="sum-card">
+          <span className="sum-label">今月の合計</span>
+          <span className="sum-value">{yen(monthSum)}</span>
+        </div>
+      </section>
 
-      <div className="stat-grid">
-        <div className="stat">
-          <span className="stat-num">{monthCount}</span>
-          <span className="stat-label">今月の件数</span>
+      <section className="dash-status">
+        <div className="st-item">
+          <span className="dot amber" />
+          未処理 <b>{unsorted}</b>
         </div>
-        <div className="stat">
-          <span className="stat-num">{yen(monthSum)}</span>
-          <span className="stat-label">今月の合計</span>
+        <div className="st-item">
+          <span className="dot green" />
+          処理済 <b>{sorted}</b>
         </div>
-        <div className="stat warn">
-          <span className="stat-num">{unsorted}</span>
-          <span className="stat-label">未仕分け</span>
+        <div className="st-src">
+          取込元 {SRC_LABEL.email} {bySource('email')} ・ {SRC_LABEL.mobile} {bySource('mobile')} ・{' '}
+          {SRC_LABEL.manual} {bySource('manual')}
         </div>
-        <div className="stat ok">
-          <span className="stat-num">{sorted}</span>
-          <span className="stat-label">仕分済</span>
-        </div>
-      </div>
+      </section>
 
-      <div className="src-chips">
-        <span>{SRC.email} {bySource('email')}</span>
-        <span>{SRC.mobile} {bySource('mobile')}</span>
-        <span>{SRC.manual} {bySource('manual')}</span>
-      </div>
-
-      <div className="recent">
-        <div className="recent-head">
+      <section className="dash-recent">
+        <div className="sec-head">
           <h2>最近の領収書</h2>
-          <button className="link" onClick={onGoInbox}>すべて見る</button>
+          <button className="link" onClick={onGoInbox}>
+            すべて見る
+          </button>
         </div>
         {recent.length === 0 ? (
-          <p className="muted small">{loading ? '読み込み中…' : 'まだ領収書がありません。撮影してみましょう。'}</p>
+          <p className="dash-empty">{loading ? '読み込み中…' : 'まだ領収書がありません。'}</p>
         ) : (
-          <ul className="recent-list">
+          <ul className="rlist">
             {recent.map((r) => (
-              <li key={r.id} className="recent-row" onClick={onGoInbox}>
-                <span className="rv">{r.vendor || '未解析'}</span>
-                <span className="ra">{r.amount_jpy != null ? yen(r.amount_jpy) : '—'}</span>
+              <li key={r.id} className="ritem" onClick={onGoInbox}>
+                <span className="rdate">{shortDate(r.captured_at)}</span>
+                <span className="rvendor">{r.vendor || '未解析'}</span>
+                <span className="ramount">{r.amount_jpy != null ? yen(r.amount_jpy) : '—'}</span>
+                <span className={`rbadge ${r.journalized_at ? 'done' : 'todo'}`}>
+                  {r.journalized_at ? '仕分済' : '未仕分け'}
+                </span>
               </li>
             ))}
           </ul>
         )}
-      </div>
+      </section>
+
+      <button className="dash-shoot" onClick={onGoCapture}>
+        領収書を撮影
+      </button>
     </div>
   )
 }
