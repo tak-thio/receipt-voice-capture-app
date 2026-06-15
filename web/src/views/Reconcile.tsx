@@ -69,6 +69,10 @@ export function ReconcileView({ clientId }: { clientId?: string }) {
     const ok = await toast.run(() => api.unlinkMatch({ match_id: matchId }), 'ひも付けを解除しました')
     if (ok) await load()
   }
+  async function markDuplicate(receiptId: string) {
+    const ok = await toast.run(() => api.markDuplicate(receiptId), '重複として除外しました')
+    if (ok) await load()
+  }
 
   if (!clientId) {
     return (
@@ -85,6 +89,7 @@ export function ReconcileView({ clientId }: { clientId?: string }) {
   const withCand = pending.filter((p) => p.candidates.length > 0)
   const noReceipt = pending.filter((p) => p.candidates.length === 0)
   const groups = state?.groups ?? []
+  const duplicates = state?.duplicates ?? []
 
   return (
     <div className="space-y-5">
@@ -128,6 +133,33 @@ export function ReconcileView({ clientId }: { clientId?: string }) {
           </div>
         )}
       </section>
+
+      {duplicates.length > 0 && (
+        <section>
+          <h2 className="mb-2 text-sm font-semibold text-slate-700">
+            重複の可能性 ({duplicates.length})
+          </h2>
+          <div className="space-y-3">
+            {duplicates.map((g, gi) => (
+              <Card key={gi} className="p-4">
+                <p className="mb-2 text-xs text-amber-600">
+                  同じ領収書が複数登録されている可能性があります。残す1件以外を「重複として除外」してください。
+                </p>
+                <div className="space-y-2">
+                  {g.items.map((r) => (
+                    <div key={r.id} className="flex items-center justify-between gap-3">
+                      <Line item={r} tag={r.source} />
+                      <Button variant="danger-ghost" onClick={() => void markDuplicate(r.id)}>
+                        重複として除外
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
 
       {noReceipt.length > 0 && (
         <section>

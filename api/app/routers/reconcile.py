@@ -25,23 +25,28 @@ RECEIPT = "receipt"
 
 
 async def _images(session: AsyncSession, receipt_ids) -> dict:
-    """receipt_id -> (file_id, mime) を1クエリで(キャプチャ画像のみ)。"""
+    """receipt_id -> (file_id, mime, sha256) を1クエリで(キャプチャ画像のみ)。"""
     ids = list(receipt_ids)
     if not ids:
         return {}
     rows = await session.execute(
-        select(ReceiptFile.receipt_id, ReceiptFile.file_id, File.mime)
+        select(ReceiptFile.receipt_id, ReceiptFile.file_id, File.mime, File.sha256)
         .join(File, File.id == ReceiptFile.file_id)
         .where(ReceiptFile.receipt_id.in_(ids), ReceiptFile.kind == "capture")
     )
     out: dict = {}
-    for rid, fid, mime in rows.all():
-        out.setdefault(rid, (fid, mime))
+    for rid, fid, mime, sha in rows.all():
+        out.setdefault(rid, (fid, mime, sha))
     return out
 
 
+def _norm_vendor(s: str | None) -> str:
+    """店名の正規化(前後空白除去・全角/半角空白除去・小文字化)。あいまい一致はしない。"""
+    return (s or "").strip().replace(" ", "").replace("　", "").lower()
+
+
 def _item(r: Receipt, imgs: dict) -> dict:
-    fid, mime = imgs.get(r.id, (None, None))
+    fid, mime, _sha = imgs.get(r.id, (None, None, None))
     return {
         "id": str(r.id),
         "doc_type": r.doc_type,
@@ -115,13 +120,73 @@ async def reconcile(
             }
         )
 
+    # 重複（同じ領収書の二重登録）の検出: 領収書同士で
+    #   (税込金額・利用日・正規化店名が一致) または (画像の sha256 が一致)
+    # を「同じもの」とみなし、Union-Find で連結成分にまとめる(2件以上を候補に)。
+    rid_by = {r.id: r for r in rows if r.doc_type == RECEIPT}
+    parent: dict = {}
+
+    def find(x):
+        parent.setdefault(x, x)
+        root = x
+        while parent[root] != root:
+            root = parent[root]
+        while parent[x] != root:
+            parent[x], x = root, parent[x]
+        return root
+
+    def union(a, b):
+        parent[find(a)] = find(b)
+
+    buckets: dict = defaultdict(list)  # (金額,利用日,店名) と sha のどちらも同じバケツキーで集約
+    for r in rid_by.values():
+        if r.amount_jpy is not None and r.captured_at:
+            buckets[("k", r.amount_jpy, r.captured_at.date().isoformat(), _norm_vendor(r.vendor))].append(r.id)
+        sha = imgs.get(r.id, (None, None, None))[2]
+        if sha:
+            buckets[("sha", sha)].append(r.id)
+    for ids2 in buckets.values():
+        for other in ids2[1:]:
+            union(ids2[0], other)
+
+    comps: dict = defaultdict(list)
+    for rid in rid_by:
+        if rid in parent:
+            comps[find(rid)].append(rid)
+    duplicates = [
+        {"items": [_item(rid_by[i], imgs) for i in members]}
+        for members in comps.values()
+        if len(members) >= 2
+    ]
+
     return {
         "groups": [
             {"match_id": mid, "items": [_item(x, imgs) for x in members]}
             for mid, members in groups.items()
         ],
         "pending": pending,
+        "duplicates": duplicates,
     }
+
+
+class DuplicateBody(BaseModel):
+    receipt_id: UUID  # 重複として除外する(残す方ではない)領収書
+
+
+@router.post("/duplicate")
+async def mark_duplicate(
+    body: DuplicateBody,
+    _: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """指定の領収書を「重複」としてマークする(approval_status='duplicate')。
+    pending から外れるので仕分け・元帳・受信箱の対象から消える。残す方は触らない。"""
+    r = await session.get(Receipt, body.receipt_id)
+    if not r:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "receipt not found")
+    r.approval_status = "duplicate"
+    await session.flush()
+    return {"id": str(r.id), "approval_status": r.approval_status}
 
 
 class LinkBody(BaseModel):

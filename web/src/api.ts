@@ -221,9 +221,13 @@ export interface ReconcileGroup {
   match_id: string
   items: ReconcileItem[]
 }
+export interface ReconcileDupGroup {
+  items: ReconcileItem[]
+}
 export interface ReconcileState {
   groups: ReconcileGroup[]
   pending: ReconcilePending[]
+  duplicates: ReconcileDupGroup[]
 }
 
 export const api = {
@@ -307,6 +311,11 @@ export const api = {
     req<{ match_id: string }>('/reconcile/link', { method: 'POST', body: JSON.stringify({ ids }) }),
   unlinkMatch: (body: { match_id?: string; receipt_id?: string }) =>
     req<{ ok: boolean }>('/reconcile/unlink', { method: 'POST', body: JSON.stringify(body) }),
+  markDuplicate: (receiptId: string) =>
+    req<{ id: string }>('/reconcile/duplicate', {
+      method: 'POST',
+      body: JSON.stringify({ receipt_id: receiptId }),
+    }),
 
   fileUrl: (fileId: string) => `${BASE}/files/${fileId}`,
   // Renderable image for any file (images pass through; PDFs are rendered to PNG).
