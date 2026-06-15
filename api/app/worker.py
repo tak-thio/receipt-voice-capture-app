@@ -67,6 +67,9 @@ def _apply_fields(receipt: Receipt, fields) -> None:
     receipt.payment_method = receipt.payment_method or fields.payment_method
     receipt.t_number = receipt.t_number or fields.t_number
     receipt.description = receipt.description or getattr(fields, "description", None)
+    # 取引先(自由入力)の初期値は店舗名(OCR)。未引当でも取引先が空にならないように。
+    if not receipt.partner_name and receipt.vendor and receipt.vendor != UNPARSED_VENDOR:
+        receipt.partner_name = receipt.vendor
 
 
 async def _autolink_partner(session, receipt: Receipt) -> None:

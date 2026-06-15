@@ -259,7 +259,9 @@ class Receipt(Base, TimestampMixin):
     doc_type: Mapped[str] = mapped_column(String(20), default="receipt", server_default="receipt")
 
     captured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    vendor: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    vendor: Mapped[str | None] = mapped_column(String(300), nullable=True)  # 店舗名(支払先・OCR生)
+    # 取引先(自由入力)。マスタに完全一致すれば partner_id を引当、無ければこのテキストを使う。
+    partner_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
     amount_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 合計金額(税込)
     subtotal_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 税抜金額
     tax_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 消費税合計

@@ -63,7 +63,7 @@ async def export_csv(
             account=titles.get(r.account_title_id, ""),
             payment_method=r.payment_method or "",
             t_number=r.t_number or "",
-            description=partners.get(r.partner_id) or r.vendor or "",
+            description=partners.get(r.partner_id) or r.partner_name or r.vendor or "",
         )
         for r in receipts
     ]
@@ -146,7 +146,8 @@ async def export_ledger(
             t.code if t else "",
             t.name if t else "(未設定)",
             subs.get(r.sub_account_id, ""),
-            partners.get(r.partner_id, ""),
+            # 取引先: マスタ引当があればマスタ名、無ければ自由入力テキスト(空欄にしない)。
+            partners.get(r.partner_id) or r.partner_name or "",
             r.vendor or "",
             r.tax_mode or "",
             r.t_number or "",

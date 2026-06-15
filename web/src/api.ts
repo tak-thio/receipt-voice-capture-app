@@ -120,6 +120,7 @@ export interface QueueItem {
   account_title_id: string | null
   credit_account_title_id: string | null
   partner_id: string | null
+  partner_name: string | null // 取引先(自由入力)
   note_ids: string[]
   suggestion: Suggestion
 }
@@ -136,6 +137,7 @@ export interface LedgerRow {
   journalized_at: string | null
   vendor: string | null
   partner: string | null
+  partner_name: string | null // 取引先(自由入力)
   debit: string | null // 借方科目 "code name"
   credit: string | null // 貸方科目 "code name"
   amount_jpy: number | null
@@ -185,6 +187,7 @@ export interface JournalizeBody {
   credit_account_title_id?: string | null
   sub_account_id?: string | null
   partner_id?: string | null
+  partner_name?: string | null // 取引先(自由入力)。マスタ完全一致でサーバが自動引当
   vendor?: string | null
   date?: string | null // YYYY-MM-DD (領収書の日付)
   amount_jpy?: number | null

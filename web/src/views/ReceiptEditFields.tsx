@@ -23,6 +23,7 @@ export interface EditableReceipt {
   account_title_id: string | null
   credit_account_title_id: string | null
   partner_id: string | null
+  partner_name?: string | null // 取引先(自由入力)
   image_file_id: string | null
   image_mime: string | null
   note_ids: string[]
@@ -52,7 +53,7 @@ export function ReceiptEditFields({
   const [showEmail, setShowEmail] = useState(false)
   const [titleId, setTitleId] = useState('') // 借方科目
   const [creditTitleId, setCreditTitleId] = useState('') // 貸方科目
-  const [partnerId, setPartnerId] = useState('')
+  const [partnerNameInput, setPartnerNameInput] = useState('') // 取引先(自由入力)
   const [showAllDebit, setShowAllDebit] = useState(false)
   const [showAllCredit, setShowAllCredit] = useState(false)
   const [vendorInput, setVendorInput] = useState('') // 店舗名(支払先)
@@ -70,7 +71,9 @@ export function ReceiptEditFields({
   useEffect(() => {
     setTitleId(item.account_title_id ?? item.suggestion?.account_title_id ?? '')
     setCreditTitleId(item.credit_account_title_id ?? '')
-    setPartnerId(item.partner_id ?? item.suggestion?.partner_id ?? '')
+    // 取引先(自由入力)の初期値: 保存済みの取引先名 > 引当マスタ名 > 店舗名。
+    const linkedName = partners.find((p) => p.id === item.partner_id)?.name
+    setPartnerNameInput(item.partner_name ?? linkedName ?? item.vendor ?? '')
     setVendorInput(item.vendor ?? '')
     setDateInput(item.date ?? '')
     const t10 = item.tax_10_jpy
@@ -114,7 +117,8 @@ export function ReceiptEditFields({
     return {
       account_title_id: titleId || null,
       credit_account_title_id: creditTitleId || null,
-      partner_id: partnerId || null,
+      // 取引先は自由入力テキストを送る。マスタ完全一致ならサーバが partner_id を引当。
+      partner_name: partnerNameInput.trim() || null,
       vendor: vendorInput.trim(),
       date: dateInput || null,
       amount_jpy: numOrNull(amountInput),
@@ -209,12 +213,20 @@ export function ReceiptEditFields({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block space-y-1">
             <span className="text-xs font-medium text-slate-500">
-              取引先{partnerId && <span className="ml-1 text-emerald-600">(自動引当)</span>}
+              取引先
+              {partners.some((p) => p.name === partnerNameInput.trim()) && (
+                <span className="ml-1 text-emerald-600">(マスタ一致)</span>
+              )}
             </span>
-            <Select value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
-              <option value="">(なし)</option>
-              {partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </Select>
+            <Input
+              list="partner-master-list"
+              value={partnerNameInput}
+              onChange={(e) => setPartnerNameInput(e.target.value)}
+              placeholder="取引先名(自由入力)"
+            />
+            <datalist id="partner-master-list">
+              {partners.map((p) => <option key={p.id} value={p.name} />)}
+            </datalist>
           </label>
           <label className="block space-y-1">
             <span className="text-xs font-medium text-slate-500">インボイス番号(T番号)</span>

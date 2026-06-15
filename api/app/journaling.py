@@ -71,6 +71,41 @@ async def exact_partner_id(db: AsyncSession, receipt: Receipt) -> UUID | None:
     return await _lookup_partner(db, receipt)
 
 
+async def partner_id_for(
+    db: AsyncSession, client_id: UUID, name: str | None, t_number: str | None = None
+) -> UUID | None:
+    """任意の取引先名(自由入力)を、マスタへ完全一致だけで引き当てる（推測しない）。
+    優先順: T番号一致 → 学習エイリアス(正規化完全一致) → 取引先名の完全一致。無ければ None。"""
+    tnum = (t_number or "").strip()
+    if tnum:
+        pid = await db.scalar(
+            select(Partner.id).where(
+                Partner.client_id == client_id,
+                Partner.active.is_(True),
+                Partner.t_number == tnum,
+            )
+        )
+        if pid is not None:
+            return pid
+    key = normalize_vendor(name)
+    if not key:
+        return None
+    alias = await db.scalar(
+        select(PartnerAlias.partner_id).where(
+            PartnerAlias.client_id == client_id,
+            PartnerAlias.raw_vendor == key,
+        )
+    )
+    if alias is not None:
+        return alias
+    for p in await db.scalars(
+        select(Partner).where(Partner.client_id == client_id, Partner.active.is_(True))
+    ):
+        if normalize_vendor(p.name) == key:
+            return p.id
+    return None
+
+
 # --- account suggestion (rule > history > dictionary) ----------------------
 
 async def _rule_for_vendor(db: AsyncSession, receipt: Receipt) -> JournalRule | None:

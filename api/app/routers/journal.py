@@ -26,6 +26,7 @@ class Journalize(BaseModel):
     credit_account_title_id: UUID | None = None  # 貸方科目 (credit)
     sub_account_id: UUID | None = None
     partner_id: UUID | None = None
+    partner_name: str | None = None  # 取引先(自由入力)。マスタ完全一致なら自動で partner_id 引当
     # AI が誤読しうるので全項目を手修正できる。None の項目は据え置き。
     vendor: str | None = None  # 店舗名(支払先)
     date: str | None = None  # 領収書の日付 (YYYY-MM-DD)
@@ -56,7 +57,9 @@ def _apply_journalize_fields(receipt: Receipt, body: "Journalize") -> None:
     receipt.account_title_id = body.account_title_id
     receipt.credit_account_title_id = body.credit_account_title_id
     receipt.sub_account_id = body.sub_account_id
-    receipt.partner_id = body.partner_id
+    receipt.partner_id = body.partner_id  # partner_name 指定時は呼び出し側で上書きする
+    if body.partner_name is not None:
+        receipt.partner_name = body.partner_name or None
     if body.vendor is not None:
         receipt.vendor = body.vendor or None
     parsed_date = _parse_date(body.date)
@@ -175,6 +178,7 @@ async def queue(
                 "account_title_id": str(r.account_title_id) if r.account_title_id else None,
                 "credit_account_title_id": str(r.credit_account_title_id) if r.credit_account_title_id else None,
                 "partner_id": str(r.partner_id) if r.partner_id else None,
+                "partner_name": r.partner_name,
                 "note_ids": r.note_ids or [],
                 "suggestion": {
                     "account_title_id": str(suggestion["account_title_id"])
@@ -228,7 +232,9 @@ async def ledger(
                 "date": r.captured_at.date().isoformat() if r.captured_at else None,
                 "journalized_at": r.journalized_at.isoformat() if r.journalized_at else None,
                 "vendor": r.vendor,
-                "partner": partners.get(r.partner_id),
+                # 取引先: マスタ引当があればマスタ名、無ければ自由入力テキスト(空欄にしない)。
+                "partner": partners.get(r.partner_id) or r.partner_name,
+                "partner_name": r.partner_name,
                 "debit": titles.get(r.account_title_id),
                 "credit": titles.get(r.credit_account_title_id),
                 "amount_jpy": r.amount_jpy,
@@ -279,6 +285,11 @@ async def journalize(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "receipt not found")
 
     _apply_journalize_fields(receipt, body)
+    # 取引先(自由入力)はマスタに完全一致したときだけ partner_id を引当(推測しない)。
+    if body.partner_name is not None:
+        receipt.partner_id = await journaling.partner_id_for(
+            session, receipt.client_id, receipt.partner_name, receipt.t_number
+        )
     receipt.journalized_at = datetime.now(timezone.utc)
     receipt.journal_hold = False
 
@@ -288,7 +299,7 @@ async def journalize(
         receipt,
         account_title_id=body.account_title_id,
         sub_account_id=body.sub_account_id,
-        partner_id=body.partner_id,
+        partner_id=receipt.partner_id,
     )
     await session.flush()
     return {"id": str(receipt.id), "journalized_at": receipt.journalized_at.isoformat()}
@@ -309,6 +320,11 @@ async def edit_ledger(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "not journalized yet")
 
     _apply_journalize_fields(receipt, body)
+    # 取引先(自由入力)はマスタ完全一致のときだけ partner_id を引当(推測しない)。
+    if body.partner_name is not None:
+        receipt.partner_id = await journaling.partner_id_for(
+            session, receipt.client_id, receipt.partner_name, receipt.t_number
+        )
     # journalized_at / journal_hold は据え置き（仕訳日時を変えない）。
 
     # 修正内容を学習に反映（次回以降の自動仕訳の精度を上げる）。
@@ -317,7 +333,7 @@ async def edit_ledger(
         receipt,
         account_title_id=body.account_title_id,
         sub_account_id=body.sub_account_id,
-        partner_id=body.partner_id,
+        partner_id=receipt.partner_id,
     )
     await session.flush()
     return {"id": str(receipt.id), "journalized_at": receipt.journalized_at.isoformat()}
