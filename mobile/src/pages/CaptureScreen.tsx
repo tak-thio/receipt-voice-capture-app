@@ -15,11 +15,32 @@ const MOTION_THRESH = 0.03 // 画像幅に対する移動量の許容
 // 推論はメインスレッド(WASM/CPU)で重い。間引いて体感負荷を下げる。
 const DETECT_INTERVAL_MS = 500
 
+// 検出器はタブを切り替えても使い回す(再ロードで毎回数秒待たせない)。一度ロードしたら常駐。
+let sharedDetector: ObjectDetector | null = null
+let sharedLoading: Promise<ObjectDetector> | null = null
+async function ensureDetector(): Promise<ObjectDetector> {
+  if (sharedDetector) return sharedDetector
+  if (!sharedLoading) {
+    sharedLoading = createDetector()
+      .then((d) => {
+        sharedDetector = d
+        return d
+      })
+      .catch((e) => {
+        sharedLoading = null
+        throw e
+      })
+  }
+  return sharedLoading
+}
+
 /** 撮影画面: 撮った写真はトレイに溜め(自動シャッター=赤枠→収束で緑枠+音、手動も可)、
  * 録音(セットの説明音声)を添えて「送信」で全画像+音声を1リクエストで一括送信する。
  * サーバが1回のAI呼び出しで全件(1枚に複数・カード明細含む)を解析する。 */
 export function CaptureScreen() {
   const connection = useAppStore((state) => state.connection)!
+  const autoPref = useAppStore((state) => state.autoCapture)
+  const setAutoPref = useAppStore((state) => state.setAutoCapture)
   const videoRef = useRef<HTMLVideoElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
   const recorderRef = useRef<MediaRecorderService | null>(null)
@@ -43,6 +64,7 @@ export function CaptureScreen() {
   const lastBoxRef = useRef<{ cx: number; cy: number; size: number } | null>(null)
   const stableRef = useRef(0)
   const captureBusyRef = useRef(false)
+  const autoStartedRef = useRef(false) // マウント時の自動開始を1回だけにする
 
   // カメラ起動(前/背面切替で再起動)
   useEffect(() => {
@@ -78,13 +100,14 @@ export function CaptureScreen() {
     }
   }, [facing])
 
-  useEffect(
-    () => () => {
-      detectorRef.current?.dispose()
-      detectorRef.current = null
-    },
-    [],
-  )
+  // 連続撮影モード: 開いたら(保存設定が ON なら)自動でモデルをロードして開始。
+  // 検出器は常駐するので unmount では破棄しない(タブ往復で再ロードしない)。
+  useEffect(() => {
+    if (autoStartedRef.current) return
+    autoStartedRef.current = true
+    if (autoPref) void startAuto()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function grabFrame(): string | null {
     const video = videoRef.current
@@ -218,22 +241,31 @@ export function CaptureScreen() {
     }
   }, [autoStatus])
 
-  async function toggleAuto() {
+  // モデルをロードして連続撮影を開始(スピナー表示は autoStatus==='loading')。
+  async function startAuto() {
     unlockShutterAudio()
-    if (autoStatus === 'on' || autoStatus === 'loading') {
-      setAutoStatus('off')
-      return
-    }
+    if (autoStatus === 'on' || autoStatus === 'loading') return
     setAutoStatus('loading')
     try {
-      if (!detectorRef.current) detectorRef.current = await createDetector()
+      detectorRef.current = await ensureDetector()
       stableRef.current = 0
       lastBoxRef.current = null
       armedRef.current = true
       setAutoStatus('on')
     } catch {
-      detectorRef.current = null
       setAutoStatus('unavailable')
+    }
+  }
+
+  // トグル: ON/OFF を localStorage に保存し、次回開いたときに適用する。
+  function toggleAuto() {
+    unlockShutterAudio()
+    if (autoStatus === 'on' || autoStatus === 'loading') {
+      setAutoPref(false)
+      setAutoStatus('off')
+    } else {
+      setAutoPref(true)
+      void startAuto()
     }
   }
 
@@ -291,10 +323,10 @@ export function CaptureScreen() {
   }
 
   const autoLabel =
-    autoStatus === 'loading' ? '自動: 起動中…'
-    : autoStatus === 'on' ? '🟢 自動シャッター ON'
-    : autoStatus === 'unavailable' ? '自動: モデル未配置'
-    : '自動シャッター OFF'
+    autoStatus === 'loading' ? 'AI準備中…'
+    : autoStatus === 'on' ? '■ 撮影中（停止）'
+    : autoStatus === 'unavailable' ? '⚠ 読込失敗・再試行'
+    : '▶ 自動撮影 開始'
   const audioSecs = audioClip ? Math.round(audioClip.durationMs / 1000) : 0
 
   return (
@@ -303,10 +335,18 @@ export function CaptureScreen() {
         <video ref={videoRef} className="cam-video" />
         {autoStatus === 'on' && <canvas ref={overlayRef} className="cam-overlay" />}
         {flash && <div className="cam-flash" />}
+        {autoStatus === 'loading' && (
+          <div className="cam-spinner">
+            <span className="spinner lg" />
+            <span>AIモデルを準備中…</span>
+          </div>
+        )}
         <button
           className={`auto-toggle${autoStatus === 'on' ? ' on' : ''}${autoStatus === 'unavailable' ? ' off' : ''}`}
-          onClick={() => void toggleAuto()}
+          onClick={toggleAuto}
+          disabled={autoStatus === 'loading'}
         >
+          {autoStatus === 'loading' && <span className="spinner" />}
           {autoLabel}
         </button>
         {!camError && (
@@ -351,15 +391,17 @@ export function CaptureScreen() {
 
       <p className="muted small center">
         {message ||
-          (recording
-            ? '録音中…領収書を撮りながら声で説明。送信時に画像とまとめて解析されます。'
-            : tray.length > 0
-              ? `${tray.length}枚をトレイに保持中。撮り終えたら「送信」。`
-              : autoStatus === 'on'
-                ? '自動撮影中(収束で自動・対象を替えると次へ)。撮った写真はトレイに溜まります。'
-                : sentCount > 0
-                  ? `この端末から送信: ${sentCount}枚`
-                  : `${connection.clientName ?? '顧問先'} に送信します`)}
+          (autoStatus === 'loading'
+            ? 'AIモデルを読み込んでいます…(初回は数秒)'
+            : recording
+              ? '録音中…領収書を撮りながら声で説明。送信時に画像とまとめて解析されます。'
+              : tray.length > 0
+                ? `${tray.length}枚をトレイに保持中。撮り終えたら「送信」。`
+                : autoStatus === 'on'
+                  ? '自動撮影中(収束で自動・対象を替えると次へ)。撮った写真はトレイに溜まります。'
+                  : sentCount > 0
+                    ? `この端末から送信: ${sentCount}枚`
+                    : `${connection.clientName ?? '顧問先'} に送信します`)}
       </p>
     </div>
   )
