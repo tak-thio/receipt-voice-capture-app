@@ -324,9 +324,9 @@ export function CaptureScreen() {
 
   const autoLabel =
     autoStatus === 'loading' ? 'AI準備中…'
-    : autoStatus === 'on' ? '■ 撮影中（停止）'
-    : autoStatus === 'unavailable' ? '⚠ 読込失敗・再試行'
-    : '▶ 自動撮影 開始'
+    : autoStatus === 'on' ? '撮影中（タップで停止）'
+    : autoStatus === 'unavailable' ? '読み込み失敗・再試行'
+    : '自動撮影を開始'
   const audioSecs = audioClip ? Math.round(audioClip.durationMs / 1000) : 0
 
   return (
@@ -335,18 +335,11 @@ export function CaptureScreen() {
         <video ref={videoRef} className="cam-video" />
         {autoStatus === 'on' && <canvas ref={overlayRef} className="cam-overlay" />}
         {flash && <div className="cam-flash" />}
-        {autoStatus === 'loading' && (
-          <div className="cam-spinner">
-            <span className="spinner lg" />
-            <span>AIモデルを準備中…</span>
-          </div>
-        )}
         <button
           className={`auto-toggle${autoStatus === 'on' ? ' on' : ''}${autoStatus === 'unavailable' ? ' off' : ''}`}
           onClick={toggleAuto}
           disabled={autoStatus === 'loading'}
         >
-          {autoStatus === 'loading' && <span className="spinner" />}
           {autoLabel}
         </button>
         {!camError && (
