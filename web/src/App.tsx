@@ -3,6 +3,7 @@ import { api, type ClientRow, type Me } from './api'
 import { ReceiptsView } from './views/Receipts'
 import { JournalView } from './views/Journal'
 import { LedgerView } from './views/LedgerView'
+import { ReconcileView } from './views/Reconcile'
 import { MastersView } from './views/Masters'
 import { ClientsView, ClientUsers, ClientAiConfig } from './views/Clients'
 import { GmailLink } from './views/GmailLink'
@@ -109,7 +110,7 @@ function Login({ onLogin }: { onLogin: (me: Me) => void }) {
   )
 }
 
-type Tab = 'receipts' | 'journal' | 'ledger' | 'export' | 'masters' | 'clients' | 'users' | 'settings'
+type Tab = 'receipts' | 'journal' | 'reconcile' | 'ledger' | 'export' | 'masters' | 'clients' | 'users' | 'settings'
 // Capability context derived from the principal's memberships.
 type Perms = {
   isFirm: boolean        // 職員 (firm_owner/firm_staff)
@@ -124,6 +125,7 @@ type NavItem = { id: Tab; label: string; icon: IconComponent; needsClient: boole
 const NAV: NavItem[] = [
   { id: 'receipts', label: '受信箱', icon: Icon.Inbox, needsClient: true, can: () => true },
   { id: 'journal', label: '仕分け', icon: Icon.Sort, needsClient: true, can: (p) => p.canJournal },
+  { id: 'reconcile', label: '突き合わせ', icon: Icon.Link, needsClient: true, can: (p) => p.canJournal },
   { id: 'ledger', label: '元帳', icon: Icon.Book, needsClient: true, can: (p) => p.canJournal },
   { id: 'export', label: '出力', icon: Icon.Download, needsClient: true, can: (p) => p.canJournal },
   { id: 'masters', label: 'マスタ', icon: Icon.Database, needsClient: true, can: (p) => p.canMasters },
@@ -214,6 +216,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
         <main className="mx-auto w-full max-w-7xl flex-1 p-5 sm:p-6">
           {tab === 'receipts' && <ReceiptsView clientId={clientId} showCreator={canSeeOthers} />}
           {tab === 'journal' && <JournalView clientId={clientId} showCreator={canSeeOthers} />}
+          {tab === 'reconcile' && <ReconcileView clientId={clientId} />}
           {tab === 'ledger' && <LedgerView clientId={clientId} showCreator={canSeeOthers} />}
           {tab === 'export' && <ExportView clientId={clientId} />}
           {tab === 'masters' && <MastersView clientId={clientId} firmId={firmId} />}

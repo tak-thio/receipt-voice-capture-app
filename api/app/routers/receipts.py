@@ -34,6 +34,7 @@ def _serialize(r: Receipt, image_file_id=None, created_by_name=None, image_mime=
         "client_id": str(r.client_id),
         "source": r.source,
         "doc_type": r.doc_type,  # 'receipt' | 'card_statement'
+        "match_id": str(r.match_id) if r.match_id else None,  # 突き合わせグループ
         "captured_at": r.captured_at.isoformat() if r.captured_at else None,
         "vendor": r.vendor,
         "amount_jpy": r.amount_jpy,

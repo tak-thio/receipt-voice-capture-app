@@ -198,6 +198,34 @@ export interface JournalizeBody {
   description?: string | null // 摘要
 }
 
+export interface ReconcileItem {
+  id: string
+  doc_type: string
+  source: string
+  date: string | null
+  vendor: string | null
+  amount_jpy: number | null
+  t_number: string | null
+  payment_method: string | null
+  journalized_at: string | null
+  match_id: string | null
+  image_file_id: string | null
+  image_mime: string | null
+}
+export interface ReconcilePending {
+  card: ReconcileItem
+  candidates: ReconcileItem[]
+  unique: boolean
+}
+export interface ReconcileGroup {
+  match_id: string
+  items: ReconcileItem[]
+}
+export interface ReconcileState {
+  groups: ReconcileGroup[]
+  pending: ReconcilePending[]
+}
+
 export const api = {
   me: () => req<Me>('/auth/me'),
   login: (email: string, password: string) =>
@@ -272,6 +300,13 @@ export const api = {
   unhold: (receiptId: string) => req(`/journal/receipts/${receiptId}/unhold`, { method: 'POST' }),
   setApproval: (receiptId: string, status: string) =>
     req(`/receipts/${receiptId}`, { method: 'PATCH', body: JSON.stringify({ approval_status: status }) }),
+
+  // 突き合わせ (カード明細 × 領収書)
+  reconcile: (clientId: string) => req<ReconcileState>(`/reconcile?client_id=${clientId}`),
+  linkMatch: (ids: string[]) =>
+    req<{ match_id: string }>('/reconcile/link', { method: 'POST', body: JSON.stringify({ ids }) }),
+  unlinkMatch: (body: { match_id?: string; receipt_id?: string }) =>
+    req<{ ok: boolean }>('/reconcile/unlink', { method: 'POST', body: JSON.stringify(body) }),
 
   fileUrl: (fileId: string) => `${BASE}/files/${fileId}`,
   // Renderable image for any file (images pass through; PDFs are rendered to PNG).
