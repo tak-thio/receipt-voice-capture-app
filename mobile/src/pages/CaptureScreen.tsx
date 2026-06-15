@@ -10,8 +10,9 @@ type AutoStatus = 'off' | 'loading' | 'on' | 'unavailable'
 type TrayItem = { id: number; dataUrl: string; ms: number }
 
 // 動きの収束判定: 主検出の中心+サイズが連続でほぼ動かなければ「収束」。
-const STABLE_FRAMES = 3
-const MOTION_THRESH = 0.03 // 画像幅に対する移動量の許容
+// デモ用にゆるめ(早く確定・手ブレに寛容)。
+const STABLE_FRAMES = 2
+const MOTION_THRESH = 0.05 // 画像幅に対する移動量の許容
 // 推論はメインスレッド(WASM/CPU)で重い。間引いて体感負荷を下げる。
 const DETECT_INTERVAL_MS = 500
 

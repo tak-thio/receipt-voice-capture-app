@@ -20,8 +20,8 @@ export const DETECTION_CONFIG: DetectionConfig = {
   modelUrl: '/models/detector.onnx',
   classNames: ['領収書'],
   targetLabels: ['領収書'],
-  // モデルが未成熟なうちは低めに。枠に信頼度%が出るので実機を見て調整する。
-  scoreThreshold: 0.25,
+  // モデルがほぼ未学習なのでデモ用に低め。枠に信頼度%が出るので実機を見て調整する。
+  scoreThreshold: 0.15,
   iouThreshold: 0.45,
 }
 
