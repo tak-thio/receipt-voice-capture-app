@@ -15,6 +15,10 @@ const STABLE_FRAMES = 2
 const MOTION_THRESH = 0.05 // 画像幅に対する移動量の許容
 // 推論はメインスレッド(WASM/CPU)で重い。間引いて体感負荷を下げる。
 const DETECT_INTERVAL_MS = 500
+// 1枚撮ったあと次の撮影を許可(再アーム)する条件。対象が消える/変わる以外に、
+// 一定時間で必ず再アームして「2枚目以降が切れない」を防ぐ。
+const REARM_COOLDOWN_MS = 1500
+const REARM_MOVE = 0.12 // 撮影時の枠から動いた量(画像幅比) がこれ以上なら別対象とみなす
 
 /** 撮影画面: 撮った写真はトレイに溜め(自動シャッター=赤枠→収束で緑枠+音、手動も可)、
  * 録音(セットの説明音声)を添えて「送信」で全画像+音声を1リクエストで一括送信する。
@@ -48,6 +52,8 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
   const stableRef = useRef(0)
   const captureBusyRef = useRef(false)
   const autoStartedRef = useRef(false) // マウント時の自動開始を1回だけにする
+  const lastCaptureAtRef = useRef(0) // 直近の自動撮影時刻(再アームのクールダウン用)
+  const capturedBoxRef = useRef<{ cx: number; cy: number; size: number } | null>(null)
 
   // カメラ起動(前/背面切替で再起動)
   useEffect(() => {
@@ -168,6 +174,20 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
           }
           lastBoxRef.current = { cx, cy, size }
           converged = stableRef.current >= STABLE_FRAMES
+
+          // 撮影後の再アーム: 別対象に移った(枠が動いた)か、クールダウン経過で許可。
+          // これで対象が映り続けていても2枚目以降が切れる。
+          if (!armedRef.current) {
+            const cap = capturedBoxRef.current
+            const moved = cap
+              ? (Math.abs(cx - cap.cx) + Math.abs(cy - cap.cy) + Math.abs(size - cap.size)) /
+                canvas.width
+              : 1
+            if (moved > REARM_MOVE || Date.now() - lastCaptureAtRef.current >= REARM_COOLDOWN_MS) {
+              armedRef.current = true
+              stableRef.current = 0
+            }
+          }
         } else {
           // 対象が消えたら再arm(次の領収書に備える)
           stableRef.current = 0
@@ -198,6 +218,12 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
         if (primary && converged && armedRef.current && !captureBusyRef.current) {
           armedRef.current = false
           stableRef.current = 0
+          lastCaptureAtRef.current = Date.now()
+          capturedBoxRef.current = {
+            cx: primary.box.x + primary.box.width / 2,
+            cy: primary.box.y + primary.box.height / 2,
+            size: (primary.box.width + primary.box.height) / 2,
+          }
           captureBusyRef.current = true
           try {
             const url = grabFrame()
@@ -233,6 +259,7 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
       detectorRef.current = await getDetector()
       stableRef.current = 0
       lastBoxRef.current = null
+      capturedBoxRef.current = null
       armedRef.current = true
       setAutoStatus('on')
     } catch {
