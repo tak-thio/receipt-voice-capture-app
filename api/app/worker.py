@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from starlette.concurrency import run_in_threadpool
 
-from . import journaling, storage
+from . import dedup, journaling, storage
 from .ai import factory
 from .config import get_settings
 from .models import (
@@ -217,6 +217,9 @@ async def _tick() -> bool:
             try:
                 job.status = "processing"
                 await _process(session, job)
+                # 取込のたびに自動重複(突き合わせ)を再計算 → 重複は自動で除外される。
+                if job.client_id:
+                    await dedup.recompute_dedup(session, job.client_id)
                 job.status = "done"
                 job.progress = 100
             except Exception as exc:  # noqa: BLE001 — record and move on

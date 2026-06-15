@@ -20,26 +20,28 @@ function Thumb({ item }: { item: ReconcileItem }) {
   )
 }
 
-function Line({ item, tag }: { item: ReconcileItem; tag?: string }) {
+function Line({ item }: { item: ReconcileItem }) {
+  const tag = item.doc_type === 'card_statement' ? 'カード明細' : '領収書'
   return (
     <div className="flex items-center gap-3">
       <Thumb item={item} />
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium text-slate-800">{item.vendor || '未解析'}</span>
-          {tag && <Badge tone="neutral">{tag}</Badge>}
+          <span className="truncate text-sm font-medium text-slate-800">{item.partner || item.vendor || '未解析'}</span>
+          <Badge tone="neutral">{tag}</Badge>
           {item.journalized_at && <Badge tone="success">仕訳済</Badge>}
         </div>
         <div className="text-xs text-slate-500">
           {item.date || '—'} ・ {yen(item.amount_jpy)}
-          {item.t_number ? ` ・ ${item.t_number}` : ''}
+          {item.source ? ` ・ ${item.source}` : ''}
         </div>
       </div>
     </div>
   )
 }
 
-/** 突き合わせ: カード利用明細の行と領収書を「同じ取引」としてひも付ける(人が確認)。 */
+/** 突き合わせ: 同じ取引(同日+同金額、領収書は+取引先)を自動でまとめて表示。
+ * 子(重複)は自動で仕訳/元帳から除外。違うものは「重複ではない」で外す。 */
 export function ReconcileView({ clientId }: { clientId?: string }) {
   const toast = useToast()
   const [state, setState] = useState<ReconcileState | null>(null)
@@ -61,23 +63,15 @@ export function ReconcileView({ clientId }: { clientId?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId])
 
-  async function link(cardId: string, receiptId: string) {
-    const ok = await toast.run(() => api.linkMatch([cardId, receiptId]), 'ひも付けました')
-    if (ok) await load()
-  }
-  async function unlink(matchId: string) {
-    const ok = await toast.run(() => api.unlinkMatch({ match_id: matchId }), 'ひも付けを解除しました')
-    if (ok) await load()
-  }
-  async function markDuplicate(receiptId: string) {
-    const ok = await toast.run(() => api.markDuplicate(receiptId), '重複として除外しました')
+  async function notDuplicate(receiptId: string) {
+    const ok = await toast.run(() => api.notDuplicate(receiptId), '重複から外しました')
     if (ok) await load()
   }
 
   if (!clientId) {
     return (
       <div>
-        <PageHeader title="突き合わせ" description="カード利用明細と領収書をひも付けます。" />
+        <PageHeader title="突き合わせ" description="同じ取引を自動でまとめます。" />
         <Card>
           <EmptyState icon={<Icon.Link />} title="顧問先を選択してください" />
         </Card>
@@ -85,127 +79,49 @@ export function ReconcileView({ clientId }: { clientId?: string }) {
     )
   }
 
-  const pending = state?.pending ?? []
-  const withCand = pending.filter((p) => p.candidates.length > 0)
-  const noReceipt = pending.filter((p) => p.candidates.length === 0)
   const groups = state?.groups ?? []
-  const duplicates = state?.duplicates ?? []
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <PageHeader
         title="突き合わせ"
-        description="カード利用明細の各行と、個人が上げた領収書を『同じ取引』としてまとめます。金額(税込)と利用日が一致する候補を提示するので、確認してひも付けてください。仕分け済みの領収書にも後から紐づけられます。"
+        description="同日・同金額（領収書は取引先も一致）の取引を『同じもの』として自動でまとめます。クレジット明細の行も同じ扱いです。子（重複）は自動で仕訳・元帳から除外されます。違うものは「重複ではない」で外してください。"
       />
       <div>
         <Button variant="secondary" onClick={() => void load()} disabled={loading}>
           {loading ? <Spinner /> : <Icon.Search />}
-          再スキャン
+          再計算
         </Button>
       </div>
 
-      <section>
-        <h2 className="mb-2 text-sm font-semibold text-slate-700">要確認の候補 ({withCand.length})</h2>
-        {withCand.length === 0 ? (
-          <Card>
-            <EmptyState icon={<Icon.Check />} title="確認待ちの候補はありません" />
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {withCand.map((p) => (
-              <Card key={p.card.id} className="p-4">
-                <Line item={p.card} tag="カード明細" />
-                <div className="mt-3 space-y-2 border-l-2 border-slate-100 pl-3">
-                  {p.candidates.map((r) => (
-                    <div key={r.id} className="flex items-center justify-between gap-3">
-                      <Line item={r} tag="領収書" />
-                      <Button onClick={() => void link(p.card.id, r.id)}>ひも付ける</Button>
+      {groups.length === 0 ? (
+        <Card>
+          <EmptyState icon={<Icon.Check />} title="まとめられた重複はありません" />
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {groups.map((g) => (
+            <Card key={g.match_id} className="p-4">
+              {/* 親（残す1件） */}
+              <Line item={g.primary} />
+              {/* 子（自動で重複扱い）。インデントして表示。 */}
+              <div className="mt-2 space-y-2 border-l-2 border-amber-200 pl-3">
+                {g.duplicates.map((d) => (
+                  <div key={d.id} className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Badge tone="warning">重複</Badge>
+                      <Line item={d} />
                     </div>
-                  ))}
-                </div>
-                {!p.unique && (
-                  <p className="mt-2 text-xs text-amber-600">
-                    候補が複数あります。正しい領収書を選んでひも付けてください。
-                  </p>
-                )}
-              </Card>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {duplicates.length > 0 && (
-        <section>
-          <h2 className="mb-2 text-sm font-semibold text-slate-700">
-            重複の可能性 ({duplicates.length})
-          </h2>
-          <div className="space-y-3">
-            {duplicates.map((g, gi) => (
-              <Card key={gi} className="p-4">
-                <p className="mb-2 text-xs text-amber-600">
-                  同じ領収書が複数登録されている可能性があります。残す1件以外を「重複として除外」してください。
-                </p>
-                <div className="space-y-2">
-                  {g.items.map((r) => (
-                    <div key={r.id} className="flex items-center justify-between gap-3">
-                      <Line item={r} tag={r.source} />
-                      <Button variant="danger-ghost" onClick={() => void markDuplicate(r.id)}>
-                        重複として除外
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {noReceipt.length > 0 && (
-        <section>
-          <h2 className="mb-2 text-sm font-semibold text-slate-700">
-            領収書なしのカード利用 ({noReceipt.length})
-          </h2>
-          <Card className="space-y-2 p-4">
-            <p className="text-xs text-amber-600">
-              対応する領収書が見つかりません。本人に提出を依頼してください。
-            </p>
-            {noReceipt.map((p) => (
-              <Line key={p.card.id} item={p.card} tag="カード明細" />
-            ))}
-          </Card>
-        </section>
-      )}
-
-      <section>
-        <h2 className="mb-2 text-sm font-semibold text-slate-700">ひも付け済み ({groups.length})</h2>
-        {groups.length === 0 ? (
-          <Card>
-            <EmptyState icon={<Icon.Link />} title="まだありません" />
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {groups.map((g) => (
-              <Card key={g.match_id} className="p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-2">
-                    {g.items.map((r) => (
-                      <Line
-                        key={r.id}
-                        item={r}
-                        tag={r.doc_type === 'card_statement' ? 'カード明細' : '領収書'}
-                      />
-                    ))}
+                    <Button variant="secondary" onClick={() => void notDuplicate(d.id)}>
+                      重複ではない
+                    </Button>
                   </div>
-                  <Button variant="ghost" onClick={() => void unlink(g.match_id)}>
-                    解除
-                  </Button>
-                </div>
-              </Card>
-            ))}
-          </div>
-        )}
-      </section>
+                ))}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

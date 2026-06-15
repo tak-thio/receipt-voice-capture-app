@@ -10,7 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import journaling
@@ -122,11 +122,10 @@ async def queue(
     session: AsyncSession = Depends(get_session),
 ):
     held = view == "held"
-    # 未処理（pending）のみ。否認/間違い/削除（approval_status）は除外される。
+    # 未処理（pending）のみ。否認/間違い/削除/重複（approval_status）は除外される。
+    # 自動重複(突き合わせ)で duplicate にされた行は pending ではないので自動的に外れる
+    # = 二重計上しない（本体＝親レコードだけが pending として残る）。
     conds = [Receipt.journalized_at.is_(None), Receipt.approval_status == "pending"]
-    # 領収書とひも付け済みのカード明細行は二重計上になるため仕訳対象から除外
-    # (本体は領収書側)。未ひも付けのカード行は対象に残る(領収書なしの支払)。
-    conds.append(or_(Receipt.doc_type != "card_statement", Receipt.match_id.is_(None)))
     if client_id:
         conds.append(Receipt.client_id == client_id)
 
@@ -201,8 +200,8 @@ async def ledger(
     """仕分け済み(journalized)の仕訳一覧 = 元帳データ。借方/貸方/取引先名を解決して返す。
     RLS により、一般社員は自分の分のみ、管理者/経理/職員は全件が見える。"""
     stmt = select(Receipt).where(Receipt.journalized_at.is_not(None))
-    # ひも付け済みカード明細行は二重計上防止のため元帳から除外(本体は領収書)。
-    stmt = stmt.where(or_(Receipt.doc_type != "card_statement", Receipt.match_id.is_(None)))
+    # 自動重複でまとめられた重複行は二重計上防止のため元帳から除外(本体＝親だけ残す)。
+    stmt = stmt.where(Receipt.approval_status != "duplicate")
     if client_id:
         stmt = stmt.where(Receipt.client_id == client_id)
     rows = list(await session.scalars(stmt.order_by(Receipt.journalized_at.desc()).limit(500)))
