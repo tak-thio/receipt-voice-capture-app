@@ -18,9 +18,14 @@ from .base import ExtractedReceipt, FormatProvider, OcrProvider, SttProvider
 
 settings = get_settings()
 
-# 抽出フィールド仕様（OCR/整形で共通）。摘要(description)は AI に作らせる。
+# 抽出フィールド仕様（OCR/整形で共通＝全経路で一貫）。摘要(description)は AI に作らせる。
+# vendor は「発行者(お店)」固定。宛名(支払った側=自社)と取り違えないよう明示する。
 _FIELDS_SPEC = (
-    'キー: date(YYYY-MM-DD), vendor(支払先), amount_jpy(税込合計,整数), '
+    "キー: date(YYYY-MM-DD), "
+    "vendor(領収書を発行した店舗・事業者の名称=代金を受け取った側。"
+    "宛名や「上様」「御中」付きの支払った相手・自社名は vendor にしない。"
+    "インボイス登録番号(T番号)が記載されていれば、それはこの発行者のもの), "
+    "amount_jpy(税込合計,整数), "
     "subtotal_jpy(税抜金額,整数), tax_jpy(消費税合計,整数), "
     "tax_10_jpy(消費税の10%対象分,整数), tax_8_jpy(消費税の8%対象分,整数), "
     "tax_mode(inclusive/exclusive/unknown), payment_method, t_number(インボイス番号), "
