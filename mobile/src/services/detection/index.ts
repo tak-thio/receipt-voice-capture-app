@@ -1,4 +1,4 @@
-import { WorkerDetector } from './worker-detector'
+import { YoloOnnxDetector } from './yolo-onnx-detector'
 import type { ObjectDetector } from './types'
 
 export type { Detection, DetectionBox, DetectorFrame, ObjectDetector } from './types'
@@ -25,8 +25,9 @@ export const DETECTION_CONFIG: DetectionConfig = {
 }
 
 export async function createDetector(config: DetectionConfig = DETECTION_CONFIG): Promise<ObjectDetector> {
-  // 推論は Web Worker で実行(メインスレッドを止めない)。
-  const detector = new WorkerDetector({
+  // メインスレッドで実行(実機リリースで確実に動く構成)。Web Worker 版
+  // (worker-detector.ts)は WebView で読込が不安定だったため一旦不使用。
+  const detector = new YoloOnnxDetector({
     modelUrl: config.modelUrl,
     classNames: config.classNames,
     scoreThreshold: config.scoreThreshold,
