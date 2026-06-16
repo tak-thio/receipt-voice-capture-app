@@ -742,6 +742,7 @@ button:disabled { opacity: .6; }
 .inbox-row { padding: 12px 4px; border-bottom: 1px solid #1e293b; }
 .inbox-main { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .inbox-main .v { font-weight: 600; color: #f1f5f9; }
+.inbox-main .v.failed { color: #fca5a5; font-weight: 500; font-size: 14px; }
 .inbox-main .amt { font-variant-numeric: tabular-nums; color: #e2e8f0; }
 .inbox-sub { display: flex; align-items: center; gap: 10px; margin-top: 4px; font-size: 12px; color: #94a3b8; }
 .inbox-sub .src { background: #1e293b; border-radius: 6px; padding: 1px 8px; }
@@ -759,6 +760,14 @@ button:disabled { opacity: .6; }
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 16px; }
 .preview-img { max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 8px; background: #fff; }
 .preview-close { padding: 12px 28px; border: none; border-radius: 999px; background: #fff; color: #111; font-weight: 600; }
+
+/* 受信箱: 詳細/修正画面 */
+.detail-img { width: 100%; max-height: 44vh; object-fit: contain; background: #0b1220;
+  border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 4px; }
+.detail-save { width: 100%; margin-top: 14px; }
+.detail-failed { margin: 0 0 4px; padding: 10px 12px; border-radius: 10px; font-size: 13px;
+  color: #fca5a5; background: #2a1416; border: 1px solid #5b1d1d; }
+.field input:disabled, .field textarea:disabled, .field select:disabled { opacity: 0.55; }
 
 /* ===== ダッシュボード(ホーム) ===== */
 /* ホーム/ダッシュボード — 業務向けの落ち着いた表示(フラット・余計な装飾なし) */
@@ -797,6 +806,7 @@ button:disabled { opacity: .6; }
   padding: 11px 2px; border-bottom: 1px solid #1e293b; cursor: pointer; }
 .rdate { font-size: 12px; color: #8b97ad; font-variant-numeric: tabular-nums; }
 .rvendor { color: #e2e8f0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rvendor.failed { color: #fca5a5; font-size: 13px; }
 .ramount { color: #e2e8f0; font-size: 14px; font-variant-numeric: tabular-nums; }
 .rbadge { font-size: 11px; padding: 2px 8px; border-radius: 6px; white-space: nowrap; }
 .rbadge.todo { color: #fbbf24; background: rgba(245,158,11,.14); }

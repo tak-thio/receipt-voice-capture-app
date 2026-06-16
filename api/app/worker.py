@@ -78,6 +78,20 @@ async def _autolink_partner(session, receipt: Receipt) -> None:
         receipt.partner_id = await journaling.exact_partner_id(session, receipt)
 
 
+def _mark_parse_outcome(receipt: Receipt) -> None:
+    """AI 解析後に「請求書として認識できたか」を capture_meta に記録する。
+    店舗名(取引先)も金額も取れなければ未認識=失敗として印を付け、受信箱で『未解析』
+    ではなく『認識できなかった』と出し分けられるようにする。認識できたら印を消す。
+    JSONB は in-place 変更を追跡しないので必ず新しい dict を代入する。"""
+    unresolved = receipt.vendor in (None, UNPARSED_VENDOR) and receipt.amount_jpy is None
+    meta = dict(receipt.capture_meta or {})
+    if unresolved:
+        meta["parse_failed"] = True
+    else:
+        meta.pop("parse_failed", None)
+    receipt.capture_meta = meta
+
+
 async def _process_batch(session, job: Job, cfg: dict) -> None:
     """撮影セット一括: 複数画像 + 任意の音声を1回のマルチモーダル呼び出しで解析し、
     含まれる領収書/カード明細行をすべて Receipt として起こす。1画像から複数件が
@@ -142,6 +156,8 @@ async def _process_batch(session, job: Job, cfg: dict) -> None:
             if entry is not None:
                 _apply_fields(receipt, entry)
                 await _autolink_partner(session, receipt)
+            # 抽出ゼロ(entry None)＝この画像は請求書として認識できなかった。印を付ける。
+            _mark_parse_outcome(receipt)
 
 
 def _resolve_ai(firm_cfg: dict | None, client_cfg: dict | None) -> dict:
@@ -187,6 +203,7 @@ async def _process(session, job: Job) -> None:
             receipt.ocr_raw = json.dumps(fields.raw, ensure_ascii=False) if fields.raw else None
             _apply_fields(receipt, fields)
             await _autolink_partner(session, receipt)
+            _mark_parse_outcome(receipt)
             return
         receipt.ocr_raw = await ocr.extract_text(data, file.mime)
     elif job.kind == "stt":
@@ -204,6 +221,7 @@ async def _process(session, job: Job) -> None:
     if combined:
         _apply_fields(receipt, await factory.format_for(cfg).to_fields(combined))
     await _autolink_partner(session, receipt)
+    _mark_parse_outcome(receipt)
 
 
 async def _tick() -> bool:

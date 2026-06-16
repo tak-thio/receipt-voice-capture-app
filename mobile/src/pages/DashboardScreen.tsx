@@ -107,7 +107,9 @@ export function DashboardScreen({
             {recent.map((r) => (
               <li key={r.id} className="ritem" onClick={onGoInbox}>
                 <span className="rdate">{shortDate(r.captured_at)}</span>
-                <span className="rvendor">{r.vendor || '未解析'}</span>
+                <span className={`rvendor${r.parse_failed ? ' failed' : ''}`}>
+                  {r.parse_failed ? '認識できませんでした' : r.vendor || '未解析'}
+                </span>
                 <span className="ramount">{r.amount_jpy != null ? yen(r.amount_jpy) : '—'}</span>
                 <span className={`rbadge ${r.journalized_at ? 'done' : 'todo'}`}>
                   {r.journalized_at ? '仕分済' : '未仕分け'}

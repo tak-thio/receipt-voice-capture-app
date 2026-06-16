@@ -24,10 +24,50 @@ export interface ServerReceipt {
   captured_at: string | null
   vendor: string | null
   amount_jpy: number | null
+  tax_mode: string | null
+  payment_method: string | null
+  t_number: string | null
   approval_status: string
   journalized_at: string | null
   description: string | null
   image_file_id?: string | null
+  parse_failed?: boolean // AIが請求書として認識できなかった(店舗名も金額も取れず)
+}
+
+// 登録者が AI の読み取り内容を直すための項目（科目・仕訳には触れない）。
+export interface ReceiptPatch {
+  vendor?: string | null
+  date?: string | null // YYYY-MM-DD（領収書の日付）
+  amount_jpy?: number | null
+  tax_mode?: string | null
+  payment_method?: string | null
+  t_number?: string | null
+  description?: string | null // 摘要
+}
+
+/** 領収書の中身を修正する（承認前の自分の領収書のみ。権限/状態はサーバが判定）。 */
+export async function patchReceipt(
+  serverUrl: string,
+  deviceToken: string,
+  receiptId: string,
+  patch: ReceiptPatch,
+): Promise<ServerReceipt> {
+  const res = await fetch(`${base(serverUrl)}/receipts/${receiptId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${deviceToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) {
+    let msg = `保存に失敗しました (${res.status})`
+    try {
+      const body = JSON.parse(await res.text()) as { detail?: string }
+      if (body?.detail) msg = body.detail
+    } catch {
+      /* 本文が JSON でなければ既定メッセージのまま */
+    }
+    throw new Error(msg)
+  }
+  return res.json() as Promise<ServerReceipt>
 }
 
 export async function listReceipts(

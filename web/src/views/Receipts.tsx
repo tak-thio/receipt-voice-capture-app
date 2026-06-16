@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { api, type NoteRow, type ReceiptRow } from '../api'
 import {
-  Badge, Button, Card, EmptyState, Icon, IconButton, Input, PageHeader,
-  Table, Tbody, Td, Th, Thead, Tr,
+  Badge, Button, Card, EmptyState, Icon, IconButton, Input, Modal, PageHeader,
+  Select, Table, Tbody, Td, Textarea, Th, Thead, Tr,
 } from '../ui'
 import { NoteChips, NotePickerModal } from '../notes'
 import { useToast } from '../ui/toast'
@@ -16,7 +16,9 @@ const APPROVAL_LABEL: Record<string, { label: string; tone: 'danger' | 'neutral'
 function statusBadge(r: ReceiptRow) {
   if (r.journalized_at) return <Badge tone="success">仕分済</Badge>
   const a = APPROVAL_LABEL[r.approval_status]
-  return a ? <Badge tone={a.tone}>{a.label}</Badge> : <Badge tone="warning">未仕分</Badge>
+  if (a) return <Badge tone={a.tone}>{a.label}</Badge>
+  if (r.parse_failed) return <Badge tone="danger">解析失敗</Badge>
+  return <Badge tone="warning">未仕分</Badge>
 }
 
 // 取込元(source)をアイコンで: メール / アップロード / アプリ(スマホ)。
@@ -38,6 +40,7 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
   const [loading, setLoading] = useState(false)
   const [tagging, setTagging] = useState<ReceiptRow | null>(null)
   const [emailView, setEmailView] = useState<ReceiptRow | null>(null)
+  const [editing, setEditing] = useState<ReceiptRow | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
@@ -167,7 +170,13 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
               <Tr key={r.id}>
                 <Td className="text-slate-500">{r.captured_at?.slice(0, 10) ?? '—'}</Td>
                 <Td><SourceIcon source={r.source} /></Td>
-                <Td className="font-medium text-slate-800">{r.vendor ?? '—'}</Td>
+                <Td className="font-medium text-slate-800">
+                  {r.parse_failed ? (
+                    <span className="text-rose-600">請求書として認識できませんでした</span>
+                  ) : (
+                    r.vendor ?? '—'
+                  )}
+                </Td>
                 <Td className="text-right font-medium tabular-nums">
                   {r.amount_jpy != null ? `¥${r.amount_jpy.toLocaleString()}` : '—'}
                 </Td>
@@ -210,9 +219,14 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
                 </Td>
                 <Td className="text-right">
                   {r.approval_status === 'pending' && !r.journalized_at && (
-                    <IconButton label="削除" className="h-7 w-7 hover:!text-red-600" onClick={() => void handleDelete(r)}>
-                      <Icon.Trash />
-                    </IconButton>
+                    <div className="flex items-center justify-end gap-1">
+                      <IconButton label="修正" className="h-7 w-7 hover:!text-brand-600" onClick={() => setEditing(r)}>
+                        <Icon.Pencil />
+                      </IconButton>
+                      <IconButton label="削除" className="h-7 w-7 hover:!text-red-600" onClick={() => void handleDelete(r)}>
+                        <Icon.Trash />
+                      </IconButton>
+                    </div>
                   )}
                 </Td>
               </Tr>
@@ -243,7 +257,129 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
         onToggle={(id) => void toggleNote(id)}
       />
       {emailView && <EmailViewModal receiptId={emailView.id} onClose={() => setEmailView(null)} />}
+      {editing && (
+        <ReceiptEditModal
+          row={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(u) => {
+            setRows((rs) => rs.map((x) => (x.id === u.id ? { ...x, ...u } : x)))
+            setEditing(null)
+          }}
+        />
+      )}
     </>
+  )
+}
+
+// AIの読み取り内容を直す簡易エディタ（受信箱から呼ぶ）。科目・仕訳には触れず、領収書の
+// 見たままの項目だけを修正する。承認(仕分け)前の領収書でのみ表示される。
+function ReceiptEditModal({
+  row, onClose, onSaved,
+}: {
+  row: ReceiptRow
+  onClose: () => void
+  onSaved: (updated: ReceiptRow) => void
+}) {
+  const toast = useToast()
+  const [vendor, setVendor] = useState(row.vendor ?? '')
+  const [date, setDate] = useState(row.captured_at?.slice(0, 10) ?? '')
+  const [amount, setAmount] = useState(row.amount_jpy != null ? String(row.amount_jpy) : '')
+  const [taxMode, setTaxMode] = useState(row.tax_mode ?? '')
+  const [payment, setPayment] = useState(row.payment_method ?? '')
+  const [tnumber, setTnumber] = useState(row.t_number ?? '')
+  const [description, setDescription] = useState(row.description ?? '')
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    setSaving(true)
+    try {
+      const digits = amount.replace(/[^\d-]/g, '')
+      const amountJpy = digits === '' ? null : Number(digits)
+      const updated = await api.editReceiptContent(row.id, {
+        vendor: vendor.trim() || null,
+        date: date || null,
+        amount_jpy: amountJpy != null && Number.isNaN(amountJpy) ? null : amountJpy,
+        tax_mode: taxMode || null,
+        payment_method: payment.trim() || null,
+        t_number: tnumber.trim() || null,
+        description: description.trim() || null,
+      })
+      toast.success('修正しました')
+      onSaved(updated)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="領収書の修正"
+      description="AIが読み取った内容を修正できます。"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>キャンセル</Button>
+          <Button variant="primary" onClick={() => void save()} disabled={saving}>
+            {saving ? '保存中…' : '保存'}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {row.image_file_id && (
+          <a
+            href={api.fileUrl(row.image_file_id)}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline"
+          >
+            {(row.image_mime ?? '').includes('pdf') ? <Icon.FileText /> : <Icon.Image />}
+            領収書{(row.image_mime ?? '').includes('pdf') ? 'PDF' : '画像'}を開く
+          </a>
+        )}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <label className="block space-y-1 sm:col-span-2">
+            <span className="text-xs font-medium text-slate-500">支払先(店名)</span>
+            <Input value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder="支払先" />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-slate-500">日付</span>
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </label>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-slate-500">金額(税込)</span>
+            <Input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)}
+              className="text-right tabular-nums" />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-slate-500">税区分</span>
+            <Select value={taxMode} onChange={(e) => setTaxMode(e.target.value)}>
+              <option value="">不明</option>
+              <option value="inclusive">税込</option>
+              <option value="exclusive">税抜</option>
+            </Select>
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-slate-500">支払方法</span>
+            <Input value={payment} onChange={(e) => setPayment(e.target.value)} placeholder="現金 / クレジット 等" />
+          </label>
+        </div>
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-slate-500">インボイス番号(T番号)</span>
+          <Input value={tnumber} onChange={(e) => setTnumber(e.target.value)} placeholder="T1234567890123" />
+        </label>
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-slate-500">摘要</span>
+          <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)}
+            placeholder="用途・メモ" />
+        </label>
+      </div>
+    </Modal>
   )
 }
 

@@ -1,5 +1,6 @@
 """Receipt list / detail / edit. Rows are RLS-scoped to the principal's tenants."""
 
+from datetime import date as _date, datetime, time, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -9,13 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import Principal, get_principal
-from ..models import File, Receipt, ReceiptFile, User
+from ..models import UNPARSED_VENDOR, ApprovalStatus, File, Receipt, ReceiptFile, User
 
 router = APIRouter(prefix="/receipts", tags=["receipts"])
 
 
 class ReceiptPatch(BaseModel):
     vendor: str | None = None
+    date: str | None = None  # 領収書の日付(captured_at)。YYYY-MM-DD
     amount_jpy: int | None = None
     tax_mode: str | None = None
     payment_method: str | None = None
@@ -26,6 +28,26 @@ class ReceiptPatch(BaseModel):
     partner_id: UUID | None = None
     approval_status: str | None = None
     note_ids: list[str] | None = None  # 付箋: replace the attached set
+
+
+# 登録者本人(RLS='own', 一般社員/利用者)が触れる「領収書の中身」。AI の読み取り間違いを
+# 直すための項目で、承認(仕訳)前に限り編集できる。
+_OWN_CONTENT_FIELDS = {
+    "vendor", "date", "amount_jpy", "tax_mode", "payment_method", "t_number", "description",
+}
+# 仕訳に関わる項目は担当者(RLS='all': 管理者/経理/職員)だけが触れる。
+_MANAGER_ONLY_FIELDS = {"account_title_id", "sub_account_id", "partner_id"}
+
+
+def _parse_date(s: str | None) -> datetime | None:
+    """YYYY-MM-DD 等を captured_at 用の datetime に。失敗時 None。"""
+    if not s:
+        return None
+    txt = s.strip().replace("/", "-").replace(".", "-")[:10]
+    try:
+        return datetime.combine(_date.fromisoformat(txt), time(0, 0), tzinfo=timezone.utc)
+    except ValueError:
+        return None
 
 
 def _serialize(r: Receipt, image_file_id=None, created_by_name=None, image_mime=None) -> dict:
@@ -42,6 +64,11 @@ def _serialize(r: Receipt, image_file_id=None, created_by_name=None, image_mime=
         "payment_method": r.payment_method,
         "t_number": r.t_number,
         "description": r.description,
+        # 請求書として認識できなかった(AI解析で店舗名も金額も取れなかった)行。受信箱で
+        # 『未解析(処理待ち)』ではなく『認識できなかった』と出し分けるための印。人が
+        # 店舗名を入れたら解消するよう、印があっても vendor が実値なら false。
+        "parse_failed": bool((r.capture_meta or {}).get("parse_failed"))
+        and (r.vendor is None or r.vendor == UNPARSED_VENDOR),
         "account_title_id": str(r.account_title_id) if r.account_title_id else None,
         "approval_status": r.approval_status,
         "journalized_at": r.journalized_at.isoformat() if r.journalized_at else None,
@@ -153,11 +180,50 @@ async def patch_receipt(
 ):
     r = await session.get(Receipt, receipt_id)
     if not r:
-        return {"error": "not found"}
-    for field, value in body.model_dump(exclude_unset=True).items():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "receipt not found")
+    data = body.model_dump(exclude_unset=True)
+
+    # 権限レベルを RLS ヘルパで判定: 'all'=担当者(管理者/経理/職員) / 'own'=登録者本人。
+    # RLS でそもそも見えない行は session.get が None を返すので、ここに来る時点で
+    # 「触れてよい行」だけ。'own' のときに何を許すかをアプリ側でさらに絞る。
+    access = await session.scalar(
+        text("SELECT app_client_access(:c)"), {"c": str(r.client_id)}
+    )
+    if access != "all":
+        # 登録者本人: AI の読み取り内容を「承認(仕訳)前の自分の領収書」に限り修正できる。
+        # 科目・取引先(仕訳項目)は不可。承認状態は自分の取り消し(deleted)のみ許可し、
+        # 否認/間違い等の承認操作はできない。
+        if _MANAGER_ONLY_FIELDS & data.keys():
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "科目・取引先は担当者のみ編集できます")
+        if "approval_status" in data and data["approval_status"] != ApprovalStatus.deleted.value:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "承認状態は変更できません")
+        # 中身の修正・取り消しは「未仕分(pending) かつ 未確定」のときだけ。確定後はロック。
+        if (_OWN_CONTENT_FIELDS | {"approval_status"}) & data.keys():
+            if r.journalized_at is not None or r.approval_status != ApprovalStatus.pending.value:
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN, "確定済み/処理済みのため編集できません"
+                )
+
+    # 日付(captured_at)は別名・要パース。空/不正は据え置き(誤って日付を消さない)。
+    if "date" in data:
+        parsed = _parse_date(data.pop("date"))
+        if parsed is not None:
+            r.captured_at = parsed
+    for field, value in data.items():
         setattr(r, field, value)
     await session.flush()
-    return _serialize(r)
+    # 一覧/詳細と同じ形(画像・登録者名込み)で返す。フロントが行をそのまま差し替えても
+    # 画像リンク等が欠けないようにする。
+    img_row = (
+        await session.execute(
+            select(ReceiptFile.file_id, File.mime)
+            .join(File, File.id == ReceiptFile.file_id)
+            .where(ReceiptFile.receipt_id == r.id, ReceiptFile.kind == "capture")
+        )
+    ).first()
+    fid, mime = (img_row[0], img_row[1]) if img_row else (None, None)
+    creators = await _creator_names(session, [r])
+    return _serialize(r, fid, creators.get(r.created_by), mime)
 
 
 @router.delete("/{receipt_id}")

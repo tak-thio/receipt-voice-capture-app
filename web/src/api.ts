@@ -68,6 +68,18 @@ export interface ReceiptRow {
   image_file_id?: string | null
   image_mime?: string | null
   created_by_name?: string | null
+  parse_failed?: boolean // AIが請求書として認識できなかった(店舗名も金額も取れず)
+}
+
+// 登録者向け: AI が読み取った「領収書の中身」だけを修正する（科目・仕訳には触れない）。
+export interface ReceiptContentPatch {
+  vendor?: string | null
+  date?: string | null // YYYY-MM-DD（領収書の日付 = captured_at）
+  amount_jpy?: number | null
+  tax_mode?: string | null
+  payment_method?: string | null
+  t_number?: string | null
+  description?: string | null // 摘要
 }
 
 export interface NoteRow {
@@ -266,6 +278,9 @@ export const api = {
     return req<ReceiptRow[]>(`/receipts${qs ? `?${qs}` : ''}`)
   },
   patchReceipt: (id: string, patch: Partial<ReceiptRow>) =>
+    req<ReceiptRow>(`/receipts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  // 登録者が AI の読み取り内容を修正する（承認前の自分の領収書のみ。サーバ側で権限/状態を判定）。
+  editReceiptContent: (id: string, patch: ReceiptContentPatch) =>
     req<ReceiptRow>(`/receipts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteReceipt: (id: string) => req(`/receipts/${id}`, { method: 'DELETE' }),
   // メール取込の元メール本文(件名/差出人/本文)。
