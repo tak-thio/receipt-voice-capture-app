@@ -99,7 +99,13 @@ async def list_receipts(
     _: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
-    stmt = select(Receipt).order_by(Receipt.created_at.desc()).limit(min(limit, 500))
+    # 削除(approval_status='deleted')された領収書は受信箱に出さない(消えたように見せる)。
+    stmt = (
+        select(Receipt)
+        .where(Receipt.approval_status != ApprovalStatus.deleted.value)
+        .order_by(Receipt.created_at.desc())
+        .limit(min(limit, 500))
+    )
     if client_id:
         stmt = stmt.where(Receipt.client_id == client_id)
     if q:

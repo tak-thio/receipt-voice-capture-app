@@ -91,7 +91,7 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
   }, [clientId])
 
   async function handleDelete(r: ReceiptRow) {
-    if (!window.confirm('この領収書を削除しますか?（受信箱に「削除済」として残ります）')) return
+    if (!window.confirm('この領収書を削除しますか?')) return
     if (await toast.run(() => api.setApproval(r.id, 'deleted'), '削除しました')) void load()
   }
 
@@ -181,11 +181,10 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
                   {r.amount_jpy != null ? `¥${r.amount_jpy.toLocaleString()}` : '—'}
                 </Td>
                 {showCreator && <Td className="text-slate-500">{r.created_by_name ?? '—'}</Td>}
-                <Td>
-                  <DescCell
-                    row={r}
-                    onSaved={(v) => setRows((rs) => rs.map((x) => (x.id === r.id ? { ...x, description: v } : x)))}
-                  />
+                <Td className="text-sm text-slate-600">
+                  <span className="block max-w-[14rem] truncate" title={r.description ?? ''}>
+                    {r.description || '—'}
+                  </span>
                 </Td>
                 <Td>
                   <div className="flex items-center gap-1.5">
@@ -383,38 +382,3 @@ function ReceiptEditModal({
   )
 }
 
-// 摘要のインライン編集セル。AIが入れた値を表示し、フォーカスを外した時に変更があれば保存。
-function DescCell({ row, onSaved }: { row: ReceiptRow; onSaved: (v: string) => void }) {
-  const toast = useToast()
-  const [v, setV] = useState(row.description ?? '')
-  const [saving, setSaving] = useState(false)
-  useEffect(() => {
-    setV(row.description ?? '')
-  }, [row.id, row.description])
-
-  async function commit() {
-    const next = v.trim()
-    if (next === (row.description ?? '')) return
-    setSaving(true)
-    try {
-      await api.patchReceipt(row.id, { description: next || null })
-      onSaved(next)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e))
-      setV(row.description ?? '')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <Input
-      value={v}
-      disabled={saving}
-      placeholder="摘要"
-      className="min-w-[12rem] text-sm"
-      onChange={(e) => setV(e.target.value)}
-      onBlur={() => void commit()}
-    />
-  )
-}
