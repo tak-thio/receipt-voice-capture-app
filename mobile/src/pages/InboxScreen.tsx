@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
+  deleteReceipt,
   fetchPreviewObjectUrl,
   listReceipts,
   patchReceipt,
@@ -60,6 +61,10 @@ export function InboxScreen() {
           setRows((rs) => rs.map((x) => (x.id === u.id ? { ...x, ...u } : x)))
           setSelected(null)
         }}
+        onDeleted={(id) => {
+          setRows((rs) => rs.filter((x) => x.id !== id))
+          setSelected(null)
+        }}
       />
     )
   }
@@ -108,10 +113,12 @@ function ReceiptDetailScreen({
   receipt,
   onBack,
   onSaved,
+  onDeleted,
 }: {
   receipt: ServerReceipt
   onBack: () => void
   onSaved: (updated: ServerReceipt) => void
+  onDeleted: (id: string) => void
 }) {
   const connection = useAppStore((state) => state.connection)!
   const editable = isEditable(receipt)
@@ -124,6 +131,8 @@ function ReceiptDetailScreen({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [imgUrl, setImgUrl] = useState<string | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     let revoke: string | null = null
@@ -160,6 +169,19 @@ function ReceiptDetailScreen({
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function remove() {
+    setDeleting(true)
+    setError('')
+    try {
+      await deleteReceipt(connection.serverUrl, connection.deviceToken, receipt.id)
+      onDeleted(receipt.id) // 成功時は親が一覧から除外＆画面を閉じる
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      setDeleting(false)
+      setConfirmingDelete(false)
     }
   }
 
@@ -209,6 +231,26 @@ function ReceiptDetailScreen({
           {saving ? '保存中…' : '保存'}
         </button>
       )}
+
+      {/* 承認(仕分け)前の自分の領収書は削除できる。 */}
+      {editable &&
+        (confirmingDelete ? (
+          <div className="detail-delete-confirm">
+            <span>この領収書を削除しますか?</span>
+            <div className="detail-delete-actions">
+              <button className="danger-button" onClick={() => void remove()} disabled={deleting}>
+                {deleting ? '削除中…' : '削除する'}
+              </button>
+              <button className="ghost-button" onClick={() => setConfirmingDelete(false)} disabled={deleting}>
+                やめる
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button className="detail-delete-link" onClick={() => setConfirmingDelete(true)} disabled={saving}>
+            この領収書を削除
+          </button>
+        ))}
     </div>
   )
 }

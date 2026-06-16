@@ -70,6 +70,29 @@ export async function patchReceipt(
   return res.json() as Promise<ServerReceipt>
 }
 
+/** 自分がアップした領収書を削除する（承認前=未仕分のみ。論理削除＝受信箱から消える）。 */
+export async function deleteReceipt(
+  serverUrl: string,
+  deviceToken: string,
+  receiptId: string,
+): Promise<void> {
+  const res = await fetch(`${base(serverUrl)}/receipts/${receiptId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${deviceToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ approval_status: 'deleted' }),
+  })
+  if (!res.ok) {
+    let msg = `削除に失敗しました (${res.status})`
+    try {
+      const body = JSON.parse(await res.text()) as { detail?: string }
+      if (body?.detail) msg = body.detail
+    } catch {
+      /* 本文が JSON でなければ既定メッセージのまま */
+    }
+    throw new Error(msg)
+  }
+}
+
 export async function listReceipts(
   serverUrl: string,
   deviceToken: string,
