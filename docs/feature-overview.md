@@ -1,6 +1,6 @@
-# 会計事務所向け 領収書管理システム（仮称） — 特徴まとめ（1枚もの）
+# 領収ボックス — 会計事務所向け 領収書管理システム（特徴まとめ・1枚もの）
 
-> 説明資料用の特徴中心サマリ。製品名は仮。詳細設計は [`saas-design.md`](saas-design.md) / [`architecture.md`](architecture.md) を参照。
+> 説明資料用の特徴中心サマリ。詳細設計は [`saas-design.md`](saas-design.md) / [`architecture.md`](architecture.md) を参照。
 
 **スマホ・メール・アップロードから取り込み、AIが仕訳まで。税理士事務所と顧問先をつなぐクラウド。**
 

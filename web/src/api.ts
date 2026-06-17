@@ -23,6 +23,7 @@ export interface Membership {
 export interface Me {
   user: { id: string; email: string; name: string }
   memberships: Membership[]
+  org_name?: string | null // 自分の組織名（事務所メンバーは事務所名、顧問先メンバーは自社名）
 }
 
 export interface ClientRow {

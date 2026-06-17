@@ -83,7 +83,7 @@ function Login({ onLogin }: { onLogin: (me: Me) => void }) {
           <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand-600 text-2xl text-white shadow-lg shadow-brand-600/30">
             <Icon.Receipt />
           </div>
-          <h1 className="text-lg font-bold text-slate-900">領収書SaaS</h1>
+          <h1 className="text-lg font-bold text-slate-900">領収ボックス</h1>
           <p className="text-sm text-slate-500">事務所アカウントでログイン</p>
         </div>
         <Card>
@@ -104,7 +104,7 @@ function Login({ onLogin }: { onLogin: (me: Me) => void }) {
             </Button>
           </form>
         </Card>
-        <p className="mt-4 text-center text-xs text-slate-400">税理士事務所向け 領収書クラウド</p>
+        <p className="mt-4 text-center text-xs text-slate-400">税理士事務所向け 領収ボックス</p>
       </div>
     </div>
   )
@@ -183,13 +183,13 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
   return (
     <div className="flex min-h-screen bg-slate-100">
-      <Sidebar nav={nav} tab={tab} onGo={go} className="hidden lg:flex" />
+      <Sidebar nav={nav} tab={tab} onGo={go} orgName={me.org_name} className="hidden lg:flex" />
 
       {/* mobile drawer */}
       {navOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 animate-fade-in bg-slate-900/40" onClick={() => setNavOpen(false)} />
-          <Sidebar nav={nav} tab={tab} onGo={go} className="absolute left-0 top-0 h-full animate-slide-up" />
+          <Sidebar nav={nav} tab={tab} onGo={go} orgName={me.org_name} className="absolute left-0 top-0 h-full animate-slide-up" />
         </div>
       )}
 
@@ -250,11 +250,13 @@ function Sidebar({
   tab,
   onGo,
   className,
+  orgName,
 }: {
   nav: NavItem[]
   tab: Tab
   onGo: (id: Tab) => void
   className?: string
+  orgName?: string | null
 }) {
   return (
     <aside className={cn('flex w-60 flex-col border-r border-slate-200 bg-white', className)}>
@@ -263,8 +265,10 @@ function Sidebar({
           <Icon.Receipt />
         </div>
         <div className="leading-tight">
-          <div className="font-bold text-slate-900">領収書SaaS</div>
-          <div className="text-[11px] text-slate-400">税理士事務所向け</div>
+          <div className="font-bold text-slate-900">領収ボックス</div>
+          <div className="max-w-[9rem] truncate text-[11px] text-slate-400" title={orgName ?? ''}>
+            {orgName || '税理士事務所向け'}
+          </div>
         </div>
       </div>
       <nav className="flex-1 space-y-0.5 px-3 py-2">

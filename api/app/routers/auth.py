@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..db import get_session
 from ..deps import Principal, get_principal
-from ..models import Firm, Membership, User
+from ..models import Client, Firm, Membership, User
 from ..security import make_session, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -67,7 +67,22 @@ async def logout(response: Response):
 
 
 @router.get("/me")
-async def me(principal: Principal = Depends(get_principal)):
+async def me(
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    # サイドバーのサブタイトルに出す「自分の組織名」: 事務所メンバー(firm_owner/staff)は
+    # 事務所名、顧問先メンバーは自社(顧問先)名。RLS で自分の所属だけ読める。
+    firm_m = next((m for m in principal.memberships if m.client_id is None), None)
+    org_name = None
+    if firm_m:
+        firm = await session.get(Firm, firm_m.firm_id)
+        org_name = firm.name if firm else None
+    else:
+        client_m = next((m for m in principal.memberships if m.client_id is not None), None)
+        if client_m:
+            client = await session.get(Client, client_m.client_id)
+            org_name = client.name if client else None
     return {
         "user": {"id": str(principal.user.id), "email": principal.user.email, "name": principal.user.name},
         "memberships": [
@@ -78,5 +93,6 @@ async def me(principal: Principal = Depends(get_principal)):
             }
             for m in principal.memberships
         ],
+        "org_name": org_name,
         "device_client_id": str(principal.device_client_id) if principal.device_client_id else None,
     }
