@@ -10,7 +10,7 @@ import { GmailLink } from './views/GmailLink'
 import { SettingsView } from './views/Settings'
 import { ExportView } from './views/Export'
 import { InviteRedeem } from './views/InviteRedeem'
-import { Alert, Button, Card, cn, Icon, Input, PageHeader, Select } from './ui'
+import { Alert, Button, Card, cn, Icon, Input, Modal, PageHeader, Select, Spinner } from './ui'
 import type { IconComponent } from './ui/icons'
 import { ToastProvider } from './ui/toast'
 
@@ -143,6 +143,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [clientId, setClientId] = useState<string>('')
   const [tab, setTab] = useState<Tab>('receipts')
   const [navOpen, setNavOpen] = useState(false)
+  const [pairOpen, setPairOpen] = useState(false)
 
   // Role-aware capabilities. 職員=firm-level membership; 利用者=client-level.
   const firmRole = me.memberships.find((m) => m.client_id === null)?.role ?? null
@@ -210,7 +211,12 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
             </div>
           )}
           <div className="flex-1" />
-          <UserMenu email={me.user.email} name={me.user.name} onLogout={onLogout} />
+          <UserMenu
+            email={me.user.email}
+            name={me.user.name}
+            onLogout={onLogout}
+            onPair={clientMembership ? () => setPairOpen(true) : undefined}
+          />
         </header>
 
         <main className="mx-auto w-full max-w-7xl flex-1 p-5 sm:p-6">
@@ -241,6 +247,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
             ) : null)}
         </main>
       </div>
+      {pairOpen && <SelfPairModal onClose={() => setPairOpen(false)} />}
     </div>
   )
 }
@@ -295,7 +302,17 @@ function Sidebar({
   )
 }
 
-function UserMenu({ email, name, onLogout }: { email: string; name: string; onLogout: () => void }) {
+function UserMenu({
+  email,
+  name,
+  onLogout,
+  onPair,
+}: {
+  email: string
+  name: string
+  onLogout: () => void
+  onPair?: () => void
+}) {
   const [open, setOpen] = useState(false)
   const initial = (name || email || '?').trim().charAt(0).toUpperCase()
   return (
@@ -318,6 +335,15 @@ function UserMenu({ email, name, onLogout }: { email: string; name: string; onLo
               {name && <div className="truncate text-sm font-medium text-slate-800">{name}</div>}
               <div className="truncate text-xs text-slate-500">{email}</div>
             </div>
+            {onPair && (
+              <button
+                onClick={() => { setOpen(false); onPair() }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
+              >
+                <Icon.Qr className="text-base text-slate-400" />
+                アプリと連携
+              </button>
+            )}
             <button
               onClick={async () => { setOpen(false); await api.logout(); onLogout() }}
               className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
@@ -329,5 +355,44 @@ function UserMenu({ email, name, onLogout }: { email: string; name: string; onLo
         </>
       )}
     </div>
+  )
+}
+
+// 本人が自分のアカウントにスマホアプリ(端末)を紐付けるためのQRを表示する。
+// 管理者の代理発行(ユーザー管理画面)と違い、一般社員が自分で連携できる。
+function SelfPairModal({ onClose }: { onClose: () => void }) {
+  const [png, setPng] = useState<string | null>(null)
+  const [err, setErr] = useState('')
+  const [mins, setMins] = useState(15)
+  useEffect(() => {
+    api
+      .selfPairing()
+      .then((r) => {
+        setPng(r.qr_png_base64)
+        setMins(r.expires_in_min)
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+  }, [])
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="アプリと連携"
+      size="sm"
+      description="スマホアプリの「連携」画面でこのQRコードを読み取ると、あなたのアカウントに端末が紐付きます。"
+    >
+      <div className="flex flex-col items-center gap-3 py-2">
+        {err ? (
+          <Alert>{err}</Alert>
+        ) : png ? (
+          <>
+            <img alt="ペアリングQR" className="h-56 w-56 rounded-lg border border-slate-200" src={`data:image/png;base64,${png}`} />
+            <p className="text-xs text-slate-500">有効期限: 約{mins}分（過ぎたら開き直すと再発行されます）</p>
+          </>
+        ) : (
+          <Spinner />
+        )}
+      </div>
+    </Modal>
   )
 }

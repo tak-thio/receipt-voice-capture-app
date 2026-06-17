@@ -42,6 +42,18 @@ class RedeemBody(BaseModel):
     token: str
 
 
+def _qr_png_b64(token: str) -> str:
+    """ペアリングQRの内容(公開URLがあれば {url,t}、無ければ生token)を PNG base64 に。"""
+    if settings.public_api_url:
+        qr_content = json.dumps({"url": settings.public_api_url, "t": token}, separators=(",", ":"))
+    else:
+        qr_content = token
+    img = qrcode.make(qr_content)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
 @router.post("/issue")
 async def issue(
     body: IssueBody,
@@ -101,18 +113,7 @@ async def issue(
         )
     )
 
-    # 公開URLが設定されていれば {"url","t"} を QR に入れ、1スキャンで接続先+トークンを得る。
-    # 未設定なら従来どおり bare token(端末側で URL を手入力)。
-    if settings.public_api_url:
-        qr_content = json.dumps(
-            {"url": settings.public_api_url, "t": token}, separators=(",", ":")
-        )
-    else:
-        qr_content = token
-    img = qrcode.make(qr_content)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    qr_b64 = base64.b64encode(buf.getvalue()).decode()
+    qr_b64 = _qr_png_b64(token)
     return {
         "token": token,  # for testing; production shows only the QR
         "qr_png_base64": qr_b64,
@@ -120,6 +121,40 @@ async def issue(
         "expires_in_min": PAIRING_TTL_MIN,
         "client_id": str(client.id),
         "user_id": str(user.id),
+    }
+
+
+@router.post("/self")
+async def issue_self(
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """ログイン中の本人が、自分のアカウントに端末を紐付けるための QR を発行する。
+    管理者が代理発行する /issue と違い、対象は常に呼び出し本人＝権限昇格にならない。
+    顧問先メンバー(client_user/accountant/admin)向け。事務所メンバーは対象外。"""
+    membership = next((m for m in principal.memberships if m.client_id is not None), None)
+    if not membership:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "顧問先に所属していないため連携できません")
+    client = await session.get(Client, membership.client_id)
+    if not client:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
+
+    token = new_token()
+    session.add(
+        PairingToken(
+            firm_id=client.firm_id,
+            client_id=client.id,
+            user_id=principal.user.id,
+            token_hash=hash_token(token),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=PAIRING_TTL_MIN),
+        )
+    )
+    return {
+        "qr_png_base64": _qr_png_b64(token),
+        "url": settings.public_api_url or None,
+        "expires_in_min": PAIRING_TTL_MIN,
+        "client_id": str(client.id),
+        "user_id": str(principal.user.id),
     }
 
 

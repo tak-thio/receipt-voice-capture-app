@@ -380,6 +380,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ client_id: clientId, user_id: userId }),
     }),
+  // 本人が自分のアカウントに端末(アプリ)を紐付けるQRを発行(顧問先メンバー向け)。
+  selfPairing: () =>
+    req<{ qr_png_base64: string; url: string | null; expires_in_min: number }>('/pairing/self', {
+      method: 'POST',
+    }),
 
   // --- firm settings / AI config ---
   firm: () => req<FirmInfo>('/firm'),
