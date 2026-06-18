@@ -42,7 +42,7 @@ function numOrNull(s: string): number | null {
 }
 
 export function ReceiptEditFields({
-  item, titles, partners, notes, noteIds, showCreator, onToggleNote, renderActions,
+  item, titles, partners, notes, noteIds, showCreator, lockDate, onToggleNote, renderActions,
 }: {
   item: EditableReceipt
   titles: MasterRow[]
@@ -50,6 +50,7 @@ export function ReceiptEditFields({
   notes: NoteRow[]
   noteIds: string[]
   showCreator?: boolean
+  lockDate?: string | null // 締め日(YYYY-MM-DD)。取引日がこれ以前なら「期間外」警告
   onToggleNote: (noteId: string) => void
   renderActions: (getValues: () => JournalizeBody, debitSelected: boolean) => ReactNode
 }) {
@@ -239,6 +240,11 @@ export function ReceiptEditFields({
         {item.parse_failed && (
           <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
             請求書として認識できませんでした。内容を手入力するか、「否認」「削除」してください。
+          </div>
+        )}
+        {lockDate && item.date && item.date <= lockDate && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
+            期間外: 締め日({lockDate})以前の日付です。AIの読み取り誤りなら日付を修正、締め後のものなら取り下げ/訂正してください。
           </div>
         )}
         {/* 店舗名 + 日付（編集可能） */}

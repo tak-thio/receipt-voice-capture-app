@@ -169,6 +169,8 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const canSelfGmail = !!clientMembership && clientRole !== 'client_admin'
   // 管理者・経理・職員は他人の領収書も見えるので登録者を表示（一般社員は自分のみ）。
   const canSeeOthers = firmRole !== null || clientRole === 'client_admin' || clientRole === 'client_accountant'
+  // 締め日(この日付以前の取引日は受信箱/仕分けで「期間外」警告)。選択中の顧問先のものを使う。
+  const lockDate = clients.find((c) => c.id === clientId)?.closing_date ?? null
   const nav = NAV.filter((t) => t.can(perms))
   const active = nav.find((t) => t.id === tab) ?? nav[0]
 
@@ -238,9 +240,10 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
               clientId={clientId}
               showCreator={canSeeOthers}
               canPollGmail={perms.isFirm || !!clientMembership}
+              lockDate={lockDate}
             />
           )}
-          {tab === 'journal' && <JournalView clientId={clientId} showCreator={canSeeOthers} />}
+          {tab === 'journal' && <JournalView clientId={clientId} showCreator={canSeeOthers} lockDate={lockDate} />}
           {tab === 'reconcile' && <ReconcileView clientId={clientId} />}
           {tab === 'ledger' && <LedgerView clientId={clientId} showCreator={canSeeOthers} />}
           {tab === 'export' && <ExportView clientId={clientId} />}

@@ -14,7 +14,7 @@ function yen(n: number | null): string {
 
 // 領収書は縦長が多いので、左に画像プレビュー・右に入力（取引先/借方/貸方/消費税）の
 // 左右レイアウト。1件ずつ確認して仕訳する。エディタ本体は ReceiptEditFields（元帳編集と共通）。
-export function JournalView({ clientId, showCreator }: { clientId: string; showCreator?: boolean }) {
+export function JournalView({ clientId, showCreator, lockDate }: { clientId: string; showCreator?: boolean; lockDate?: string | null }) {
   const [titles, setTitles] = useState<MasterRow[]>([])
   const [partners, setPartners] = useState<MasterRow[]>([])
   const [notes, setNotes] = useState<NoteRow[]>([])
@@ -135,6 +135,7 @@ export function JournalView({ clientId, showCreator }: { clientId: string; showC
               notes={notes}
               noteIds={top.note_ids}
               showCreator={showCreator}
+              lockDate={lockDate}
               onToggleNote={(id) => void toggleNote(id)}
               renderActions={(getValues, debitSelected) => (
                 <>

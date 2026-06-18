@@ -24,7 +24,7 @@ function blankClient(): ClientDetail {
   return {
     id: '', name: '', code: null, export_default: 'generic', status: 'active',
     entity_type: null, t_number: null, address: null, phone: null,
-    contact_name: null, fiscal_month: null, industry: null, memo: null,
+    contact_name: null, fiscal_month: null, closing_date: null, industry: null, memo: null,
     staff_user_id: null,
   }
 }
@@ -389,6 +389,10 @@ function ClientForm({
         <Field label="決算月">
           <Input type="number" min={1} max={12} value={d.fiscal_month ?? ''}
             onChange={(e) => set('fiscal_month', e.target.value ? Number(e.target.value) : null)} />
+        </Field>
+        <Field label="締め日(この日付以前の領収書は期間外警告)">
+          <Input type="date" value={d.closing_date ?? ''}
+            onChange={(e) => set('closing_date', e.target.value || null)} />
         </Field>
         <Field label="業種">
           <Input value={d.industry ?? ''} onChange={(e) => set('industry', e.target.value)} />

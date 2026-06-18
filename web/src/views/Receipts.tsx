@@ -36,10 +36,12 @@ export function ReceiptsView({
   clientId,
   showCreator,
   canPollGmail,
+  lockDate,
 }: {
   clientId: string
   showCreator?: boolean
   canPollGmail?: boolean
+  lockDate?: string | null // 締め日(YYYY-MM-DD)。取引日がこれ以前なら「期間外」警告
 }) {
   const toast = useToast()
   const [rows, setRows] = useState<ReceiptRow[]>([])
@@ -223,7 +225,14 @@ export function ReceiptsView({
                     </IconButton>
                   </div>
                 </Td>
-                <Td>{statusBadge(r)}</Td>
+                <Td>
+                  <div className="flex flex-wrap items-center gap-1">
+                    {statusBadge(r)}
+                    {lockDate && r.captured_at && r.captured_at.slice(0, 10) <= lockDate && (
+                      <Badge tone="danger">期間外</Badge>
+                    )}
+                  </div>
+                </Td>
                 <Td>
                   <div className="flex items-center gap-2 text-slate-500">
                     {r.image_file_id && (

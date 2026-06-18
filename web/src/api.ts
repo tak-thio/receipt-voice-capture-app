@@ -34,6 +34,7 @@ export interface ClientRow {
   status?: string
   entity_type?: string | null
   fiscal_month?: number | null
+  closing_date?: string | null // 締め日(YYYY-MM-DD): この日付以前の領収書は期間外警告
   industry?: string | null
 }
 
@@ -45,6 +46,7 @@ export interface ClientDetail extends ClientRow {
   phone: string | null
   contact_name: string | null
   fiscal_month: number | null
+  closing_date: string | null
   industry: string | null
   memo: string | null
   staff_user_id: string | null
