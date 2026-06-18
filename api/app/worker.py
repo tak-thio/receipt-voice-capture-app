@@ -23,11 +23,13 @@ from . import dedup, journaling, storage
 from .ai import factory
 from .ai.base import ExtractedReceipt
 from .config import get_settings
+from .ingest.poll import poll_accounts
 from .models import (
     UNPARSED_VENDOR,
     Client,
     File,
     Firm,
+    GmailAccount,
     Job,
     Receipt,
     ReceiptFile,
@@ -449,3 +451,35 @@ async def run_worker() -> None:
         except Exception:  # noqa: BLE001 — never let the loop die
             worked = False
         await asyncio.sleep(0.5 if worked else 3)
+
+
+async def _gmail_poll_tick() -> dict:
+    """全テナントの有効な連携メールを取り込む。owner接続(RLSバイパス)で、ingest_account が
+    account.firm_id/client_id を明示するのでテナント混在しない。受信箱の手動ボタンと同一処理。"""
+    async with _Session() as session:
+        async with session.begin():
+            accounts = list(
+                await session.scalars(
+                    select(GmailAccount).where(GmailAccount.active.is_(True))
+                )
+            )
+            if not accounts:
+                return {"accounts": 0, "seen": 0, "appended": 0, "failed": 0}
+            # 取りこぼし吸収のため間隔より広めに走査(重複はスキップされる)。
+            days = max(7, settings.gmail_poll_interval_hours // 24 + 2)
+            return await poll_accounts(session, accounts, days=days)
+
+
+async def run_gmail_poller() -> None:
+    """連携メールの定期取り込み(Cron相当)。worker と同じプロセスで回る。"""
+    log = logging.getLogger("worker")
+    interval = max(1, settings.gmail_poll_interval_hours) * 3600
+    await asyncio.sleep(30)  # 起動直後の負荷集中を避ける
+    while True:
+        try:
+            stats = await _gmail_poll_tick()
+            if stats["accounts"]:
+                log.info("gmail poll: %s", stats)
+        except Exception:  # noqa: BLE001 — ループは絶対に止めない
+            log.exception("gmail poller tick failed")
+        await asyncio.sleep(interval)

@@ -20,6 +20,7 @@ from ..db import get_session
 from ..deps import Principal, get_principal
 from ..ingest.gmail import GmailClient
 from ..ingest.pipeline import ingest_account
+from ..ingest.poll import poll_accounts
 from ..models import Client, GmailAccount, Role
 from ..security import encrypt_secret, make_oauth_state, read_oauth_state
 
@@ -70,6 +71,19 @@ def _require_account_manage(principal: Principal, account: GmailAccount) -> None
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "自分が連携したメールのみ操作できます"
         )
+
+
+def _client_relation(principal: Principal, client_id: UUID) -> str | None:
+    """principal とこの顧問先の関係を返す: 'admin'(顧客管理者) / 'member'(経理・一般社員) /
+    'firm'(事務所職員) / None(無関係)。取り込みボタンの対象アカウント範囲を決めるのに使う。"""
+    for m in principal.memberships:
+        if m.client_id == client_id:
+            return "admin" if m.role == Role.client_admin.value else "member"
+    # 事務所側(firm_owner/firm_staff)は client_id=None の事務所メンバーシップを持つ。
+    # 実際にこの顧問先へアクセスできるかは RLS(app_client_access)が最終的に絞る。
+    if any(m.client_id is None for m in principal.memberships):
+        return "firm"
+    return None
 
 
 def _flow():
@@ -223,4 +237,29 @@ async def sync_account(
         )
     except Exception as exc:  # noqa: BLE001 — surface a clean error to the UI
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Gmail 取り込みに失敗しました: {exc}")
+    return stats
+
+
+@router.post("/poll")
+async def poll_now(
+    client_id: UUID,
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """受信箱の「メール取込」ボタン: この顧問先の連携メールを今すぐまとめて取り込む。
+    定期実行(Cron相当のポーラ)と同じ poll_accounts を呼ぶ手動キック。
+    顧客管理者/事務所職員は顧問先の全メール、経理・一般社員は自分が連携した分が対象。"""
+    rel = _client_relation(principal, client_id)
+    if rel is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "この顧問先のメールを取り込む権限がありません")
+    stmt = select(GmailAccount).where(
+        GmailAccount.client_id == client_id, GmailAccount.active.is_(True)
+    )
+    if rel == "member":
+        # 経理・一般社員は自分が連携したメールだけ。管理者/事務所は全件(RLSがアクセスを最終確認)。
+        stmt = stmt.where(GmailAccount.connected_by == principal.user.id)
+    accounts = list(await session.scalars(stmt.order_by(GmailAccount.created_at)))
+    if not accounts:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "連携中のメールがありません")
+    stats = await poll_accounts(session, accounts, days=90)
     return stats

@@ -466,6 +466,12 @@ export const api = {
     req<{ seen: number; appended: number }>(`/gmail/accounts/${accountId}/sync?days=${days}`, {
       method: 'POST',
     }),
+  // 受信箱の「メール取込」ボタン: この顧問先の連携メールを今すぐまとめて取り込む(Cron相当)。
+  gmailPoll: (clientId: string) =>
+    req<{ accounts: number; seen: number; appended: number; failed: number }>(
+      `/gmail/poll?client_id=${clientId}`,
+      { method: 'POST' },
+    ),
 }
 
 // --- platform operator (運営) -------------------------------------------------

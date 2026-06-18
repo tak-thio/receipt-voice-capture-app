@@ -32,7 +32,15 @@ function SourceIcon({ source }: { source: string | null }) {
   return <span className="text-slate-300">—</span>
 }
 
-export function ReceiptsView({ clientId, showCreator }: { clientId: string; showCreator?: boolean }) {
+export function ReceiptsView({
+  clientId,
+  showCreator,
+  canPollGmail,
+}: {
+  clientId: string
+  showCreator?: boolean
+  canPollGmail?: boolean
+}) {
   const toast = useToast()
   const [rows, setRows] = useState<ReceiptRow[]>([])
   const [notes, setNotes] = useState<NoteRow[]>([])
@@ -43,6 +51,7 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
   const [editing, setEditing] = useState<ReceiptRow | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
+  const [polling, setPolling] = useState(false)
   const [dragOver, setDragOver] = useState(false)
 
   async function uploadFiles(fileList: FileList | File[]) {
@@ -70,6 +79,21 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
     const files = e.target.files
     e.target.value = '' // allow re-selecting the same files
     if (files) void uploadFiles(files)
+  }
+
+  // 連携メールを今すぐ取り込む(定期実行=Cron相当の処理を手動でキック)。
+  async function pollGmail() {
+    if (!clientId) return
+    setPolling(true)
+    try {
+      const r = await api.gmailPoll(clientId)
+      toast.success(`メール取込: ${r.appended}件追加${r.failed ? ` / 失敗${r.failed}件` : ''}`)
+      await load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setPolling(false)
+    }
   }
 
   async function load() {
@@ -136,6 +160,11 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
         <Button onClick={() => void load()}>検索</Button>
         <span className="ml-1 text-sm text-slate-500">{rows.length}件</span>
         <div className="flex-1" />
+        {canPollGmail && (
+          <Button variant="secondary" onClick={() => void pollGmail()} disabled={polling}>
+            <Icon.Mail /> {polling ? '取込中…' : 'メール取込'}
+          </Button>
+        )}
         <input
           ref={fileRef}
           type="file"

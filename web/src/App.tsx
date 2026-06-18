@@ -233,7 +233,13 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
         </header>
 
         <main className="mx-auto w-full max-w-7xl flex-1 p-5 sm:p-6">
-          {tab === 'receipts' && <ReceiptsView clientId={clientId} showCreator={canSeeOthers} />}
+          {tab === 'receipts' && (
+            <ReceiptsView
+              clientId={clientId}
+              showCreator={canSeeOthers}
+              canPollGmail={perms.isFirm || !!clientMembership}
+            />
+          )}
           {tab === 'journal' && <JournalView clientId={clientId} showCreator={canSeeOthers} />}
           {tab === 'reconcile' && <ReconcileView clientId={clientId} />}
           {tab === 'ledger' && <LedgerView clientId={clientId} showCreator={canSeeOthers} />}
