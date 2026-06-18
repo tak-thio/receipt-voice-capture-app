@@ -23,12 +23,23 @@ router = APIRouter(prefix="/files", tags=["files"])
 @router.get("/{file_id}")
 async def get_file(
     file_id: UUID,
+    page: int = 0,  # >0 かつPDFなら、そのページだけを1ページPDFで返す(添付/個別表示用)
     _: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
     f = await session.get(File, file_id)  # RLS: only files in the principal's tenants
     if not f:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
+    if page > 0 and ("pdf" in (f.mime or "").lower() or f.kind == "pdf"):
+        # 多ページPDFから「そのページだけ」を切り出して返す(原本は page なしで取得できる)。
+        key = f"{f.path}.page{page}.pdf"
+        try:
+            data = await run_in_threadpool(storage.get, key)
+        except ClientError:
+            src = await run_in_threadpool(storage.get, f.path)
+            data = await run_in_threadpool(_extract_pdf_page, src, page)
+            await run_in_threadpool(storage.put, key, data, "application/pdf")
+        return Response(content=data, media_type="application/pdf")
     data = await run_in_threadpool(storage.get, f.path)
     return Response(content=data, media_type=f.mime or "application/octet-stream")
 
@@ -42,6 +53,18 @@ def _render_pdf_preview(data: bytes, page: int = 1) -> bytes:
         return pix.tobytes("png")
     finally:
         doc.close()
+
+
+def _extract_pdf_page(data: bytes, page: int) -> bytes:
+    """PDFの指定ページ(1始まり)を1ページPDFとして切り出す(再ラスタライズなし=無劣化)。"""
+    src = fitz.open(stream=data, filetype="pdf")
+    try:
+        idx = max(0, min(page - 1, src.page_count - 1))
+        one = fitz.open()
+        one.insert_pdf(src, from_page=idx, to_page=idx)
+        return one.tobytes()
+    finally:
+        src.close()
 
 
 @router.get("/{file_id}/preview")

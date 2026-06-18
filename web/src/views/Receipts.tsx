@@ -199,10 +199,10 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
                   <div className="flex items-center gap-2 text-slate-500">
                     {r.image_file_id && (
                       <a
-                        href={api.fileUrl(r.image_file_id)}
+                        href={api.fileUrl(r.image_file_id, r.page)}
                         target="_blank"
                         rel="noreferrer"
-                        title={(r.image_mime ?? '').includes('pdf') ? 'PDFを開く' : '画像を開く'}
+                        title={r.page != null ? `このページ(P.${r.page})を開く` : (r.image_mime ?? '').includes('pdf') ? 'PDFを開く' : '画像を開く'}
                         className="inline-flex hover:text-brand-600"
                       >
                         {(r.image_mime ?? '').includes('pdf') ? <Icon.FileText className="text-lg" /> : <Icon.Image className="text-lg" />}

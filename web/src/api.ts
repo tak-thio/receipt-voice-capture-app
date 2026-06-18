@@ -337,7 +337,8 @@ export const api = {
       body: JSON.stringify({ receipt_id: receiptId }),
     }),
 
-  fileUrl: (fileId: string) => `${BASE}/files/${fileId}`,
+  fileUrl: (fileId: string, page?: number | null) =>
+    `${BASE}/files/${fileId}${page ? `?page=${page}` : ''}`,
   // Renderable image for any file (images pass through; PDFs are rendered to PNG).
   previewUrl: (fileId: string, page?: number | null) =>
     `${BASE}/files/${fileId}/preview${page ? `?page=${page}` : ''}`,

@@ -179,10 +179,23 @@ export function ReceiptEditFields({
         )}
         <div className="flex flex-wrap items-center gap-3">
           {item.image_file_id && (item.image_mime ?? '').includes('pdf') && (
-            <a href={api.fileUrl(item.image_file_id)} target="_blank" rel="noreferrer"
-              className="text-xs text-brand-600 hover:underline">
-              元のPDFを開く
-            </a>
+            item.page != null ? (
+              <>
+                <a href={api.fileUrl(item.image_file_id, item.page)} target="_blank" rel="noreferrer"
+                  className="text-xs text-brand-600 hover:underline">
+                  このページのPDFを開く
+                </a>
+                <a href={api.fileUrl(item.image_file_id)} target="_blank" rel="noreferrer"
+                  className="text-xs text-slate-400 hover:underline">
+                  （全体）
+                </a>
+              </>
+            ) : (
+              <a href={api.fileUrl(item.image_file_id)} target="_blank" rel="noreferrer"
+                className="text-xs text-brand-600 hover:underline">
+                元のPDFを開く
+              </a>
+            )
           )}
           {item.source === 'email' && (
             <button onClick={() => setShowEmail(true)} className="text-xs text-brand-600 hover:underline">
