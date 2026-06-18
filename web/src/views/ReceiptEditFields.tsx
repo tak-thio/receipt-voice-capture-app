@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api, type JournalizeBody, type MasterRow, type NoteRow, type SubAccountRow, type Suggestion } from '../api'
 import { Button, cn, Icon, Input, Select, Textarea } from '../ui'
 import { NoteChips, NotePickerModal } from '../notes'
@@ -102,18 +102,29 @@ export function ReceiptEditFields({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.id])
 
-  // 借方科目が変わったら、その科目の補助科目を取得（補助科目があるときだけ選択UIを出す）。
+  // 借方/貸方どちらかの科目に補助科目があれば、その科目の補助科目を選べるようにする
+  // (例: 貸方「普通預金」の銀行別補助)。補助科目を持つ科目を1つ特定(借方を優先)。
+  const subParentId = useMemo(() => {
+    const d = titles.find((x) => x.id === titleId)
+    if ((d?.sub_account_count ?? 0) > 0) return titleId
+    const c = titles.find((x) => x.id === creditTitleId)
+    if ((c?.sub_account_count ?? 0) > 0) return creditTitleId
+    return ''
+  }, [titleId, creditTitleId, titles])
+  const subParentName = titles.find((t) => t.id === subParentId)?.name ?? ''
   useEffect(() => {
-    const t = titles.find((x) => x.id === titleId)
-    if (titleId && (t?.sub_account_count ?? 0) > 0) {
-      let alive = true
-      api.subAccounts(titleId)
-        .then((rows) => { if (alive) setSubAccounts(rows) })
-        .catch(() => { if (alive) setSubAccounts([]) })
-      return () => { alive = false }
-    }
-    setSubAccounts([])
-  }, [titleId, titles])
+    if (!subParentId) { setSubAccounts([]); return }
+    let alive = true
+    api.subAccounts(subParentId)
+      .then((rows) => {
+        if (!alive) return
+        setSubAccounts(rows)
+        // 科目が変わって今の補助科目がその科目に属さなくなったら選択を外す。
+        setSubTitleId((prev) => (rows.some((r) => r.id === prev) ? prev : ''))
+      })
+      .catch(() => { if (alive) setSubAccounts([]) })
+    return () => { alive = false }
+  }, [subParentId])
 
   // 「よく使う(借方/貸方)」だけを既定表示（多すぎる科目を絞る）。選択中の科目は常に出す。
   const pinnedDebit = titles.filter((t) => t.pinned_debit)
@@ -139,7 +150,7 @@ export function ReceiptEditFields({
     return {
       account_title_id: titleId || null,
       credit_account_title_id: creditTitleId || null,
-      sub_account_id: subTitleId || null,
+      sub_account_id: subParentId ? subTitleId || null : null,
       // 取引先は自由入力テキストを送る。マスタ完全一致ならサーバが partner_id を引当。
       partner_name: partnerNameInput.trim() || null,
       vendor: vendorInput.trim(),
@@ -301,13 +312,15 @@ export function ReceiptEditFields({
               </button>
             )}
           </div>
-          {titleButtons(shownDebit, titleId, (id) => { setTitleId(id); setSubTitleId('') })}
+          {titleButtons(shownDebit, titleId, setTitleId)}
         </div>
 
         {/* 補助科目（選択中の借方科目に補助科目が登録されている場合だけ表示） */}
         {subAccounts.length > 0 && (
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-slate-500">補助科目</span>
+            <span className="text-xs font-medium text-slate-500">
+              補助科目{subParentName && `（${subParentName}）`}
+            </span>
             <Select value={subTitleId} onChange={(e) => setSubTitleId(e.target.value)}>
               <option value="">(なし)</option>
               {subAccounts.map((s) => (
