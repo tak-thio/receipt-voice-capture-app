@@ -223,7 +223,9 @@ _GEMINI = "https://generativelanguage.googleapis.com/v1beta/models"
 
 
 async def _gemini_generate(key: str, model: str, parts: list[dict]) -> str:
-    async with httpx.AsyncClient(timeout=180) as client:
+    # 多ページPDF/カード明細(複数ページを1回で読む)は時間がかかるため長め。
+    # 10MB上限と組み合わせて、現実的な書類なら収まる範囲。
+    async with httpx.AsyncClient(timeout=480) as client:
         resp = await client.post(
             f"{_GEMINI}/{model}:generateContent",
             params={"key": key},

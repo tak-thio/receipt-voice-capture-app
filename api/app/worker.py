@@ -9,6 +9,7 @@ step to extract structured fields.
 
 import asyncio
 import io
+import logging
 from datetime import date, datetime, time, timezone
 from uuid import UUID
 
@@ -329,7 +330,11 @@ async def _tick() -> bool:
                 job.progress = 100
             except Exception as exc:  # noqa: BLE001 — record and move on
                 job.status = "failed"
-                job.error = str(exc)[:500]
+                # 例外メッセージが空(タイムアウト等)でも種別が残るようにする＋ログにも出す。
+                job.error = f"{type(exc).__name__}: {exc}"[:500]
+                logging.getLogger("worker").exception(
+                    "job %s kind=%s failed: %s", job.id, job.kind, type(exc).__name__
+                )
             return True
 
 
