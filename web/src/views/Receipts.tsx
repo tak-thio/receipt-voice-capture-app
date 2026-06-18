@@ -7,6 +7,7 @@ import {
 import { NoteChips, NotePickerModal } from '../notes'
 import { useToast } from '../ui/toast'
 import { EmailViewModal } from './EmailViewModal'
+import { ReceiptHistoryModal } from './ReceiptHistoryModal'
 
 const APPROVAL_LABEL: Record<string, { label: string; tone: 'danger' | 'neutral' }> = {
   rejected: { label: '否認', tone: 'danger' },
@@ -51,6 +52,7 @@ export function ReceiptsView({
   const [tagging, setTagging] = useState<ReceiptRow | null>(null)
   const [emailView, setEmailView] = useState<ReceiptRow | null>(null)
   const [editing, setEditing] = useState<ReceiptRow | null>(null)
+  const [historyId, setHistoryId] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [polling, setPolling] = useState(false)
@@ -193,7 +195,7 @@ export function ReceiptsView({
               <Th>付箋</Th>
               <Th className="w-24">状態</Th>
               <Th className="w-16">表示</Th>
-              <Th className="w-12"></Th>
+              <Th className="w-24"></Th>
             </tr>
           </Thead>
           <Tbody>
@@ -258,16 +260,21 @@ export function ReceiptsView({
                   </div>
                 </Td>
                 <Td className="text-right">
-                  {r.approval_status === 'pending' && !r.journalized_at && (
-                    <div className="flex items-center justify-end gap-1">
-                      <IconButton label="修正" className="h-7 w-7 hover:!text-brand-600" onClick={() => setEditing(r)}>
-                        <Icon.Pencil />
-                      </IconButton>
-                      <IconButton label="削除" className="h-7 w-7 hover:!text-red-600" onClick={() => void handleDelete(r)}>
-                        <Icon.Trash />
-                      </IconButton>
-                    </div>
-                  )}
+                  <div className="flex items-center justify-end gap-1">
+                    <IconButton label="変更履歴" className="h-7 w-7 hover:!text-brand-600" onClick={() => setHistoryId(r.id)}>
+                      <Icon.Clock />
+                    </IconButton>
+                    {r.approval_status === 'pending' && !r.journalized_at && (
+                      <>
+                        <IconButton label="修正" className="h-7 w-7 hover:!text-brand-600" onClick={() => setEditing(r)}>
+                          <Icon.Pencil />
+                        </IconButton>
+                        <IconButton label="削除" className="h-7 w-7 hover:!text-red-600" onClick={() => void handleDelete(r)}>
+                          <Icon.Trash />
+                        </IconButton>
+                      </>
+                    )}
+                  </div>
                 </Td>
               </Tr>
             ))}
@@ -297,6 +304,7 @@ export function ReceiptsView({
         onToggle={(id) => void toggleNote(id)}
       />
       {emailView && <EmailViewModal receiptId={emailView.id} onClose={() => setEmailView(null)} />}
+      {historyId && <ReceiptHistoryModal receiptId={historyId} onClose={() => setHistoryId(null)} />}
       {editing && (
         <ReceiptEditModal
           row={editing}

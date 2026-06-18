@@ -152,6 +152,12 @@ export const Icon = {
       <path d="M9 7h7M9 11h7" />
     </Svg>
   ),
+  Clock: (p: IconProps) => (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7.5V12l3 1.5" />
+    </Svg>
+  ),
   Mail: (p: IconProps) => (
     <Svg {...p}>
       <rect x="2" y="4" width="20" height="16" rx="2" />

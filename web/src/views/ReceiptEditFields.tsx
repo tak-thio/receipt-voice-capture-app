@@ -4,6 +4,7 @@ import { Button, cn, Icon, Input, Select, Textarea } from '../ui'
 import { NoteChips, NotePickerModal } from '../notes'
 import { ZoomableImage } from './ZoomableImage'
 import { EmailViewModal } from './EmailViewModal'
+import { ReceiptHistoryModal } from './ReceiptHistoryModal'
 
 // 仕分け・元帳編集で共通の「左:領収書画像 / 右:入力欄」エディタ。
 // 入力状態は内部で保持し、操作ボタンは renderActions(getValues, debitSelected) で親が差し込む。
@@ -56,6 +57,7 @@ export function ReceiptEditFields({
 }) {
   const [tagging, setTagging] = useState(false)
   const [showEmail, setShowEmail] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
   const [titleId, setTitleId] = useState('') // 借方科目
   const [creditTitleId, setCreditTitleId] = useState('') // 貸方科目
   const [subTitleId, setSubTitleId] = useState('') // 補助科目(借方科目に紐づく)
@@ -267,6 +269,7 @@ export function ReceiptEditFields({
         <div className="flex flex-wrap items-center gap-2">
           <NoteChips ids={noteIds} notes={notes} empty={<span className="text-xs text-slate-400">付箋なし</span>} />
           <Button size="sm" variant="secondary" onClick={() => setTagging(true)}><Icon.Plus /> 付箋</Button>
+          <Button size="sm" variant="secondary" onClick={() => setShowHistory(true)}><Icon.Clock /> 履歴</Button>
         </div>
 
         {/* 取引先 + インボイス番号（1行） */}
@@ -429,6 +432,7 @@ export function ReceiptEditFields({
         onToggle={(id) => onToggleNote(id)}
       />
       {showEmail && <EmailViewModal receiptId={item.id} onClose={() => setShowEmail(false)} />}
+      {showHistory && <ReceiptHistoryModal receiptId={item.id} onClose={() => setShowHistory(false)} />}
     </div>
   )
 }

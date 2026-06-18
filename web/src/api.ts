@@ -152,6 +152,16 @@ export interface JournalQueue {
   held_count: number
 }
 
+// 監査ログ(訂正削除・承認・仕訳の履歴)の1件。電子帳簿保存法の訂正削除履歴。
+export interface AuditEntry {
+  id: string
+  action: string // updated | deleted | journalized | ...
+  actor: string | null
+  summary: string | null
+  changes: Record<string, { before: unknown; after: unknown }> | null
+  at: string | null
+}
+
 // 元帳 (ledger) = 仕分け済みの仕訳一覧。借方/貸方/取引先は解決済みの表示文字列。
 export interface LedgerRow {
   id: string
@@ -299,6 +309,8 @@ export const api = {
   deleteReceipt: (id: string) => req(`/receipts/${id}`, { method: 'DELETE' }),
   // メール取込の元メール本文(件名/差出人/本文)。
   receiptEmail: (id: string) => req<ReceiptEmail>(`/receipts/${id}/email`),
+  // 監査ログ(訂正削除・承認・仕訳の履歴)。電子帳簿保存法の訂正削除履歴。
+  receiptHistory: (id: string) => req<AuditEntry[]>(`/receipts/${id}/history`),
   // Web upload (multipart) — a logged-in user adds a receipt image/PDF to a client.
   uploadReceipt: async (clientId: string, file: File, audio?: File) => {
     const fd = new FormData()
