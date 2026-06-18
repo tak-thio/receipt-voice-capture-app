@@ -145,6 +145,11 @@ class Client(Base, TimestampMixin):
     fiscal_month: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 決算月 1-12
     # 締め日(ロック日): この日付以前(同日含む)の取引日の領収書は受信箱/仕分けで「期間外」警告。
     closing_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # 経費精算機能の顧問先ごとON/OFF + 承認時に作る仕訳の既定貸方科目(未払金 等)。
+    expense_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    expense_credit_account_title_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("account_titles.id"), nullable=True
+    )
     industry: Mapped[str | None] = mapped_column(String(100), nullable=True)
     memo: Mapped[str | None] = mapped_column(Text, nullable=True)
     staff_user_id: Mapped[UUID | None] = mapped_column(
@@ -334,6 +339,36 @@ class AuditLog(Base):
     summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
     changes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # {field: {before, after}}
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ExpenseClaim(Base, TimestampMixin):
+    """経費精算の申請。既存の取込済み領収書(items)を束ねて申請→承認/否認。支払い実行はしない。"""
+
+    __tablename__ = "expense_claims"
+
+    id: Mapped[UUID] = _uuid_pk()
+    firm_id: Mapped[UUID] = mapped_column(ForeignKey("firms.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    applicant_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    title: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # draft → submitted → approved | rejected ; submitted/draft → withdrawn ; rejected → (再提出で) submitted
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    approver_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reject_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    items: Mapped[list["ExpenseClaimItem"]] = relationship(cascade="all, delete-orphan")
+
+
+class ExpenseClaimItem(Base):
+    """申請に束ねた1領収書。RLS用に client_id / applicant_user_id を持つ(claim と同じ所有者判定)。"""
+
+    __tablename__ = "expense_claim_items"
+
+    id: Mapped[UUID] = _uuid_pk()
+    claim_id: Mapped[UUID] = mapped_column(ForeignKey("expense_claims.id", ondelete="CASCADE"), index=True)
+    receipt_id: Mapped[UUID] = mapped_column(ForeignKey("receipts.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    applicant_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
 # --- masters ---------------------------------------------------------------

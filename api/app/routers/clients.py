@@ -52,6 +52,7 @@ def _mask_ai(ai_config: dict) -> dict:
 EDITABLE = (
     "name", "code", "export_default", "status", "entity_type", "t_number",
     "address", "phone", "contact_name", "fiscal_month", "closing_date", "industry", "memo",
+    "expense_enabled", "expense_credit_account_title_id",
     "staff_user_id",
 )
 
@@ -67,6 +68,8 @@ class ClientIn(BaseModel):
     contact_name: str | None = None
     fiscal_month: int | None = None
     closing_date: date | None = None  # 締め日: この日付以前(同日含む)の領収書は期間外警告
+    expense_enabled: bool | None = None  # 経費精算機能のON/OFF
+    expense_credit_account_title_id: UUID | None = None  # 承認時に作る仕訳の既定貸方科目
     industry: str | None = None
     memo: str | None = None
 
@@ -83,6 +86,8 @@ class ClientPatch(BaseModel):
     contact_name: str | None = None
     fiscal_month: int | None = None
     closing_date: date | None = None  # 締め日: この日付以前(同日含む)の領収書は期間外警告
+    expense_enabled: bool | None = None  # 経費精算機能のON/OFF
+    expense_credit_account_title_id: UUID | None = None  # 承認時に作る仕訳の既定貸方科目
     industry: str | None = None
     memo: str | None = None
     staff_user_id: UUID | None = None
@@ -130,6 +135,8 @@ def _client_dict(c: Client) -> dict:
         "contact_name": c.contact_name,
         "fiscal_month": c.fiscal_month,
         "closing_date": c.closing_date.isoformat() if c.closing_date else None,
+        "expense_enabled": c.expense_enabled,
+        "expense_credit_account_title_id": str(c.expense_credit_account_title_id) if c.expense_credit_account_title_id else None,
         "industry": c.industry,
         "memo": c.memo,
         "staff_user_id": str(c.staff_user_id) if c.staff_user_id else None,
@@ -161,6 +168,7 @@ async def list_clients(
             "entity_type": c.entity_type,
             "fiscal_month": c.fiscal_month,
             "closing_date": c.closing_date.isoformat() if c.closing_date else None,
+            "expense_enabled": c.expense_enabled,
             "industry": c.industry,
         }
         for c in rows
