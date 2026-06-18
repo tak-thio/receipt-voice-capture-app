@@ -1,5 +1,6 @@
 """顧問先 (client) management within a firm, plus its users."""
 
+from datetime import date
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -50,7 +51,7 @@ def _mask_ai(ai_config: dict) -> dict:
 # Editable extended master fields on a client.
 EDITABLE = (
     "name", "code", "export_default", "status", "entity_type", "t_number",
-    "address", "phone", "contact_name", "fiscal_month", "industry", "memo",
+    "address", "phone", "contact_name", "fiscal_month", "closing_date", "industry", "memo",
     "staff_user_id",
 )
 
@@ -65,6 +66,7 @@ class ClientIn(BaseModel):
     phone: str | None = None
     contact_name: str | None = None
     fiscal_month: int | None = None
+    closing_date: date | None = None  # 締め日: この日付以前(同日含む)の領収書は期間外警告
     industry: str | None = None
     memo: str | None = None
 
@@ -80,6 +82,7 @@ class ClientPatch(BaseModel):
     phone: str | None = None
     contact_name: str | None = None
     fiscal_month: int | None = None
+    closing_date: date | None = None  # 締め日: この日付以前(同日含む)の領収書は期間外警告
     industry: str | None = None
     memo: str | None = None
     staff_user_id: UUID | None = None
@@ -126,6 +129,7 @@ def _client_dict(c: Client) -> dict:
         "phone": c.phone,
         "contact_name": c.contact_name,
         "fiscal_month": c.fiscal_month,
+        "closing_date": c.closing_date.isoformat() if c.closing_date else None,
         "industry": c.industry,
         "memo": c.memo,
         "staff_user_id": str(c.staff_user_id) if c.staff_user_id else None,
@@ -156,6 +160,7 @@ async def list_clients(
             "status": c.status,
             "entity_type": c.entity_type,
             "fiscal_month": c.fiscal_month,
+            "closing_date": c.closing_date.isoformat() if c.closing_date else None,
             "industry": c.industry,
         }
         for c in rows

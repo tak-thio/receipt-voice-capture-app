@@ -8,12 +8,13 @@ isolation is enforced by Postgres RLS (see alembic 0001), not by app code.
 from __future__ import annotations
 
 import enum
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -142,6 +143,8 @@ class Client(Base, TimestampMixin):
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     contact_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 先方担当者
     fiscal_month: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 決算月 1-12
+    # 締め日(ロック日): この日付以前(同日含む)の取引日の領収書は受信箱/仕分けで「期間外」警告。
+    closing_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     industry: Mapped[str | None] = mapped_column(String(100), nullable=True)
     memo: Mapped[str | None] = mapped_column(Text, nullable=True)
     staff_user_id: Mapped[UUID | None] = mapped_column(
