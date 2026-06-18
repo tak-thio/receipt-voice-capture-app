@@ -33,11 +33,12 @@ async def get_file(
     return Response(content=data, media_type=f.mime or "application/octet-stream")
 
 
-def _render_pdf_preview(data: bytes) -> bytes:
-    """First page of a PDF -> PNG bytes (for an inline, easy-to-read preview)."""
+def _render_pdf_preview(data: bytes, page: int = 1) -> bytes:
+    """PDFの指定ページ(1始まり)→ PNG bytes(インラインで読みやすいプレビュー)。"""
     doc = fitz.open(stream=data, filetype="pdf")
     try:
-        pix = doc.load_page(0).get_pixmap(dpi=150)
+        idx = max(0, min(page - 1, doc.page_count - 1))
+        pix = doc.load_page(idx).get_pixmap(dpi=150)
         return pix.tobytes("png")
     finally:
         doc.close()
@@ -46,11 +47,12 @@ def _render_pdf_preview(data: bytes) -> bytes:
 @router.get("/{file_id}/preview")
 async def get_file_preview(
     file_id: UUID,
+    page: int = 1,  # PDFの何ページ目を描画するか(1始まり)。画像では無視。
     _: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
-    """A renderable image for the file: images pass through; PDFs are rendered to
-    a PNG of the first page (cached in storage as `<path>.preview.png`)."""
+    """A renderable image for the file: images pass through; PDFs are rendered to a
+    PNG of the requested page (1-indexed; cached as `<path>.preview.p{N}.png`)."""
     f = await session.get(File, file_id)  # RLS-scoped
     if not f:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
@@ -61,12 +63,13 @@ async def get_file_preview(
         return Response(content=data, media_type=mime)
 
     if "pdf" in mime or f.kind == "pdf":
-        preview_key = f"{f.path}.preview.png"
+        page = max(1, page)
+        preview_key = f"{f.path}.preview.p{page}.png"
         try:
             png = await run_in_threadpool(storage.get, preview_key)
         except ClientError:
             src = await run_in_threadpool(storage.get, f.path)
-            png = await run_in_threadpool(_render_pdf_preview, src)
+            png = await run_in_threadpool(_render_pdf_preview, src, page)
             await run_in_threadpool(storage.put, preview_key, png, "image/png")
         return Response(content=png, media_type="image/png")
 

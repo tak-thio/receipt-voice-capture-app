@@ -13,6 +13,7 @@ import logging
 from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
 
+import fitz  # PyMuPDF: PDFをページ単位の1ページPDFに分割(再ラスタライズせずページをコピー)
 from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -101,6 +102,7 @@ def _mark_parse_outcome(receipt: Receipt) -> None:
 _AI_IMAGE_MAX_EDGE = 1600  # 画像の長辺上限(px)。領収書OCRはこの程度で十分。
 _AI_JPEG_QUALITY = 82
 _AI_MAX_TOTAL_BYTES = 15 * 1024 * 1024  # 1リクエストでAIに送る合計上限(Gemini inline ~20MB 未満)
+_AI_MAX_PDF_PAGES = 30  # 1つのPDFで処理する最大ページ数(トークン保護)
 
 
 def _downscale_image(data: bytes) -> bytes:
@@ -117,56 +119,100 @@ def _downscale_image(data: bytes) -> bytes:
         return data
 
 
-async def _prep_ai_inputs(files: list[File]) -> list[tuple[bytes, str, File]]:
-    """AIに渡す入力を用意: 画像は縮小、PDFは生のまま。合計サイズ上限で打ち切る(最低1件は通す)。
-    返り値 [(送信バイト, mime, 元File), ...]。"""
-    out: list[tuple[bytes, str, File]] = []
+def _pdf_pages(data: bytes) -> list[bytes]:
+    """複数ページPDFを「1ページのPDF」の配列に分割する。ページの中身(埋め込み画像等)はそのまま
+    コピーするので再ラスタライズ＝画質劣化はしない。最大 _AI_MAX_PDF_PAGES ページまで。"""
+    pages: list[bytes] = []
+    src = fitz.open(stream=data, filetype="pdf")
+    try:
+        for i in range(min(src.page_count, _AI_MAX_PDF_PAGES)):
+            one = fitz.open()
+            one.insert_pdf(src, from_page=i, to_page=i)
+            pages.append(one.tobytes())
+            one.close()
+    finally:
+        src.close()
+    return pages
+
+
+async def _prep_ai_inputs(files: list[File]) -> list[tuple[bytes, str, File, int | None]]:
+    """AIに渡す入力を用意。PDFは「ページ単位の1ページPDF」に分割し(どのページ由来か分かる＋
+    1リクエストが小さくなる)、画像は縮小。返り値 [(送信バイト, mime, 元File, ページ番号 or None)]。"""
+    out: list[tuple[bytes, str, File, int | None]] = []
     total = 0
     for f in files:
         data = await run_in_threadpool(storage.get, f.path)
         if "pdf" in (f.mime or "").lower() or f.kind == "pdf":
-            payload, send_mime = data, "application/pdf"
+            try:
+                pages = await run_in_threadpool(_pdf_pages, data)
+            except Exception:  # noqa: BLE001 — 分割できないPDFは丸ごと1件として扱う
+                pages = [data]
+            for pno, page_bytes in enumerate(pages, start=1):
+                if out and total + len(page_bytes) > _AI_MAX_TOTAL_BYTES:
+                    break
+                total += len(page_bytes)
+                out.append((page_bytes, "application/pdf", f, pno))
         else:
             payload = await run_in_threadpool(_downscale_image, data)
-            send_mime = "image/jpeg"
-        if out and total + len(payload) > _AI_MAX_TOTAL_BYTES:
-            break  # これ以上は送らない(無駄トークン回避)
-        total += len(payload)
-        out.append((payload, send_mime, f))
+            if out and total + len(payload) > _AI_MAX_TOTAL_BYTES:
+                continue
+            total += len(payload)
+            out.append((payload, "image/jpeg", f, None))
     return out
 
 
 async def _extract_grouped(
     ocr, files: list[File], audio: tuple[bytes, str] | None
-) -> list[tuple[ExtractedReceipt, File]] | None:
-    """全経路で共通のビジョン抽出。入力(画像/PDF)を整形して extract_batch に1回で渡し、
-    抽出結果を (項目, 元File) の並びで返す。provider が複数抽出に非対応なら None。"""
+) -> list[tuple[ExtractedReceipt, File, int | None]] | None:
+    """全経路で共通のビジョン抽出。返り値 (項目, 元File, ページ番号)。provider 非対応なら None。
+    - モバイル撮影セット(音声あり): 音声をセット全体に対応付けるため全入力を1回で送る。
+    - それ以外(Web/Gmail。PDFはページ分割済み): 入力(=ページ)ごとに分けて送る。各領収書がどの
+      ページ由来か分かり、1リクエストが小さくタイムアウトしにくく、1ページ失敗でも他は残る。"""
     inputs = await _prep_ai_inputs(files)
     if not inputs:
         return []
-    images = [(b, m) for b, m, _ in inputs]
-    audio_bytes, audio_mime = audio if audio else (None, "")
-    items = await ocr.extract_batch(images, audio_bytes, audio_mime)
-    if items is None:
-        return None
-    return [
-        (it, inputs[it.image_index if 0 <= it.image_index < len(inputs) else 0][2])
-        for it in items
-    ]
+    if audio is not None:
+        items = await ocr.extract_batch([(b, m) for b, m, _, _ in inputs], audio[0], audio[1])
+        if items is None:
+            return None
+        out = []
+        for it in items:
+            idx = it.image_index if 0 <= it.image_index < len(inputs) else 0
+            out.append((it, inputs[idx][2], inputs[idx][3]))
+        return out
+    grouped: list[tuple[ExtractedReceipt, File, int | None]] = []
+    failures = 0
+    for payload, mime, f, page in inputs:
+        try:
+            items = await ocr.extract_batch([(payload, mime)], None, "")
+        except Exception:  # noqa: BLE001 — このページは飛ばして続行(全滅を防ぐ)
+            logging.getLogger("worker").exception("page extract failed file=%s page=%s", f.id, page)
+            failures += 1
+            continue
+        if items is None:
+            return None
+        for it in items:
+            grouped.append((it, f, page))
+    if failures and failures == len(inputs):
+        raise RuntimeError(f"all {failures} page(s) failed to extract")
+    return grouped
 
 
 async def _create_receipt_from_item(
-    session, *, firm_id, client_id, source, created_by, capture_meta, file: File, item
+    session, *, firm_id, client_id, source, created_by, capture_meta, file: File, item, page=None
 ) -> Receipt:
-    """1件分の Receipt を起こしてファイルを紐付け、抽出項目(あれば)を反映する。item が None の
-    入力は『請求書として認識できなかった』未解析として残す。"""
+    """1件分の Receipt を起こしてファイルを紐付け、抽出項目(あれば)を反映する。page があれば
+    capture_meta.page に記録(PDFの何ページ目由来か)。item が None は未解析として残す。"""
+    meta = dict(capture_meta or {})
+    if page is not None:
+        meta["page"] = page
     receipt = Receipt(
         firm_id=firm_id,
         client_id=client_id,
         source=source,
         doc_type=(item.doc_type if item else "receipt"),
         vendor=UNPARSED_VENDOR,
-        capture_meta=dict(capture_meta or {}),
+        capture_meta=meta,
         created_by=created_by,
     )
     session.add(receipt)
@@ -210,12 +256,12 @@ async def _process_batch(session, job: Job, cfg: dict) -> None:
     created_by = UUID(uploaded_by) if uploaded_by else None
     capture_meta = {"audio_file_id": audio_id} if audio_id else {}
 
-    # 入力ファイルごとにまとめ、どの入力も最低1件は起こす(抽出ゼロでも未解析で残す)。
+    # 入力(ファイル/ページ)ごとにまとめ、どの入力も最低1件は起こす(抽出ゼロでも未解析で残す)。
     by_file: dict = {}
-    for it, f in grouped:
-        by_file.setdefault(f.id, []).append(it)
+    for it, f, page in grouped:
+        by_file.setdefault(f.id, []).append((it, page))
     for f in files:
-        for item in by_file.get(f.id) or [None]:
+        for item, page in by_file.get(f.id) or [(None, None)]:
             await _create_receipt_from_item(
                 session,
                 firm_id=job.firm_id,
@@ -225,6 +271,7 @@ async def _process_batch(session, job: Job, cfg: dict) -> None:
                 capture_meta=capture_meta,
                 file=f,
                 item=item,
+                page=page,
             )
 
 
@@ -273,14 +320,17 @@ async def _process(session, job: Job) -> None:
         if grouped:
             # 1ファイルから 0..N 件。先頭は既存(プレースホルダ)receiptに、2件目以降は同じファイルを
             # 共有する追加 receipt に起こす(複数領収書・カード明細・複数ページPDF 対応)。
-            first, _f = grouped[0]
+            first, _f, first_page = grouped[0]
             receipt.doc_type = first.doc_type
+            if first_page is not None:
+                receipt.capture_meta = {**(receipt.capture_meta or {}), "page": first_page}
             _apply_fields(receipt, first)
             await _autolink_partner(session, receipt)
             _mark_parse_outcome(receipt)
             extra_meta = dict(receipt.capture_meta or {})
             extra_meta.pop("parse_failed", None)
-            for item, f in grouped[1:]:
+            extra_meta.pop("page", None)  # page は item ごとに設定する
+            for item, f, page in grouped[1:]:
                 await _create_receipt_from_item(
                     session,
                     firm_id=receipt.firm_id,
@@ -290,6 +340,7 @@ async def _process(session, job: Job) -> None:
                     capture_meta=extra_meta,
                     file=f,
                     item=item,
+                    page=page,
                 )
         else:
             _mark_parse_outcome(receipt)

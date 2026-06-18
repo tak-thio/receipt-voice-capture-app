@@ -30,6 +30,7 @@ export interface EditableReceipt {
   source?: string | null
   created_by_name?: string | null
   parse_failed?: boolean // AIが請求書として認識できなかった
+  page?: number | null // PDFの何ページ目由来か
   suggestion?: Suggestion | null
 }
 
@@ -163,7 +164,7 @@ export function ReceiptEditFields({
           // PDFはサーバーで1ページ目を画像化して返すので、常に <img>。ズーム/パン対応。
           <ZoomableImage
             key={item.image_file_id}
-            src={api.previewUrl(item.image_file_id)}
+            src={api.previewUrl(item.image_file_id, item.page)}
             alt="領収書"
             className="h-[22rem] rounded-xl border border-slate-200 lg:h-full lg:min-h-[24rem] lg:max-h-[42rem]"
           />
@@ -207,6 +208,7 @@ export function ReceiptEditFields({
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
           {item.source && <span>{item.source}</span>}
+          {item.page != null && <span className="font-medium text-slate-500">ページ {item.page}</span>}
           {showCreator && item.created_by_name && <span>登録: {item.created_by_name}</span>}
         </div>
 

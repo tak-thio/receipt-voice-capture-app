@@ -175,6 +175,7 @@ async def queue(
                 "description": r.description,
                 "image_file_id": str(img) if img else None,
                 "image_mime": img_mime,
+                "page": (r.capture_meta or {}).get("page"),  # PDFの何ページ目由来か
                 "tax_mode": r.tax_mode,
                 "payment_method": r.payment_method,
                 "account_title_id": str(r.account_title_id) if r.account_title_id else None,
@@ -255,6 +256,7 @@ async def ledger(
                 "source": r.source,
                 "image_file_id": str(img) if img else None,
                 "image_mime": img_mime,
+                "page": (r.capture_meta or {}).get("page"),  # PDFの何ページ目由来か
                 "note_ids": r.note_ids or [],
             }
         )

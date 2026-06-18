@@ -31,6 +31,7 @@ export interface ServerReceipt {
   journalized_at: string | null
   description: string | null
   image_file_id?: string | null
+  page?: number | null // PDFの何ページ目由来か
   parse_failed?: boolean // AIが請求書として認識できなかった(店舗名も金額も取れず)
 }
 
@@ -113,8 +114,10 @@ export async function fetchPreviewObjectUrl(
   serverUrl: string,
   deviceToken: string,
   fileId: string,
+  page?: number | null,
 ): Promise<string> {
-  const res = await fetch(`${base(serverUrl)}/files/${fileId}/preview`, {
+  const qs = page ? `?page=${page}` : ''
+  const res = await fetch(`${base(serverUrl)}/files/${fileId}/preview${qs}`, {
     headers: { Authorization: `Bearer ${deviceToken}` },
   })
   if (!res.ok) {

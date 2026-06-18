@@ -97,6 +97,7 @@ export function InboxScreen() {
                 <span>{r.captured_at ? r.captured_at.slice(0, 10) : '—'}</span>
                 <span className="src">{SOURCE_LABEL[r.source] ?? r.source}</span>
                 {hasImage && <span className="img-mark">画像</span>}
+                {r.page != null && <span className="img-mark">P.{r.page}</span>}
                 {isEditable(r) && <span className="img-mark">修正可</span>}
                 <span className={`st ${s.cls}`}>{s.text}</span>
               </div>
@@ -137,7 +138,7 @@ function ReceiptDetailScreen({
   useEffect(() => {
     let revoke: string | null = null
     if (receipt.image_file_id) {
-      fetchPreviewObjectUrl(connection.serverUrl, connection.deviceToken, receipt.image_file_id)
+      fetchPreviewObjectUrl(connection.serverUrl, connection.deviceToken, receipt.image_file_id, receipt.page)
         .then((u) => {
           revoke = u
           setImgUrl(u)
@@ -194,6 +195,7 @@ function ReceiptDetailScreen({
       </div>
 
       {imgUrl && <img className="detail-img" src={imgUrl} alt="領収書" />}
+      {receipt.page != null && <p className="muted small">ページ {receipt.page}</p>}
       {receipt.parse_failed && editable && (
         <p className="detail-failed">請求書として認識できませんでした。内容を入力して保存してください。</p>
       )}

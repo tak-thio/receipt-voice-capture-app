@@ -68,6 +68,7 @@ export interface ReceiptRow {
   note_ids: string[]
   image_file_id?: string | null
   image_mime?: string | null
+  page?: number | null // PDFの何ページ目由来か(プレビューを ?page=N で出す)
   created_by_name?: string | null
   parse_failed?: boolean // AIが請求書として認識できなかった(店舗名も金額も取れず)
 }
@@ -129,6 +130,7 @@ export interface QueueItem {
   description: string | null // 摘要
   image_file_id: string | null
   image_mime: string | null
+  page?: number | null // PDFの何ページ目由来か
   tax_mode: string | null
   payment_method: string | null
   account_title_id: string | null
@@ -170,6 +172,7 @@ export interface LedgerRow {
   source: string | null
   image_file_id: string | null
   image_mime: string | null
+  page?: number | null // PDFの何ページ目由来か
   note_ids: string[]
 }
 
@@ -331,7 +334,8 @@ export const api = {
 
   fileUrl: (fileId: string) => `${BASE}/files/${fileId}`,
   // Renderable image for any file (images pass through; PDFs are rendered to PNG).
-  previewUrl: (fileId: string) => `${BASE}/files/${fileId}/preview`,
+  previewUrl: (fileId: string, page?: number | null) =>
+    `${BASE}/files/${fileId}/preview${page ? `?page=${page}` : ''}`,
 
   accountTitles: (clientId?: string) =>
     req<MasterRow[]>(`/masters/account-titles${clientId ? `?client_id=${clientId}` : ''}`),

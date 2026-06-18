@@ -208,6 +208,9 @@ export function ReceiptsView({ clientId, showCreator }: { clientId: string; show
                         {(r.image_mime ?? '').includes('pdf') ? <Icon.FileText className="text-lg" /> : <Icon.Image className="text-lg" />}
                       </a>
                     )}
+                    {r.page != null && (
+                      <span className="text-[10px] tabular-nums text-slate-400" title="PDFのページ">P.{r.page}</span>
+                    )}
                     {r.source === 'email' && (
                       <button onClick={() => setEmailView(r)} title="メール本文を表示" className="inline-flex hover:text-brand-600">
                         <Icon.Mail className="text-lg" />

@@ -76,6 +76,8 @@ def _serialize(r: Receipt, image_file_id=None, created_by_name=None, image_mime=
         # The captured image (kind='capture'), so the UI can show/open it.
         "image_file_id": str(image_file_id) if image_file_id else None,
         "image_mime": image_mime,  # application/pdf か image/* かでアイコンを出し分け
+        # PDFの何ページ目由来か(プレビューを ?page=N で出すため)。画像/単票は null。
+        "page": (r.capture_meta or {}).get("page"),
         # 登録者名（管理者/経理/職員のみ意味を持つ。一般社員は自分のみ）。
         "created_by_name": created_by_name,
     }
