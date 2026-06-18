@@ -6,6 +6,7 @@ import { LedgerView } from './views/LedgerView'
 import { ReconcileView } from './views/Reconcile'
 import { MastersView } from './views/Masters'
 import { ClientsView, ClientUsers, ClientAiConfig } from './views/Clients'
+import { ExpenseView } from './views/Expense'
 import { GmailLink } from './views/GmailLink'
 import { SettingsView } from './views/Settings'
 import { ExportView } from './views/Export'
@@ -110,7 +111,7 @@ function Login({ onLogin }: { onLogin: (me: Me) => void }) {
   )
 }
 
-type Tab = 'receipts' | 'journal' | 'reconcile' | 'ledger' | 'export' | 'masters' | 'clients' | 'users' | 'settings'
+type Tab = 'receipts' | 'journal' | 'reconcile' | 'ledger' | 'export' | 'expense' | 'masters' | 'clients' | 'users' | 'settings'
 // Capability context derived from the principal's memberships.
 type Perms = {
   isFirm: boolean        // 職員 (firm_owner/firm_staff)
@@ -120,6 +121,7 @@ type Perms = {
   canClients: boolean    // 顧問先管理: 職員のみ
   canUsers: boolean      // 自社ユーザー管理: 顧客(client_admin)のみ
   canSettings: boolean   // 設定: 管理者(職員)のみ
+  expenseEnabled: boolean // 経費精算: 選択中の顧問先で有効なときのみ表示
 }
 type NavItem = { id: Tab; label: string; icon: IconComponent; needsClient: boolean; can: (p: Perms) => boolean }
 const NAV: NavItem[] = [
@@ -128,6 +130,7 @@ const NAV: NavItem[] = [
   { id: 'reconcile', label: '突き合わせ', icon: Icon.Link, needsClient: true, can: (p) => p.canJournal },
   { id: 'ledger', label: '元帳', icon: Icon.Book, needsClient: true, can: (p) => p.canJournal },
   { id: 'export', label: '出力', icon: Icon.Download, needsClient: true, can: (p) => p.canJournal },
+  { id: 'expense', label: '経費精算', icon: Icon.FileText, needsClient: true, can: (p) => p.expenseEnabled },
   { id: 'masters', label: 'マスタ', icon: Icon.Database, needsClient: true, can: (p) => p.canMasters },
   { id: 'clients', label: '顧問先', icon: Icon.Building, needsClient: false, can: (p) => p.canClients },
   { id: 'users', label: 'ユーザー', icon: Icon.User, needsClient: false, can: (p) => p.canUsers },
@@ -161,6 +164,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
     // 顧客側(client_admin)は自社のユーザーのみ管理できる（顧問先一覧は出さない）。
     canUsers: clientRole === 'client_admin',
     canSettings: firmRole === 'firm_owner',
+    expenseEnabled: !!clients.find((c) => c.id === clientId)?.expense_enabled,
   }
   // client_admin が自社ユーザーを管理する対象 client_id。
   const selfClientId = clientMembership?.client_id ?? undefined
@@ -244,6 +248,13 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
             />
           )}
           {tab === 'journal' && <JournalView clientId={clientId} showCreator={canSeeOthers} lockDate={lockDate} />}
+          {tab === 'expense' && (
+            <ExpenseView
+              clientId={clientId}
+              canApprove={clientRole === 'client_admin' || clientRole === 'client_accountant'}
+              userId={me.user.id}
+            />
+          )}
           {tab === 'reconcile' && <ReconcileView clientId={clientId} />}
           {tab === 'ledger' && <LedgerView clientId={clientId} showCreator={canSeeOthers} />}
           {tab === 'export' && <ExportView clientId={clientId} />}

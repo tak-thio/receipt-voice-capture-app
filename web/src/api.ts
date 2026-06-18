@@ -35,6 +35,7 @@ export interface ClientRow {
   entity_type?: string | null
   fiscal_month?: number | null
   closing_date?: string | null // 締め日(YYYY-MM-DD): この日付以前の領収書は期間外警告
+  expense_enabled?: boolean // 経費精算機能のON/OFF
   industry?: string | null
 }
 
@@ -47,6 +48,8 @@ export interface ClientDetail extends ClientRow {
   contact_name: string | null
   fiscal_month: number | null
   closing_date: string | null
+  expense_enabled: boolean
+  expense_credit_account_title_id: string | null
   industry: string | null
   memo: string | null
   staff_user_id: string | null
@@ -160,6 +163,28 @@ export interface AuditEntry {
   summary: string | null
   changes: Record<string, { before: unknown; after: unknown }> | null
   at: string | null
+}
+
+// 経費精算
+export interface ExpenseClaimItem {
+  receipt_id: string
+  vendor: string | null
+  amount_jpy: number | null
+  date: string | null
+}
+export interface ExpenseClaim {
+  id: string
+  title: string | null
+  status: string // draft | submitted | approved | rejected | withdrawn
+  applicant: string | null
+  applicant_user_id: string | null
+  approver: string | null
+  reject_reason: string | null
+  decided_at: string | null
+  created_at: string | null
+  item_count: number
+  total_jpy: number
+  items: ExpenseClaimItem[]
 }
 
 // 元帳 (ledger) = 仕分け済みの仕訳一覧。借方/貸方/取引先は解決済みの表示文字列。
@@ -319,6 +344,20 @@ export const api = {
   receiptEmail: (id: string) => req<ReceiptEmail>(`/receipts/${id}/email`),
   // 監査ログ(訂正削除・承認・仕訳の履歴)。電子帳簿保存法の訂正削除履歴。
   receiptHistory: (id: string) => req<AuditEntry[]>(`/receipts/${id}/history`),
+  // --- 経費精算 ---
+  expenseClaims: (clientId: string, statusFilter?: string) =>
+    req<ExpenseClaim[]>(`/expense/claims?client_id=${clientId}${statusFilter ? `&status_filter=${statusFilter}` : ''}`),
+  expenseClaim: (id: string) => req<ExpenseClaim>(`/expense/claims/${id}`),
+  createExpenseClaim: (clientId: string, body: { title?: string | null; receipt_ids: string[] }) =>
+    req<ExpenseClaim>(`/expense/claims?client_id=${clientId}`, { method: 'POST', body: JSON.stringify(body) }),
+  updateExpenseClaim: (id: string, body: { title?: string | null; receipt_ids: string[] }) =>
+    req<ExpenseClaim>(`/expense/claims/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  submitExpenseClaim: (id: string) => req<{ status: string }>(`/expense/claims/${id}/submit`, { method: 'POST' }),
+  withdrawExpenseClaim: (id: string) => req<{ status: string }>(`/expense/claims/${id}/withdraw`, { method: 'POST' }),
+  approveExpenseClaim: (id: string, journalize: boolean) =>
+    req<{ status: string; journalized: number }>(`/expense/claims/${id}/approve`, { method: 'POST', body: JSON.stringify({ journalize }) }),
+  rejectExpenseClaim: (id: string, reason: string) =>
+    req<{ status: string }>(`/expense/claims/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }),
   // Web upload (multipart) — a logged-in user adds a receipt image/PDF to a client.
   uploadReceipt: async (clientId: string, file: File, audio?: File) => {
     const fd = new FormData()

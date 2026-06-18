@@ -24,7 +24,8 @@ function blankClient(): ClientDetail {
   return {
     id: '', name: '', code: null, export_default: 'generic', status: 'active',
     entity_type: null, t_number: null, address: null, phone: null,
-    contact_name: null, fiscal_month: null, closing_date: null, industry: null, memo: null,
+    contact_name: null, fiscal_month: null, closing_date: null,
+    expense_enabled: false, expense_credit_account_title_id: null, industry: null, memo: null,
     staff_user_id: null,
   }
 }
@@ -393,6 +394,12 @@ function ClientForm({
         <Field label="締め日(この日付以前の領収書は期間外警告)">
           <Input type="date" value={d.closing_date ?? ''}
             onChange={(e) => set('closing_date', e.target.value || null)} />
+        </Field>
+        <Field label="経費精算">
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={!!d.expense_enabled} onChange={(e) => set('expense_enabled', e.target.checked)} />
+            この顧問先で有効にする
+          </label>
         </Field>
         <Field label="業種">
           <Input value={d.industry ?? ''} onChange={(e) => set('industry', e.target.value)} />
