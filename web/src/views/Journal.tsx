@@ -178,7 +178,9 @@ export function JournalView({ clientId, showCreator }: { clientId: string; showC
                     return (
                       <Tr key={r.id} active={i === activeIdx} onClick={() => setActiveIndex(i)}>
                         <Td className="whitespace-nowrap text-slate-500">{r.date ?? '—'}</Td>
-                        <Td className="font-medium text-slate-800">{r.vendor || '—'}</Td>
+                        <Td className="font-medium text-slate-800">
+                          {r.parse_failed ? <span className="text-rose-600">認識できませんでした</span> : (r.vendor || '—')}
+                        </Td>
                         <Td className="whitespace-nowrap text-right tabular-nums">{yen(r.amount_jpy)}</Td>
                         <Td className="text-xs text-emerald-700">{sug ? `${sug.code} ${sug.name}` : '—'}</Td>
                       </Tr>

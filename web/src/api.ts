@@ -116,6 +116,7 @@ export interface Suggestion {
 export interface QueueItem {
   id: string
   vendor: string | null
+  parse_failed?: boolean // AIが請求書として認識できなかった(店舗名も金額も取れず)
   created_by_name: string | null
   amount_jpy: number | null
   subtotal_jpy: number | null

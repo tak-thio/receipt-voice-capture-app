@@ -29,6 +29,7 @@ export interface EditableReceipt {
   note_ids: string[]
   source?: string | null
   created_by_name?: string | null
+  parse_failed?: boolean // AIが請求書として認識できなかった
   suggestion?: Suggestion | null
 }
 
@@ -188,6 +189,11 @@ export function ReceiptEditFields({
 
       {/* 右: 店舗名/日付 → 取引先+T番号 → 借方 → 貸方 → 金額・消費税 → 操作 */}
       <div className="space-y-3">
+        {item.parse_failed && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
+            請求書として認識できませんでした。内容を手入力するか、「否認」「削除」してください。
+          </div>
+        )}
         {/* 店舗名 + 日付（編集可能） */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <label className="block space-y-1 sm:col-span-2">

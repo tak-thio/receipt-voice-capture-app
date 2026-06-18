@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import journaling
 from ..db import get_session
 from ..deps import Principal, get_principal
-from ..models import AccountTitle, File, Partner, Receipt, ReceiptFile, User
+from ..models import UNPARSED_VENDOR, AccountTitle, File, Partner, Receipt, ReceiptFile, User
 
 router = APIRouter(prefix="/journal", tags=["journal"])
 
@@ -160,6 +160,9 @@ async def queue(
             {
                 "id": str(r.id),
                 "vendor": r.vendor,
+                # 受信箱と同じく「請求書として認識できなかった」行を出し分ける印。
+                "parse_failed": bool((r.capture_meta or {}).get("parse_failed"))
+                and (r.vendor is None or r.vendor == UNPARSED_VENDOR),
                 "created_by_name": creators.get(r.created_by),
                 "amount_jpy": r.amount_jpy,
                 "subtotal_jpy": r.subtotal_jpy,
