@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import journaling
+from .. import audit, journaling
 from ..db import get_session
 from ..deps import Principal, get_principal
 from ..models import UNPARSED_VENDOR, AccountTitle, File, Partner, Receipt, ReceiptFile, User
@@ -287,7 +287,7 @@ async def suggest(
 async def journalize(
     receipt_id: UUID,
     body: Journalize,
-    _: Principal = Depends(get_principal),
+    principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
     """Confirm a receipt's categorization, mark journalized, and learn."""
@@ -303,6 +303,10 @@ async def journalize(
         )
     receipt.journalized_at = datetime.now(timezone.utc)
     receipt.journal_hold = False
+    await audit.log_audit(
+        session, firm_id=receipt.firm_id, client_id=receipt.client_id, actor_user_id=principal.user.id,
+        action="journalized", target_type="receipt", target_id=receipt.id, summary="仕訳確定",
+    )
 
     # Learn: vendor -> account rule + partner alias (per 顧問先).
     await journaling.learn(
@@ -320,7 +324,7 @@ async def journalize(
 async def edit_ledger(
     receipt_id: UUID,
     body: Journalize,
-    _: Principal = Depends(get_principal),
+    principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
     """元帳(仕分け済)の1件を修正する。仕訳日時(journalized_at)は維持する。"""
@@ -337,6 +341,10 @@ async def edit_ledger(
             session, receipt.client_id, receipt.partner_name, receipt.t_number
         )
     # journalized_at / journal_hold は据え置き（仕訳日時を変えない）。
+    await audit.log_audit(
+        session, firm_id=receipt.firm_id, client_id=receipt.client_id, actor_user_id=principal.user.id,
+        action="updated", target_type="receipt", target_id=receipt.id, summary="元帳修正(仕訳済の訂正)",
+    )
 
     # 修正内容を学習に反映（次回以降の自動仕訳の精度を上げる）。
     await journaling.learn(

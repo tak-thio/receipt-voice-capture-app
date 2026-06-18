@@ -315,6 +315,27 @@ class ReceiptFile(Base):
     kind: Mapped[str] = mapped_column(String(20))  # capture | audio | attachment
 
 
+class AuditLog(Base):
+    """append-only 監査ログ。電子帳簿保存法の訂正削除履歴＋各操作の証跡。
+    target_id は FK にしない(対象が削除されても履歴を残す)。アプリ権限では INSERT/SELECT のみ
+    (UPDATE/DELETE 不可=改ざん防止)。client-scoped RLS。"""
+
+    __tablename__ = "audit_logs"
+
+    id: Mapped[UUID] = _uuid_pk()
+    firm_id: Mapped[UUID] = mapped_column(ForeignKey("firms.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    actor_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    action: Mapped[str] = mapped_column(String(40))  # updated/deleted/journalized/approved/...
+    target_type: Mapped[str] = mapped_column(String(40), index=True)  # receipt/expense_claim/...
+    target_id: Mapped[UUID] = mapped_column(index=True)  # 対象ID(FKにしない=削除後も残す)
+    summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    changes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # {field: {before, after}}
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 # --- masters ---------------------------------------------------------------
 # Account titles / sub-accounts: firm template (client_id NULL) + client override.
 # Partners / aliases / rules: per-client (learned from that client's receipts).

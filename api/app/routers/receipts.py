@@ -8,10 +8,10 @@ from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import dedup
+from .. import audit, dedup
 from ..db import get_session
 from ..deps import Principal, get_principal
-from ..models import UNPARSED_VENDOR, ApprovalStatus, File, Receipt, ReceiptFile, User
+from ..models import UNPARSED_VENDOR, ApprovalStatus, AuditLog, File, Receipt, ReceiptFile, User
 
 router = APIRouter(prefix="/receipts", tags=["receipts"])
 
@@ -188,7 +188,7 @@ async def receipt_email(
 async def patch_receipt(
     receipt_id: UUID,
     body: ReceiptPatch,
-    _: Principal = Depends(get_principal),
+    principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
     r = await session.get(Receipt, receipt_id)
@@ -196,6 +196,10 @@ async def patch_receipt(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "receipt not found")
     data = body.model_dump(exclude_unset=True)
     _touched = set(data)
+    # 監査ログ用に変更前の値を控える(date は captured_at にマップ)。
+    _before = {
+        k: audit.jsonable(r.captured_at if k == "date" else getattr(r, k, None)) for k in _touched
+    }
 
     # 権限レベルを RLS ヘルパで判定: 'all'=担当者(管理者/経理/職員) / 'own'=登録者本人。
     # RLS でそもそも見えない行は session.get が None を返すので、ここに来る時点で
@@ -230,6 +234,21 @@ async def patch_receipt(
     # これが無いと、AIが誤読した日付を直しても重複として検知されない。
     if _DEDUP_FIELDS & _touched:
         await dedup.recompute_dedup(session, r.client_id)
+    # 監査ログ(電帳法の訂正削除履歴): 変わったフィールドだけ before→after を記録。
+    _changes = {
+        k: {
+            "before": _before[k],
+            "after": audit.jsonable(r.captured_at if k == "date" else getattr(r, k, None)),
+        }
+        for k in _touched
+    }
+    _changes = {k: v for k, v in _changes.items() if v["before"] != v["after"]}
+    if _changes:
+        _act = "deleted" if data.get("approval_status") == ApprovalStatus.deleted.value else "updated"
+        await audit.log_audit(
+            session, firm_id=r.firm_id, client_id=r.client_id, actor_user_id=principal.user.id,
+            action=_act, target_type="receipt", target_id=r.id, changes=_changes,
+        )
     # 一覧/詳細と同じ形(画像・登録者名込み)で返す。フロントが行をそのまま差し替えても
     # 画像リンク等が欠けないようにする。
     img_row = (
@@ -247,7 +266,7 @@ async def patch_receipt(
 @router.delete("/{receipt_id}")
 async def delete_receipt(
     receipt_id: UUID,
-    _: Principal = Depends(get_principal),
+    principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
     """Delete an un-approved (not yet journalized) receipt. RLS scopes which
@@ -257,5 +276,43 @@ async def delete_receipt(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "receipt not found")
     if r.journalized_at is not None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "確定済みの領収書は削除できません")
+    # 監査ログ(電帳法の削除履歴): 行が消える前に記録(対象の概要も残す)。
+    await audit.log_audit(
+        session, firm_id=r.firm_id, client_id=r.client_id, actor_user_id=principal.user.id,
+        action="deleted", target_type="receipt", target_id=r.id,
+        summary=f"{r.vendor or ''} {r.amount_jpy or ''} {r.captured_at.date().isoformat() if r.captured_at else ''}".strip(),
+    )
     await session.delete(r)
     return {"ok": True}
+
+
+@router.get("/{receipt_id}/history")
+async def receipt_history(
+    receipt_id: UUID,
+    _: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """この領収書の監査ログ(訂正削除・承認・仕訳の履歴)。RLSで自テナント分のみ。"""
+    items = list(
+        await session.scalars(
+            select(AuditLog)
+            .where(AuditLog.target_type == "receipt", AuditLog.target_id == receipt_id)
+            .order_by(AuditLog.created_at.desc())
+        )
+    )
+    uids = {a.actor_user_id for a in items if a.actor_user_id}
+    names: dict = {}
+    if uids:
+        rows = await session.execute(select(User.id, User.name).where(User.id.in_(uids)))
+        names = {uid: nm for uid, nm in rows.all()}
+    return [
+        {
+            "id": str(a.id),
+            "action": a.action,
+            "actor": names.get(a.actor_user_id),
+            "summary": a.summary,
+            "changes": a.changes,
+            "at": a.created_at.isoformat() if a.created_at else None,
+        }
+        for a in items
+    ]
