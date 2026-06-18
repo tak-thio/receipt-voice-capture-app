@@ -37,16 +37,38 @@ GMAIL_SCOPES = [
 ]
 
 
-def _require_client_admin(principal: Principal, client_id: UUID) -> None:
-    """メール連携は顧客側の管理者(client_admin)のみ。事務所職員/オーナーは不可。
-    OAuth は「ボタンを押した本人のメールボックス」を連携するため、顧客本人が行う必要がある。"""
-    ok = any(
-        m.client_id == client_id and m.role == Role.client_admin.value
-        for m in principal.memberships
-    )
-    if not ok:
+_CLIENT_ROLES = {
+    Role.client_admin.value,
+    Role.client_accountant.value,
+    Role.client_user.value,
+}
+
+
+def _require_client_member(principal: Principal, client_id: UUID) -> bool:
+    """メール連携は顧客側のメンバー(管理者/経理/一般社員)が行える。事務所職員/オーナーは不可。
+    OAuth は「ボタンを押した本人のメールボックス」を連携するため、顧客本人が行う必要がある。
+    一般社員は自分が連携したメールのみ、管理者(client_admin)は自顧問先の全メールを管理できる。
+    管理者なら True を返す。"""
+    is_member = False
+    is_admin = False
+    for m in principal.memberships:
+        if m.client_id == client_id and m.role in _CLIENT_ROLES:
+            is_member = True
+            if m.role == Role.client_admin.value:
+                is_admin = True
+    if not is_member:
         raise HTTPException(
-            status.HTTP_403_FORBIDDEN, "メール連携は顧客の管理者のみ行えます"
+            status.HTTP_403_FORBIDDEN, "メール連携はこの顧問先のメンバーのみ行えます"
+        )
+    return is_admin
+
+
+def _require_account_manage(principal: Principal, account: GmailAccount) -> None:
+    """連携済みメールの操作(取込/解除)。管理者は自顧問先の全件、一般社員は自分が連携した分のみ。"""
+    is_admin = _require_client_member(principal, account.client_id)
+    if not is_admin and account.connected_by != principal.user.id:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "自分が連携したメールのみ操作できます"
         )
 
 
@@ -80,7 +102,7 @@ async def connect(
     session: AsyncSession = Depends(get_session),
 ):
     """顧問先に Gmail を連携開始。Google の同意画面へリダイレクトする。"""
-    _require_client_admin(principal, client_id)
+    _require_client_member(principal, client_id)
     flow = _flow()
     state = make_oauth_state({"cid": str(client_id), "uid": str(principal.user.id)})
     auth_url, _ = flow.authorization_url(
@@ -101,7 +123,7 @@ async def callback(
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid or expired oauth state")
     client_id = UUID(data["cid"])
-    _require_client_admin(principal, client_id)
+    _require_client_member(principal, client_id)
     if error or not code:
         return RedirectResponse("/?gmail=error", status_code=302)
 
@@ -157,10 +179,12 @@ async def list_accounts(
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
-    _require_client_admin(principal, client_id)
-    rows = await session.scalars(
-        select(GmailAccount).where(GmailAccount.client_id == client_id).order_by(GmailAccount.created_at)
-    )
+    is_admin = _require_client_member(principal, client_id)
+    stmt = select(GmailAccount).where(GmailAccount.client_id == client_id)
+    if not is_admin:
+        # 一般社員/経理担当者は自分が連携したメールのみ。
+        stmt = stmt.where(GmailAccount.connected_by == principal.user.id)
+    rows = await session.scalars(stmt.order_by(GmailAccount.created_at))
     return [_account_dict(a) for a in rows]
 
 
@@ -173,7 +197,7 @@ async def disconnect(
     account = await session.get(GmailAccount, account_id)
     if not account:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
-    _require_client_admin(principal, account.client_id)
+    _require_account_manage(principal, account)
     await session.delete(account)
     return {"ok": True}
 
@@ -189,7 +213,7 @@ async def sync_account(
     account = await session.get(GmailAccount, account_id)
     if not account:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
-    _require_client_admin(principal, account.client_id)
+    _require_account_manage(principal, account)
     now = datetime.now(timezone.utc)
     after = (now - timedelta(days=max(1, days))).strftime("%Y/%m/%d")
     before = (now + timedelta(days=1)).strftime("%Y/%m/%d")

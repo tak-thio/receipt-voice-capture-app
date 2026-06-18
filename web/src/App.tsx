@@ -144,6 +144,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [tab, setTab] = useState<Tab>('receipts')
   const [navOpen, setNavOpen] = useState(false)
   const [pairOpen, setPairOpen] = useState(false)
+  const [gmailOpen, setGmailOpen] = useState(false)
 
   // Role-aware capabilities. 職員=firm-level membership; 利用者=client-level.
   const firmRole = me.memberships.find((m) => m.client_id === null)?.role ?? null
@@ -163,6 +164,9 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   }
   // client_admin が自社ユーザーを管理する対象 client_id。
   const selfClientId = clientMembership?.client_id ?? undefined
+  // 一般社員/経理担当者は設定画面を持たないので、ユーザーメニューから自分のGmailを連携できる
+  // (管理者は設定画面でメール連携を管理するため、ここには出さない)。
+  const canSelfGmail = !!clientMembership && clientRole !== 'client_admin'
   // 管理者・経理・職員は他人の領収書も見えるので登録者を表示（一般社員は自分のみ）。
   const canSeeOthers = firmRole !== null || clientRole === 'client_admin' || clientRole === 'client_accountant'
   const nav = NAV.filter((t) => t.can(perms))
@@ -175,6 +179,14 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   }
   useEffect(() => {
     reloadClients().catch(() => setClients([]))
+  }, [])
+  // OAuthコールバック(/?gmail=linked|error)から戻ったら、自分のメール連携モーダルを開いて
+  // 結果(トースト)と一覧更新を見せる。管理者は設定画面のGmailLinkが同様に処理する。
+  useEffect(() => {
+    if (canSelfGmail && new URLSearchParams(window.location.search).has('gmail')) {
+      setGmailOpen(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function go(id: Tab) {
@@ -216,6 +228,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
             name={me.user.name}
             onLogout={onLogout}
             onPair={clientMembership ? () => setPairOpen(true) : undefined}
+            onGmail={canSelfGmail ? () => setGmailOpen(true) : undefined}
           />
         </header>
 
@@ -248,6 +261,9 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
         </main>
       </div>
       {pairOpen && <SelfPairModal onClose={() => setPairOpen(false)} />}
+      {gmailOpen && selfClientId && (
+        <SelfGmailModal clientId={selfClientId} onClose={() => setGmailOpen(false)} />
+      )}
     </div>
   )
 }
@@ -307,11 +323,13 @@ function UserMenu({
   name,
   onLogout,
   onPair,
+  onGmail,
 }: {
   email: string
   name: string
   onLogout: () => void
   onPair?: () => void
+  onGmail?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const initial = (name || email || '?').trim().charAt(0).toUpperCase()
@@ -342,6 +360,15 @@ function UserMenu({
               >
                 <Icon.Qr className="text-base text-slate-400" />
                 アプリと連携
+              </button>
+            )}
+            {onGmail && (
+              <button
+                onClick={() => { setOpen(false); onGmail() }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
+              >
+                <Icon.Mail className="text-base text-slate-400" />
+                メール連携
               </button>
             )}
             <button
@@ -393,6 +420,22 @@ function SelfPairModal({ onClose }: { onClose: () => void }) {
           <Spinner />
         )}
       </div>
+    </Modal>
+  )
+}
+
+// 一般社員/経理担当者が自分のGmailを自分のアカウントに連携する。
+// (管理者は設定画面の GmailLink から管理。バックエンドが「自分が連携した分のみ」に制限する。)
+function SelfGmailModal({ clientId, onClose }: { clientId: string; onClose: () => void }) {
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="メール連携"
+      size="lg"
+      description="あなたのGmailに届いた領収書(添付・本文)を、あなたの受信箱に自動で取り込みます。"
+    >
+      <GmailLink clientId={clientId} />
     </Modal>
   )
 }
