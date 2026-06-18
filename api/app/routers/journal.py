@@ -184,6 +184,7 @@ async def queue(
                 "payment_method": r.payment_method,
                 "account_title_id": str(r.account_title_id) if r.account_title_id else None,
                 "credit_account_title_id": str(r.credit_account_title_id) if r.credit_account_title_id else None,
+                "sub_account_id": str(r.sub_account_id) if r.sub_account_id else None,
                 "partner_id": str(r.partner_id) if r.partner_id else None,
                 "partner_name": r.partner_name,
                 "note_ids": r.note_ids or [],
@@ -252,6 +253,7 @@ async def ledger(
                 # 直接編集（仕分けと同じ画面）用の生の値。
                 "account_title_id": str(r.account_title_id) if r.account_title_id else None,
                 "credit_account_title_id": str(r.credit_account_title_id) if r.credit_account_title_id else None,
+                "sub_account_id": str(r.sub_account_id) if r.sub_account_id else None,
                 "partner_id": str(r.partner_id) if r.partner_id else None,
                 "subtotal_jpy": r.subtotal_jpy,
                 "tax_10_jpy": r.tax_10_jpy,

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { api, type JournalizeBody, type MasterRow, type NoteRow, type Suggestion } from '../api'
+import { api, type JournalizeBody, type MasterRow, type NoteRow, type SubAccountRow, type Suggestion } from '../api'
 import { Button, cn, Icon, Input, Select, Textarea } from '../ui'
 import { NoteChips, NotePickerModal } from '../notes'
 import { ZoomableImage } from './ZoomableImage'
@@ -22,6 +22,7 @@ export interface EditableReceipt {
   description: string | null // 摘要
   account_title_id: string | null
   credit_account_title_id: string | null
+  sub_account_id?: string | null // 借方科目に紐づく補助科目
   partner_id: string | null
   partner_name?: string | null // 取引先(自由入力)
   image_file_id: string | null
@@ -56,6 +57,8 @@ export function ReceiptEditFields({
   const [showEmail, setShowEmail] = useState(false)
   const [titleId, setTitleId] = useState('') // 借方科目
   const [creditTitleId, setCreditTitleId] = useState('') // 貸方科目
+  const [subTitleId, setSubTitleId] = useState('') // 補助科目(借方科目に紐づく)
+  const [subAccounts, setSubAccounts] = useState<SubAccountRow[]>([]) // 選択中の借方科目の補助科目
   const [partnerNameInput, setPartnerNameInput] = useState('') // 取引先(自由入力)
   const [showAllDebit, setShowAllDebit] = useState(false)
   const [showAllCredit, setShowAllCredit] = useState(false)
@@ -75,6 +78,7 @@ export function ReceiptEditFields({
   useEffect(() => {
     setTitleId(item.account_title_id ?? item.suggestion?.account_title_id ?? '')
     setCreditTitleId(item.credit_account_title_id ?? '')
+    setSubTitleId(item.sub_account_id ?? item.suggestion?.sub_account_id ?? '')
     // 取引先(自由入力)の初期値: 保存済みの取引先名 > 引当マスタ名 > 店舗名。
     const linkedName = partners.find((p) => p.id === item.partner_id)?.name
     setPartnerNameInput(item.partner_name ?? linkedName ?? item.vendor ?? '')
@@ -97,6 +101,19 @@ export function ReceiptEditFields({
     setShowAllCredit(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.id])
+
+  // 借方科目が変わったら、その科目の補助科目を取得（補助科目があるときだけ選択UIを出す）。
+  useEffect(() => {
+    const t = titles.find((x) => x.id === titleId)
+    if (titleId && (t?.sub_account_count ?? 0) > 0) {
+      let alive = true
+      api.subAccounts(titleId)
+        .then((rows) => { if (alive) setSubAccounts(rows) })
+        .catch(() => { if (alive) setSubAccounts([]) })
+      return () => { alive = false }
+    }
+    setSubAccounts([])
+  }, [titleId, titles])
 
   // 「よく使う(借方/貸方)」だけを既定表示（多すぎる科目を絞る）。選択中の科目は常に出す。
   const pinnedDebit = titles.filter((t) => t.pinned_debit)
@@ -122,6 +139,7 @@ export function ReceiptEditFields({
     return {
       account_title_id: titleId || null,
       credit_account_title_id: creditTitleId || null,
+      sub_account_id: subTitleId || null,
       // 取引先は自由入力テキストを送る。マスタ完全一致ならサーバが partner_id を引当。
       partner_name: partnerNameInput.trim() || null,
       vendor: vendorInput.trim(),
@@ -283,8 +301,21 @@ export function ReceiptEditFields({
               </button>
             )}
           </div>
-          {titleButtons(shownDebit, titleId, setTitleId)}
+          {titleButtons(shownDebit, titleId, (id) => { setTitleId(id); setSubTitleId('') })}
         </div>
+
+        {/* 補助科目（選択中の借方科目に補助科目が登録されている場合だけ表示） */}
+        {subAccounts.length > 0 && (
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-slate-500">補助科目</span>
+            <Select value={subTitleId} onChange={(e) => setSubTitleId(e.target.value)}>
+              <option value="">(なし)</option>
+              {subAccounts.map((s) => (
+                <option key={s.id} value={s.id}>{s.code ? `${s.code} ${s.name}` : s.name}</option>
+              ))}
+            </Select>
+          </label>
+        )}
 
         {/* 貸方科目 */}
         <div className="space-y-2">

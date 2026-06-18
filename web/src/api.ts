@@ -138,6 +138,7 @@ export interface QueueItem {
   payment_method: string | null
   account_title_id: string | null
   credit_account_title_id: string | null
+  sub_account_id: string | null
   partner_id: string | null
   partner_name: string | null // 取引先(自由入力)
   note_ids: string[]
@@ -167,6 +168,7 @@ export interface LedgerRow {
   // 直接編集（仕分けと同じ画面）用の生の値。
   account_title_id: string | null
   credit_account_title_id: string | null
+  sub_account_id: string | null
   partner_id: string | null
   subtotal_jpy: number | null
   tax_10_jpy: number | null
