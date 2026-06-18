@@ -30,6 +30,7 @@ export interface ServerReceipt {
   approval_status: string
   journalized_at: string | null
   description: string | null
+  memo?: string | null // 自由メモ(ファイル名/ページ/音声を初期値、編集可)
   image_file_id?: string | null
   page?: number | null // PDFの何ページ目由来か
   parse_failed?: boolean // AIが請求書として認識できなかった(店舗名も金額も取れず)
@@ -44,6 +45,7 @@ export interface ReceiptPatch {
   payment_method?: string | null
   t_number?: string | null
   description?: string | null // 摘要
+  memo?: string | null // 自由メモ
 }
 
 /** 領収書の中身を修正する（承認前の自分の領収書のみ。権限/状態はサーバが判定）。 */

@@ -31,6 +31,7 @@ export interface EditableReceipt {
   created_by_name?: string | null
   parse_failed?: boolean // AIが請求書として認識できなかった
   page?: number | null // PDFの何ページ目由来か
+  memo?: string | null // 自由メモ
   suggestion?: Suggestion | null
 }
 
@@ -69,6 +70,7 @@ export function ReceiptEditFields({
   const [paymentInput, setPaymentInput] = useState('') // 支払方法
   const [tnumberInput, setTnumberInput] = useState('') // インボイス番号(T番号)
   const [descriptionInput, setDescriptionInput] = useState('') // 摘要
+  const [memoInput, setMemoInput] = useState('') // 自由メモ
 
   useEffect(() => {
     setTitleId(item.account_title_id ?? item.suggestion?.account_title_id ?? '')
@@ -90,6 +92,7 @@ export function ReceiptEditFields({
     setPaymentInput(item.payment_method ?? '')
     setTnumberInput(item.t_number ?? '')
     setDescriptionInput(item.description ?? '')
+    setMemoInput(item.memo ?? '')
     setShowAllDebit(false)
     setShowAllCredit(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -132,6 +135,7 @@ export function ReceiptEditFields({
       payment_method: paymentInput.trim() || null,
       t_number: tnumberInput.trim(),
       description: descriptionInput.trim(),
+      memo: memoInput.trim() || null,
     }
   }
 
@@ -247,6 +251,13 @@ export function ReceiptEditFields({
           <span className="text-xs font-medium text-slate-500">摘要</span>
           <Textarea rows={2} value={descriptionInput} onChange={(e) => setDescriptionInput(e.target.value)}
             placeholder="仕訳の摘要（AIが自動入力します。修正できます）" />
+        </label>
+
+        {/* メモ（取込時にファイル名/ページ/音声を初期値。自由に編集・削除可） */}
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-slate-500">メモ</span>
+          <Textarea rows={3} value={memoInput} onChange={(e) => setMemoInput(e.target.value)}
+            placeholder="ファイル名・ページ・音声などの控え（自由に編集できます）" />
         </label>
 
         {/* 借方科目 */}

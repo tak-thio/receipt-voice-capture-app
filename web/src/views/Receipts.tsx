@@ -290,6 +290,7 @@ function ReceiptEditModal({
   const [payment, setPayment] = useState(row.payment_method ?? '')
   const [tnumber, setTnumber] = useState(row.t_number ?? '')
   const [description, setDescription] = useState(row.description ?? '')
+  const [memo, setMemo] = useState(row.memo ?? '')
   const [saving, setSaving] = useState(false)
 
   async function save() {
@@ -305,6 +306,7 @@ function ReceiptEditModal({
         payment_method: payment.trim() || null,
         t_number: tnumber.trim() || null,
         description: description.trim() || null,
+        memo: memo.trim() || null,
       })
       toast.success('修正しました')
       onSaved(updated)
@@ -379,6 +381,11 @@ function ReceiptEditModal({
           <span className="text-xs font-medium text-slate-500">摘要</span>
           <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)}
             placeholder="用途・メモ" />
+        </label>
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-slate-500">メモ</span>
+          <Textarea rows={3} value={memo} onChange={(e) => setMemo(e.target.value)}
+            placeholder="ファイル名・ページ・音声などの控え（自由に編集できます）" />
         </label>
       </div>
     </Modal>

@@ -62,6 +62,7 @@ export interface ReceiptRow {
   payment_method: string | null
   t_number: string | null
   description: string | null // 摘要
+  memo?: string | null // 自由メモ(ファイル名/ページ/音声を初期値、編集可)
   account_title_id: string | null
   approval_status: string
   journalized_at: string | null
@@ -82,6 +83,7 @@ export interface ReceiptContentPatch {
   payment_method?: string | null
   t_number?: string | null
   description?: string | null // 摘要
+  memo?: string | null // 自由メモ
 }
 
 export interface NoteRow {
@@ -128,6 +130,7 @@ export interface QueueItem {
   source: string
   t_number: string | null
   description: string | null // 摘要
+  memo?: string | null // 自由メモ
   image_file_id: string | null
   image_mime: string | null
   page?: number | null // PDFの何ページ目由来か
@@ -160,6 +163,7 @@ export interface LedgerRow {
   tax_jpy: number | null
   t_number: string | null
   description: string | null // 摘要
+  memo?: string | null // 自由メモ
   // 直接編集（仕分けと同じ画面）用の生の値。
   account_title_id: string | null
   credit_account_title_id: string | null
@@ -216,6 +220,7 @@ export interface JournalizeBody {
   payment_method?: string | null
   t_number?: string | null
   description?: string | null // 摘要
+  memo?: string | null // 自由メモ
 }
 
 export interface ReconcileItem {

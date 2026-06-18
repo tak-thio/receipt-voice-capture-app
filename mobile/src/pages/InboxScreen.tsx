@@ -129,6 +129,7 @@ function ReceiptDetailScreen({
   const [payment, setPayment] = useState(receipt.payment_method ?? '')
   const [tnumber, setTnumber] = useState(receipt.t_number ?? '')
   const [description, setDescription] = useState(receipt.description ?? '')
+  const [memo, setMemo] = useState(receipt.memo ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [imgUrl, setImgUrl] = useState<string | null>(null)
@@ -164,6 +165,7 @@ function ReceiptDetailScreen({
         payment_method: payment.trim() || null,
         t_number: tnumber.trim() || null,
         description: description.trim() || null,
+        memo: memo.trim() || null,
       })
       onSaved(updated)
     } catch (e) {
@@ -224,6 +226,10 @@ function ReceiptDetailScreen({
       <label className="field">
         <span>摘要</span>
         <textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} disabled={!editable || saving} placeholder="用途・メモ" />
+      </label>
+      <label className="field">
+        <span>メモ</span>
+        <textarea rows={3} value={memo} onChange={(e) => setMemo(e.target.value)} disabled={!editable || saving} placeholder="ファイル名・ページ・音声などの控え" />
       </label>
 
       {error && <p className="muted small">{error}</p>}

@@ -28,6 +28,7 @@ class ExtractedReceipt:
     description: str | None = None  # 摘要 (仕訳の説明)
     doc_type: str = "receipt"  # 'receipt' | 'card_statement'(カード利用明細の1行)
     image_index: int = 0  # バッチ抽出時、何番目の画像由来か(0始まり)
+    audio_transcript: str | None = None  # 撮影セットの音声メモの文字起こし(セット共通)
     raw: dict = field(default_factory=dict)
 
 

@@ -29,13 +29,15 @@ def _html_to_text(html: str) -> str:
     return re.sub(r"\s+\n", "\n", _TAG_RE.sub(" ", html or "")).strip()
 
 
-async def _store_bytes(session: AsyncSession, account: GmailAccount, data: bytes, mime: str, kind: str) -> File:
+async def _store_bytes(
+    session: AsyncSession, account: GmailAccount, data: bytes, mime: str, kind: str, filename: str | None = None
+) -> File:
     sha = hashlib.sha256(data).hexdigest()
     path = f"{account.firm_id}/{account.client_id}/{sha}"
     await run_in_threadpool(storage.put, path, data, mime or "application/octet-stream")
     f = File(
         firm_id=account.firm_id, client_id=account.client_id, sha256=sha, kind=kind,
-        path=path, size=len(data), mime=mime or "", uploaded_by=account.connected_by,
+        path=path, size=len(data), mime=mime or "", filename=filename, uploaded_by=account.connected_by,
     )
     session.add(f)
     await session.flush()
@@ -71,7 +73,7 @@ async def _message_to_receipt(session: AsyncSession, account: GmailAccount, msg:
         # 添付(PDF/画像) = 領収書本体。最初の添付を OCR にかける。
         a = msg.attachments[0]
         is_pdf = a.mime_type == "application/pdf" or a.filename.lower().endswith(".pdf")
-        f = await _store_bytes(session, account, a.data, a.mime_type, "pdf" if is_pdf else "image")
+        f = await _store_bytes(session, account, a.data, a.mime_type, "pdf" if is_pdf else "image", a.filename)
         session.add(ReceiptFile(receipt_id=receipt.id, file_id=f.id, kind="capture"))
         session.add(Job(firm_id=account.firm_id, client_id=account.client_id, kind="ocr",
                         params={"receipt_id": str(receipt.id), "file_id": str(f.id)}))

@@ -44,6 +44,7 @@ async def _store_file(session, firm_id, client_id, upload: UploadFile, kind: str
         path=path,
         size=len(data),
         mime=upload.content_type or "",
+        filename=upload.filename,
         uploaded_by=uploaded_by,
     )
     session.add(f)

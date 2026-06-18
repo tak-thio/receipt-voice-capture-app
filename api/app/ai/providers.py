@@ -42,12 +42,14 @@ _BATCH_PROMPT = (
     "あるいはクレジットカードの利用明細(複数の利用行)が含まれます。"
     "PDFは全ページを対象に、含まれる領収書・利用明細の行を1件ずつ、すべて抽出してください。"
     "最後に音声がある場合、それは各領収書について話した説明メモです。"
-    '出力は {"items": [ {...}, {...} ]} の JSON だけ。何も無ければ {"items": []}。各要素のキー: '
+    '出力は {"items": [ {...}, {...} ], "audio_transcript": "..."} の JSON だけ。items の各要素のキー: '
     "image_index(その項目が写っている入力の番号。1始まり), "
     "doc_type(通常の領収書は 'receipt'、カード利用明細の行は 'card_statement'), "
     + _FIELDS_SPEC
     + " カード明細の行は vendor に利用先、amount_jpy に利用額を入れ、税やt_numberは"
     "読めなければ null。description は音声メモがあればその内容を踏まえて作成。"
+    " audio_transcript には、音声があればその文字起こし全文を、無ければ空文字を入れる。"
+    "領収書が無くても items は [] にし、audio_transcript は埋めること。"
 )
 
 
@@ -280,10 +282,18 @@ class GeminiOcr(OcrProvider):
                 {"inline_data": {"mime_type": audio_mime or "audio/mp4", "data": base64.b64encode(audio).decode()}}
             )
         out = await _gemini_generate(self.key, self.model, parts)
-        items = _json_from_text(out).get("items")
+        obj = _json_from_text(out)
+        items = obj.get("items")
         if not isinstance(items, list):
             return None
-        return [_to_extracted(it) for it in items if isinstance(it, dict)]
+        transcript = (obj.get("audio_transcript") or "").strip() or None
+        results: list[ExtractedReceipt] = []
+        for it in items:
+            if isinstance(it, dict):
+                ex = _to_extracted(it)
+                ex.audio_transcript = transcript
+                results.append(ex)
+        return results
 
 
 class GeminiFormat(FormatProvider):
@@ -318,21 +328,22 @@ class MockOcr(OcrProvider):
     ) -> list[ExtractedReceipt]:
         # 画像ごとに2件返す(複数領収書のテスト用)。音声があれば摘要に印を付ける。
         note = "音声メモ反映 " if audio is not None else ""
+        transcript = "テスト音声の文字起こし" if audio is not None else None
         out: list[ExtractedReceipt] = []
         for i in range(len(images)):
             for j in range(2):
-                out.append(
-                    _to_extracted(
-                        {
-                            "image_index": i + 1,
-                            "doc_type": "receipt",
-                            "vendor": f"テスト商店{i + 1}-{j + 1}",
-                            "amount_jpy": 1000 + j,
-                            "date": "2026-06-14",
-                            "description": f"{note}摘要 {i + 1}-{j + 1}",
-                        }
-                    )
+                ex = _to_extracted(
+                    {
+                        "image_index": i + 1,
+                        "doc_type": "receipt",
+                        "vendor": f"テスト商店{i + 1}-{j + 1}",
+                        "amount_jpy": 1000 + j,
+                        "date": "2026-06-14",
+                        "description": f"{note}摘要 {i + 1}-{j + 1}",
+                    }
                 )
+                ex.audio_transcript = transcript
+                out.append(ex)
         return out
 
 

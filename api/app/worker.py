@@ -198,11 +198,23 @@ async def _extract_grouped(
     return grouped
 
 
+def _seed_memo(file: File, page, audio_transcript) -> str | None:
+    """取込時のメモ初期値: ファイル名 / ページ / 音声の文字起こし(あるものだけ)。以後ユーザーが編集可。"""
+    lines = []
+    if file is not None and file.filename:
+        lines.append(f"ファイル: {file.filename}")
+    if page is not None:
+        lines.append(f"ページ: {page}")
+    if audio_transcript:
+        lines.append(f"音声: {audio_transcript}")
+    return "\n".join(lines) or None
+
+
 async def _create_receipt_from_item(
     session, *, firm_id, client_id, source, created_by, capture_meta, file: File, item, page=None
 ) -> Receipt:
     """1件分の Receipt を起こしてファイルを紐付け、抽出項目(あれば)を反映する。page があれば
-    capture_meta.page に記録(PDFの何ページ目由来か)。item が None は未解析として残す。"""
+    capture_meta.page に記録。memo に「ファイル名/ページ/音声」を初期値で入れる。item が None は未解析。"""
     meta = dict(capture_meta or {})
     if page is not None:
         meta["page"] = page
@@ -213,6 +225,7 @@ async def _create_receipt_from_item(
         doc_type=(item.doc_type if item else "receipt"),
         vendor=UNPARSED_VENDOR,
         capture_meta=meta,
+        memo=_seed_memo(file, page, item.audio_transcript if item is not None else None),
         created_by=created_by,
     )
     session.add(receipt)
@@ -324,6 +337,7 @@ async def _process(session, job: Job) -> None:
             receipt.doc_type = first.doc_type
             if first_page is not None:
                 receipt.capture_meta = {**(receipt.capture_meta or {}), "page": first_page}
+            receipt.memo = _seed_memo(file, first_page, first.audio_transcript)
             _apply_fields(receipt, first)
             await _autolink_partner(session, receipt)
             _mark_parse_outcome(receipt)

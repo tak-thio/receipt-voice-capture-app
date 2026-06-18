@@ -244,6 +244,7 @@ class File(Base, TimestampMixin):
     path: Mapped[str] = mapped_column(String(500))  # object storage key
     size: Mapped[int] = mapped_column(BigInteger, default=0)
     mime: Mapped[str] = mapped_column(String(100), default="")
+    filename: Mapped[str | None] = mapped_column(String(400), nullable=True)  # 元のファイル名(表示用)
     uploaded_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
@@ -271,6 +272,8 @@ class Receipt(Base, TimestampMixin):
     payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
     t_number: Mapped[str | None] = mapped_column(String(20), nullable=True)  # インボイス番号
     description: Mapped[str | None] = mapped_column(Text, nullable=True)  # 摘要 (仕訳の説明。AI生成 + 手修正可)
+    # 自由メモ。取込時に「ファイル名/ページ/音声の文字起こし」を初期値で入れ、以後自由に編集可。
+    memo: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     account_title_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("account_titles.id"), nullable=True

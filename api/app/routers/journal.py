@@ -39,6 +39,7 @@ class Journalize(BaseModel):
     payment_method: str | None = None
     t_number: str | None = None  # インボイス番号
     description: str | None = None  # 摘要
+    memo: str | None = None  # 自由メモ(都度編集)
 
 
 def _parse_date(s: str | None) -> datetime | None:
@@ -83,6 +84,8 @@ def _apply_journalize_fields(receipt: Receipt, body: "Journalize") -> None:
         receipt.t_number = body.t_number or None
     if body.description is not None:
         receipt.description = body.description or None
+    if body.memo is not None:
+        receipt.memo = body.memo or None
 
 
 async def _capture_file(session: AsyncSession, receipt_id: UUID) -> tuple[UUID | None, str | None]:
@@ -173,6 +176,7 @@ async def queue(
                 "source": r.source,
                 "t_number": r.t_number,
                 "description": r.description,
+                "memo": r.memo,
                 "image_file_id": str(img) if img else None,
                 "image_mime": img_mime,
                 "page": (r.capture_meta or {}).get("page"),  # PDFの何ページ目由来か
@@ -244,6 +248,7 @@ async def ledger(
                 "tax_jpy": r.tax_jpy,
                 "t_number": r.t_number,
                 "description": r.description,
+                "memo": r.memo,
                 # 直接編集（仕分けと同じ画面）用の生の値。
                 "account_title_id": str(r.account_title_id) if r.account_title_id else None,
                 "credit_account_title_id": str(r.credit_account_title_id) if r.credit_account_title_id else None,

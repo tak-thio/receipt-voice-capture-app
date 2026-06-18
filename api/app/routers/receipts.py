@@ -23,6 +23,7 @@ class ReceiptPatch(BaseModel):
     payment_method: str | None = None
     t_number: str | None = None
     description: str | None = None  # 摘要
+    memo: str | None = None  # 自由メモ(都度編集)
     account_title_id: UUID | None = None
     sub_account_id: UUID | None = None
     partner_id: UUID | None = None
@@ -33,7 +34,7 @@ class ReceiptPatch(BaseModel):
 # 登録者本人(RLS='own', 一般社員/利用者)が触れる「領収書の中身」。AI の読み取り間違いを
 # 直すための項目で、承認(仕訳)前に限り編集できる。
 _OWN_CONTENT_FIELDS = {
-    "vendor", "date", "amount_jpy", "tax_mode", "payment_method", "t_number", "description",
+    "vendor", "date", "amount_jpy", "tax_mode", "payment_method", "t_number", "description", "memo",
 }
 # 仕訳に関わる項目は担当者(RLS='all': 管理者/経理/職員)だけが触れる。
 _MANAGER_ONLY_FIELDS = {"account_title_id", "sub_account_id", "partner_id"}
@@ -64,6 +65,7 @@ def _serialize(r: Receipt, image_file_id=None, created_by_name=None, image_mime=
         "payment_method": r.payment_method,
         "t_number": r.t_number,
         "description": r.description,
+        "memo": r.memo,  # 自由メモ(ファイル名/ページ/音声を初期値、以後編集可)
         # 請求書として認識できなかった(AI解析で店舗名も金額も取れなかった)行。受信箱で
         # 『未解析(処理待ち)』ではなく『認識できなかった』と出し分けるための印。人が
         # 店舗名を入れたら解消するよう、印があっても vendor が実値なら false。
