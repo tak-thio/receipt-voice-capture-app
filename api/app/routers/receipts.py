@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .. import dedup
 from ..db import get_session
 from ..deps import Principal, get_principal
 from ..models import UNPARSED_VENDOR, ApprovalStatus, File, Receipt, ReceiptFile, User
@@ -38,6 +39,8 @@ _OWN_CONTENT_FIELDS = {
 }
 # 仕訳に関わる項目は担当者(RLS='all': 管理者/経理/職員)だけが触れる。
 _MANAGER_ONLY_FIELDS = {"account_title_id", "sub_account_id", "partner_id"}
+# 重複(突き合わせ)判定に効く項目。これらが編集されたら recompute_dedup を呼ぶ。
+_DEDUP_FIELDS = {"vendor", "date", "amount_jpy", "approval_status"}
 
 
 def _parse_date(s: str | None) -> datetime | None:
@@ -192,6 +195,7 @@ async def patch_receipt(
     if not r:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "receipt not found")
     data = body.model_dump(exclude_unset=True)
+    _touched = set(data)
 
     # 権限レベルを RLS ヘルパで判定: 'all'=担当者(管理者/経理/職員) / 'own'=登録者本人。
     # RLS でそもそも見えない行は session.get が None を返すので、ここに来る時点で
@@ -222,6 +226,10 @@ async def patch_receipt(
     for field, value in data.items():
         setattr(r, field, value)
     await session.flush()
+    # 編集で重複キー(店舗名/日付/金額/承認状態)が変わると突き合わせ結果も変わるため再計算する。
+    # これが無いと、AIが誤読した日付を直しても重複として検知されない。
+    if _DEDUP_FIELDS & _touched:
+        await dedup.recompute_dedup(session, r.client_id)
     # 一覧/詳細と同じ形(画像・登録者名込み)で返す。フロントが行をそのまま差し替えても
     # 画像リンク等が欠けないようにする。
     img_row = (
