@@ -48,6 +48,10 @@ export function ReceiptsView({
   const [rows, setRows] = useState<ReceiptRow[]>([])
   const [notes, setNotes] = useState<NoteRow[]>([])
   const [q, setQ] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [amountMin, setAmountMin] = useState('')
+  const [amountMax, setAmountMax] = useState('')
   const [loading, setLoading] = useState(false)
   const [tagging, setTagging] = useState<ReceiptRow | null>(null)
   const [emailView, setEmailView] = useState<ReceiptRow | null>(null)
@@ -107,7 +111,16 @@ export function ReceiptsView({
     }
     setLoading(true)
     try {
-      setRows(await api.receipts(clientId, q || undefined))
+      setRows(await api.receipts(clientId, q || undefined, { dateFrom, dateTo, amountMin, amountMax }))
+    } finally {
+      setLoading(false)
+    }
+  }
+  async function clearFilters() {
+    setQ(''); setDateFrom(''); setDateTo(''); setAmountMin(''); setAmountMax('')
+    setLoading(true)
+    try {
+      setRows(await api.receipts(clientId))
     } finally {
       setLoading(false)
     }
@@ -155,13 +168,26 @@ export function ReceiptsView({
         onDrop={(e) => { e.preventDefault(); setDragOver(false); void uploadFiles(e.dataTransfer.files) }}
       >
       <div className="mb-2 text-xs text-slate-400">ファイルをここにドラッグ&ドロップ、または「アップロード」ボタン（複数選択可）</div>
-      <div className="mb-4 flex items-center gap-2">
-        <div className="relative w-72 max-w-full">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="relative w-60 max-w-full">
           <Icon.Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <Input className="pl-9" placeholder="支払先 / 登録番号で検索" value={q}
             onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void load()} />
         </div>
+        <label className="flex items-center gap-1 text-xs text-slate-500">
+          日付
+          <Input type="date" className="w-36" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          <span>〜</span>
+          <Input type="date" className="w-36" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+        </label>
+        <label className="flex items-center gap-1 text-xs text-slate-500">
+          金額
+          <Input inputMode="numeric" className="w-24 text-right tabular-nums" placeholder="下限" value={amountMin} onChange={(e) => setAmountMin(e.target.value)} />
+          <span>〜</span>
+          <Input inputMode="numeric" className="w-24 text-right tabular-nums" placeholder="上限" value={amountMax} onChange={(e) => setAmountMax(e.target.value)} />
+        </label>
         <Button onClick={() => void load()}>検索</Button>
+        <Button variant="ghost" onClick={() => void clearFilters()}>クリア</Button>
         <span className="ml-1 text-sm text-slate-500">{rows.length}件</span>
         <div className="flex-1" />
         {canPollGmail && (

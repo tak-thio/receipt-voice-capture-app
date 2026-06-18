@@ -294,10 +294,18 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  receipts: (clientId?: string, q?: string) => {
+  receipts: (
+    clientId?: string,
+    q?: string,
+    filters?: { dateFrom?: string; dateTo?: string; amountMin?: string; amountMax?: string },
+  ) => {
     const params = new URLSearchParams()
     if (clientId) params.set('client_id', clientId)
     if (q) params.set('q', q)
+    if (filters?.dateFrom) params.set('date_from', filters.dateFrom)
+    if (filters?.dateTo) params.set('date_to', filters.dateTo)
+    if (filters?.amountMin) params.set('amount_min', filters.amountMin)
+    if (filters?.amountMax) params.set('amount_max', filters.amountMax)
     const qs = params.toString()
     return req<ReceiptRow[]>(`/receipts${qs ? `?${qs}` : ''}`)
   },

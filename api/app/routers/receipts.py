@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import audit, dedup
@@ -102,6 +102,10 @@ async def _creator_names(session: AsyncSession, rows) -> dict:
 async def list_receipts(
     client_id: UUID | None = None,
     q: str | None = None,
+    date_from: str | None = None,  # 取引年月日(範囲・開始) YYYY-MM-DD
+    date_to: str | None = None,  # 取引年月日(範囲・終了) YYYY-MM-DD
+    amount_min: int | None = None,  # 取引金額(範囲・下限)
+    amount_max: int | None = None,  # 取引金額(範囲・上限)
     limit: int = 100,
     _: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
@@ -117,6 +121,21 @@ async def list_receipts(
         stmt = stmt.where(Receipt.client_id == client_id)
     if q:
         stmt = stmt.where(text("search_text ILIKE :q")).params(q=f"%{q}%")
+    # 電子帳簿保存法の検索要件: 取引年月日(範囲)・取引金額(範囲)。取引先は q(search_text)で対応。
+    if date_from:
+        try:
+            stmt = stmt.where(func.date(Receipt.captured_at) >= _date.fromisoformat(date_from))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            stmt = stmt.where(func.date(Receipt.captured_at) <= _date.fromisoformat(date_to))
+        except ValueError:
+            pass
+    if amount_min is not None:
+        stmt = stmt.where(Receipt.amount_jpy >= amount_min)
+    if amount_max is not None:
+        stmt = stmt.where(Receipt.amount_jpy <= amount_max)
     rows = list(await session.scalars(stmt))
     # Map each receipt to its captured image file (if any) in one query.
     img_map: dict = {}
