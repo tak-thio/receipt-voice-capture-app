@@ -65,7 +65,10 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
         return
       }
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing } })
+        stream = await navigator.mediaDevices.getUserMedia({
+          // 解像度上限のヒント(無駄に高画質な巨大フレームを避ける。端末が最も近い値を選ぶ)。
+          video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1920 } },
+        })
       } catch {
         setCamError('カメラを起動できませんでした。アプリのカメラ権限を確認してください。')
         return
@@ -101,9 +104,14 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
   function grabFrame(): string | null {
     const video = videoRef.current
     if (!video || !video.videoWidth) return null
+    // 撮影画像は長辺を抑えてからJPEG化(アップロード帯域とAIトークンの節約。原本も不要に大きくしない)。
+    const MAX_EDGE = 1920
+    const vw = video.videoWidth
+    const vh = video.videoHeight
+    const scale = Math.min(1, MAX_EDGE / Math.max(vw, vh))
     const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
+    canvas.width = Math.round(vw * scale)
+    canvas.height = Math.round(vh * scale)
     const ctx = canvas.getContext('2d')
     if (!ctx) return null
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)

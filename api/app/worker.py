@@ -10,7 +10,7 @@ step to extract structured fields.
 import asyncio
 import io
 import logging
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
 
 from PIL import Image
@@ -312,12 +312,49 @@ async def _process(session, job: Job) -> None:
     _mark_parse_outcome(receipt)
 
 
+# --- サーキットブレーカ ------------------------------------------------------
+# 同一事務所で解析が連続失敗したら一時停止し、無駄なAI呼び出し(トークン)を止める。
+# プロセス内メモリで管理(ワーカー再起動でリセット)。失敗=ジョブ例外(タイムアウト/APIエラー等)。
+# 「請求書として認識できなかった(parse_failed)」は正常結果なのでカウントしない。
+_CIRCUIT_FAIL_THRESHOLD = 5       # 連続失敗がこの回数に達したら停止
+_CIRCUIT_PAUSE_SECONDS = 15 * 60  # 停止時間(クールダウン)
+_firm_fail_streak: dict = {}
+_firm_paused_until: dict = {}
+
+
+def _paused_firm_ids() -> list:
+    """いまクールダウン中の事務所ID一覧(期限切れは掃除)。"""
+    now = datetime.now(timezone.utc)
+    for fid in [f for f, until in _firm_paused_until.items() if until <= now]:
+        _firm_paused_until.pop(fid, None)
+    return list(_firm_paused_until.keys())
+
+
+def _record_job_result(firm_id, ok: bool) -> None:
+    """ジョブの成否を事務所ごとの連続失敗カウンタに反映。成功でリセット、閾値超で一時停止。"""
+    if ok:
+        _firm_fail_streak.pop(firm_id, None)
+        _firm_paused_until.pop(firm_id, None)
+        return
+    n = _firm_fail_streak.get(firm_id, 0) + 1
+    _firm_fail_streak[firm_id] = n
+    if n >= _CIRCUIT_FAIL_THRESHOLD:
+        _firm_paused_until[firm_id] = datetime.now(timezone.utc) + timedelta(seconds=_CIRCUIT_PAUSE_SECONDS)
+        logging.getLogger("worker").warning(
+            "circuit-breaker: firm %s had %d consecutive failures — pausing AI for %ds",
+            firm_id, n, _CIRCUIT_PAUSE_SECONDS,
+        )
+
+
 async def _tick() -> bool:
     async with _Session() as session:
         async with session.begin():
-            job = await session.scalar(
-                select(Job).where(Job.status == "pending").order_by(Job.created_at).limit(1)
-            )
+            stmt = select(Job).where(Job.status == "pending")
+            paused = _paused_firm_ids()
+            if paused:
+                # 連続失敗で一時停止中の事務所のジョブは拾わない(無駄トークンを止める)。
+                stmt = stmt.where(Job.firm_id.not_in(paused))
+            job = await session.scalar(stmt.order_by(Job.created_at).limit(1))
             if not job:
                 return False
             try:
@@ -328,6 +365,7 @@ async def _tick() -> bool:
                     await dedup.recompute_dedup(session, job.client_id)
                 job.status = "done"
                 job.progress = 100
+                _record_job_result(job.firm_id, ok=True)
             except Exception as exc:  # noqa: BLE001 — record and move on
                 job.status = "failed"
                 # 例外メッセージが空(タイムアウト等)でも種別が残るようにする＋ログにも出す。
@@ -335,6 +373,7 @@ async def _tick() -> bool:
                 logging.getLogger("worker").exception(
                     "job %s kind=%s failed: %s", job.id, job.kind, type(exc).__name__
                 )
+                _record_job_result(job.firm_id, ok=False)
             return True
 
 
