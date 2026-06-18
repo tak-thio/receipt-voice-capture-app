@@ -21,9 +21,18 @@ from ..models import UNPARSED_VENDOR, Client, File, Job, Receipt, ReceiptFile, R
 
 router = APIRouter(prefix="/captures", tags=["captures"])
 
+# 無駄に大きいデータをAIに送ってトークンを浪費しないための上限。
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 1ファイル 10MB まで
+MAX_BATCH_IMAGES = 20  # 1回の撮影セット/一括の最大枚数
+
 
 async def _store_file(session, firm_id, client_id, upload: UploadFile, kind: str, uploaded_by):
     data = await upload.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"ファイルが大きすぎます（1ファイル {MAX_UPLOAD_BYTES // (1024 * 1024)}MB まで）",
+        )
     sha = hashlib.sha256(data).hexdigest()
     path = f"{firm_id}/{client_id}/{sha}"
     await run_in_threadpool(storage.put, path, data, upload.content_type or "application/octet-stream")
@@ -114,6 +123,11 @@ async def create_batch(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
     if not images:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "at least one image required")
+    if len(images) > MAX_BATCH_IMAGES:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"一度に送れる画像は {MAX_BATCH_IMAGES} 枚までです",
+        )
 
     image_file_ids: list[str] = []
     for img in images:

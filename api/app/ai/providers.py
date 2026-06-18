@@ -35,16 +35,15 @@ _FIELDS_SPEC = (
 )
 _FORMAT_PROMPT = "次の領収書テキストから JSON で抽出してください。" + _FIELDS_SPEC + "\n\n"
 _OCR_PROMPT = "この領収書画像に書かれている文字を、改行を保ちつつ全て書き出してください。"
-# One-call vision extraction: read the image AND return structured JSON directly.
-_VISION_EXTRACT_PROMPT = "この領収書画像から JSON で抽出してください。" + _FIELDS_SPEC
-# 撮影セット一括抽出: 画像N枚(番号付き) + 任意の説明音声 → 含まれる領収書/明細を全件、配列で。
+# 全取込経路(モバイル/Web/Gmail)で共通の“唯一の”ビジョン抽出プロンプト。入力は画像または
+# PDF(複数ページ)で、1入力に領収書0..N枚・カード利用明細(複数行)が含まれうる。全件を配列で返す。
 _BATCH_PROMPT = (
-    "番号付きの画像が複数あります。各画像には領収書が1枚または複数枚、"
+    "番号付きの入力(画像またはPDF)が複数あります。各入力には領収書が0枚・1枚または複数枚、"
     "あるいはクレジットカードの利用明細(複数の利用行)が含まれます。"
-    "画像に含まれる領収書・利用明細の行を1件ずつ、すべて抽出してください。"
+    "PDFは全ページを対象に、含まれる領収書・利用明細の行を1件ずつ、すべて抽出してください。"
     "最後に音声がある場合、それは各領収書について話した説明メモです。"
-    '出力は {"items": [ {...}, {...} ]} の JSON だけ。各要素のキー: '
-    "image_index(その項目が写っている画像の番号。1始まり), "
+    '出力は {"items": [ {...}, {...} ]} の JSON だけ。何も無ければ {"items": []}。各要素のキー: '
+    "image_index(その項目が写っている入力の番号。1始まり), "
     "doc_type(通常の領収書は 'receipt'、カード利用明細の行は 'card_statement'), "
     + _FIELDS_SPEC
     + " カード明細の行は vendor に利用先、amount_jpy に利用額を入れ、税やt_numberは"
@@ -197,29 +196,6 @@ class OpenAiOcr(OcrProvider):
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"]
 
-    async def extract_fields(self, image: bytes, mime: str) -> ExtractedReceipt:
-        data_url = f"data:{mime or 'image/jpeg'};base64,{base64.b64encode(image).decode()}"
-        async with httpx.AsyncClient(timeout=180) as client:
-            resp = await client.post(
-                f"{_OPENAI}/chat/completions",
-                headers={"Authorization": f"Bearer {self.key}"},
-                json={
-                    "model": self.model,
-                    "response_format": {"type": "json_object"},
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": _VISION_EXTRACT_PROMPT},
-                                {"type": "image_url", "image_url": {"url": data_url}},
-                            ],
-                        }
-                    ],
-                },
-            )
-            resp.raise_for_status()
-            return _to_extracted(_json_from_text(resp.json()["choices"][0]["message"]["content"]))
-
 
 class OpenAiFormat(FormatProvider):
     def __init__(self, key: str, model: str | None = None) -> None:
@@ -284,15 +260,6 @@ class GeminiOcr(OcrProvider):
             {"inline_data": {"mime_type": mime or "image/jpeg", "data": base64.b64encode(image).decode()}},
         ]
         return await _gemini_generate(self.key, self.model, parts)
-
-    async def extract_fields(self, image: bytes, mime: str) -> ExtractedReceipt:
-        # One Gemini vision call: image -> structured JSON (no separate format step).
-        parts = [
-            {"text": _VISION_EXTRACT_PROMPT},
-            {"inline_data": {"mime_type": mime or "image/jpeg", "data": base64.b64encode(image).decode()}},
-        ]
-        out = await _gemini_generate(self.key, self.model, parts)
-        return _to_extracted(_json_from_text(out))
 
     async def extract_batch(
         self, images: list[tuple[bytes, str]], audio: bytes | None, audio_mime: str

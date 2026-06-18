@@ -42,12 +42,6 @@ class OcrProvider(ABC):
     async def extract_text(self, image: bytes, mime: str) -> str:
         """Image bytes -> raw OCR text."""
 
-    async def extract_fields(self, image: bytes, mime: str) -> ExtractedReceipt | None:
-        """Optional one-call path: a vision LLM can read the image AND return
-        structured fields directly, making a separate `format` step unnecessary.
-        Return None if unsupported (the caller falls back to extract_text + format)."""
-        return None
-
     async def extract_batch(
         self, images: list[tuple[bytes, str]], audio: bytes | None, audio_mime: str
     ) -> list[ExtractedReceipt] | None:

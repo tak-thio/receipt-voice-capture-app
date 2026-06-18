@@ -21,6 +21,8 @@ from .credentials import refresh_and_persist
 from .gmail import GmailClient, GmailMsg
 
 _TAG_RE = re.compile(r"<[^>]+>")
+# 無駄に大きい添付をAIに送らない上限（captures と揃える）。超えたら本文テキストにフォールバック。
+_MAX_ATTACH_BYTES = 10 * 1024 * 1024
 
 
 def _html_to_text(html: str) -> str:
@@ -65,7 +67,7 @@ async def _message_to_receipt(session: AsyncSession, account: GmailAccount, msg:
     session.add(receipt)
     await session.flush()
 
-    if msg.attachments:
+    if msg.attachments and len(msg.attachments[0].data) <= _MAX_ATTACH_BYTES:
         # 添付(PDF/画像) = 領収書本体。最初の添付を OCR にかける。
         a = msg.attachments[0]
         is_pdf = a.mime_type == "application/pdf" or a.filename.lower().endswith(".pdf")

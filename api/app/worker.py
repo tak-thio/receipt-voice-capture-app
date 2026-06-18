@@ -8,16 +8,18 @@ step to extract structured fields.
 """
 
 import asyncio
-import json
+import io
 from datetime import date, datetime, time, timezone
 from uuid import UUID
 
+from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from starlette.concurrency import run_in_threadpool
 
 from . import dedup, journaling, storage
 from .ai import factory
+from .ai.base import ExtractedReceipt
 from .config import get_settings
 from .models import (
     UNPARSED_VENDOR,
@@ -92,72 +94,137 @@ def _mark_parse_outcome(receipt: Receipt) -> None:
     receipt.capture_meta = meta
 
 
+# --- AI送信前の整形（全取込経路で共通。無駄なトークン消費を避ける） ----------
+# 画像は長辺を抑えて再エンコード（保存原本は触らない）。PDF は生のまま渡す
+# （Gemini が全ページを読む。画像化＝再ラスタライズはしない＝劣化もトークン増もさせない）。
+_AI_IMAGE_MAX_EDGE = 1600  # 画像の長辺上限(px)。領収書OCRはこの程度で十分。
+_AI_JPEG_QUALITY = 82
+_AI_MAX_TOTAL_BYTES = 15 * 1024 * 1024  # 1リクエストでAIに送る合計上限(Gemini inline ~20MB 未満)
+
+
+def _downscale_image(data: bytes) -> bytes:
+    """画像を長辺 _AI_IMAGE_MAX_EDGE 以下に縮小し JPEG 再エンコードした“AI送信用コピー”を返す
+    （保存済み原本は変えない）。縮小できない形式等は原本のまま返す。"""
+    try:
+        img = Image.open(io.BytesIO(data)).convert("RGB")
+        if max(img.size) > _AI_IMAGE_MAX_EDGE:
+            img.thumbnail((_AI_IMAGE_MAX_EDGE, _AI_IMAGE_MAX_EDGE))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=_AI_JPEG_QUALITY)
+        return buf.getvalue()
+    except Exception:  # noqa: BLE001 — 縮小不可な形式は原本のまま送る
+        return data
+
+
+async def _prep_ai_inputs(files: list[File]) -> list[tuple[bytes, str, File]]:
+    """AIに渡す入力を用意: 画像は縮小、PDFは生のまま。合計サイズ上限で打ち切る(最低1件は通す)。
+    返り値 [(送信バイト, mime, 元File), ...]。"""
+    out: list[tuple[bytes, str, File]] = []
+    total = 0
+    for f in files:
+        data = await run_in_threadpool(storage.get, f.path)
+        if "pdf" in (f.mime or "").lower() or f.kind == "pdf":
+            payload, send_mime = data, "application/pdf"
+        else:
+            payload = await run_in_threadpool(_downscale_image, data)
+            send_mime = "image/jpeg"
+        if out and total + len(payload) > _AI_MAX_TOTAL_BYTES:
+            break  # これ以上は送らない(無駄トークン回避)
+        total += len(payload)
+        out.append((payload, send_mime, f))
+    return out
+
+
+async def _extract_grouped(
+    ocr, files: list[File], audio: tuple[bytes, str] | None
+) -> list[tuple[ExtractedReceipt, File]] | None:
+    """全経路で共通のビジョン抽出。入力(画像/PDF)を整形して extract_batch に1回で渡し、
+    抽出結果を (項目, 元File) の並びで返す。provider が複数抽出に非対応なら None。"""
+    inputs = await _prep_ai_inputs(files)
+    if not inputs:
+        return []
+    images = [(b, m) for b, m, _ in inputs]
+    audio_bytes, audio_mime = audio if audio else (None, "")
+    items = await ocr.extract_batch(images, audio_bytes, audio_mime)
+    if items is None:
+        return None
+    return [
+        (it, inputs[it.image_index if 0 <= it.image_index < len(inputs) else 0][2])
+        for it in items
+    ]
+
+
+async def _create_receipt_from_item(
+    session, *, firm_id, client_id, source, created_by, capture_meta, file: File, item
+) -> Receipt:
+    """1件分の Receipt を起こしてファイルを紐付け、抽出項目(あれば)を反映する。item が None の
+    入力は『請求書として認識できなかった』未解析として残す。"""
+    receipt = Receipt(
+        firm_id=firm_id,
+        client_id=client_id,
+        source=source,
+        doc_type=(item.doc_type if item else "receipt"),
+        vendor=UNPARSED_VENDOR,
+        capture_meta=dict(capture_meta or {}),
+        created_by=created_by,
+    )
+    session.add(receipt)
+    await session.flush()
+    session.add(ReceiptFile(receipt_id=receipt.id, file_id=file.id, kind="capture"))
+    if item is not None:
+        _apply_fields(receipt, item)
+        await _autolink_partner(session, receipt)
+    _mark_parse_outcome(receipt)
+    return receipt
+
+
 async def _process_batch(session, job: Job, cfg: dict) -> None:
-    """撮影セット一括: 複数画像 + 任意の音声を1回のマルチモーダル呼び出しで解析し、
-    含まれる領収書/カード明細行をすべて Receipt として起こす。1画像から複数件が
-    出る場合(複数領収書・明細の各行)は同じ画像ファイルを共有する。STT は介さない。"""
+    """撮影セット/一括: 画像/PDF + 任意の音声を1回のマルチモーダル呼び出しで解析し、含まれる
+    領収書/カード明細行をすべて Receipt として起こす。1入力から複数件(複数領収書・明細の各行・
+    PDFの複数ページ)は同じファイルを共有。Web/Gmail/モバイルすべて同じ抽出(extract_batch)。"""
     image_ids = job.params.get("image_file_ids") or []
     audio_id = job.params.get("audio_file_id")
     uploaded_by = job.params.get("uploaded_by")
     if not image_ids:
         raise ValueError("batch job requires image_file_ids")
 
-    image_files: list[File] = []
+    files: list[File] = []
     for fid in image_ids:
         f = await session.get(File, UUID(fid))
         if f:
-            image_files.append(f)
-    if not image_files:
+            files.append(f)
+    if not files:
         raise ValueError("batch job: no image files found")
 
-    images: list[tuple[bytes, str]] = []
-    for f in image_files:
-        data = await run_in_threadpool(storage.get, f.path)
-        images.append((data, f.mime or "image/jpeg"))
-
-    audio_bytes: bytes | None = None
-    audio_mime = ""
+    audio = None
     audio_file = await session.get(File, UUID(audio_id)) if audio_id else None
     if audio_file:
         audio_bytes = await run_in_threadpool(storage.get, audio_file.path)
-        audio_mime = audio_file.mime or "audio/mp4"
+        audio = (audio_bytes, audio_file.mime or "audio/mp4")
 
-    items = await factory.ocr_for(cfg).extract_batch(images, audio_bytes, audio_mime)
-    if items is None:
-        raise ValueError(
-            "batch extraction requires a multi-image/audio capable provider (e.g. gemini)"
-        )
-
-    # 画像番号ごとにグルーピング。範囲外の index は先頭画像に寄せる。
-    by_image: dict[int, list] = {}
-    for it in items:
-        idx = it.image_index if 0 <= it.image_index < len(image_files) else 0
-        by_image.setdefault(idx, []).append(it)
+    grouped = await _extract_grouped(factory.ocr_for(cfg), files, audio)
+    if grouped is None:
+        raise ValueError("batch extraction requires a multi-capable provider (e.g. gemini)")
 
     created_by = UUID(uploaded_by) if uploaded_by else None
     capture_meta = {"audio_file_id": audio_id} if audio_id else {}
 
-    # どの画像も最低1件は起こす(抽出ゼロでも握りつぶさず未解析で残す)。
-    for i, f in enumerate(image_files):
-        entries = by_image.get(i) or [None]
-        for entry in entries:
-            receipt = Receipt(
+    # 入力ファイルごとにまとめ、どの入力も最低1件は起こす(抽出ゼロでも未解析で残す)。
+    by_file: dict = {}
+    for it, f in grouped:
+        by_file.setdefault(f.id, []).append(it)
+    for f in files:
+        for item in by_file.get(f.id) or [None]:
+            await _create_receipt_from_item(
+                session,
                 firm_id=job.firm_id,
                 client_id=job.client_id,
                 source=ReceiptSource.mobile.value,
-                doc_type=(entry.doc_type if entry else "receipt"),
-                vendor=UNPARSED_VENDOR,
-                capture_meta=dict(capture_meta),
                 created_by=created_by,
+                capture_meta=capture_meta,
+                file=f,
+                item=item,
             )
-            session.add(receipt)
-            await session.flush()
-            session.add(ReceiptFile(receipt_id=receipt.id, file_id=f.id, kind="capture"))
-            if entry is not None:
-                _apply_fields(receipt, entry)
-                await _autolink_partner(session, receipt)
-            # 抽出ゼロ(entry None)＝この画像は請求書として認識できなかった。印を付ける。
-            _mark_parse_outcome(receipt)
 
 
 def _resolve_ai(firm_cfg: dict | None, client_cfg: dict | None) -> dict:
@@ -194,18 +261,38 @@ async def _process(session, job: Job) -> None:
     if job.kind == "ocr":
         if not file:
             raise ValueError("ocr job requires a file")
-        data = await run_in_threadpool(storage.get, file.path)
-        ocr = factory.ocr_for(cfg)
-        # Vision LLMs (Gemini / OpenAI) read the image AND return structured fields
-        # in ONE call — apply them and skip the separate text→fields format step.
-        fields = await ocr.extract_fields(data, file.mime)
-        if fields is not None:
-            receipt.ocr_raw = json.dumps(fields.raw, ensure_ascii=False) if fields.raw else None
-            _apply_fields(receipt, fields)
+        # 全経路共通の抽出(extract_batch)。1ファイルから 0..N 件。最初の項目は既存の
+        # (プレースホルダ)receipt に、2件目以降は同じファイルを共有する追加 receipt に起こす
+        # (複数領収書・カード明細・複数ページPDF 対応)。
+        grouped = await _extract_grouped(factory.ocr_for(cfg), [file], None)
+        if grouped is None:
+            # 設定OCRプロバイダが複数抽出(extract_batch)非対応。本番はGemini前提なので通常起きない
+            # (起きたら設定エラーとしてジョブを失敗させ、jobsテーブルで気づけるようにする)。
+            raise ValueError("configured OCR provider lacks extract_batch (use gemini)")
+        if grouped:
+            # 1ファイルから 0..N 件。先頭は既存(プレースホルダ)receiptに、2件目以降は同じファイルを
+            # 共有する追加 receipt に起こす(複数領収書・カード明細・複数ページPDF 対応)。
+            first, _f = grouped[0]
+            receipt.doc_type = first.doc_type
+            _apply_fields(receipt, first)
             await _autolink_partner(session, receipt)
             _mark_parse_outcome(receipt)
-            return
-        receipt.ocr_raw = await ocr.extract_text(data, file.mime)
+            extra_meta = dict(receipt.capture_meta or {})
+            extra_meta.pop("parse_failed", None)
+            for item, f in grouped[1:]:
+                await _create_receipt_from_item(
+                    session,
+                    firm_id=receipt.firm_id,
+                    client_id=receipt.client_id,
+                    source=receipt.source,
+                    created_by=receipt.created_by,
+                    capture_meta=extra_meta,
+                    file=f,
+                    item=item,
+                )
+        else:
+            _mark_parse_outcome(receipt)
+        return
     elif job.kind == "stt":
         if not file:
             raise ValueError("stt job requires a file")
