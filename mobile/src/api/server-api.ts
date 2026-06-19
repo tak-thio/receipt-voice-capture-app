@@ -100,14 +100,82 @@ export async function listReceipts(
   serverUrl: string,
   deviceToken: string,
   clientId: string,
+  lane?: string, // company=会社経費 / expense=立替経費(一般社員のトレイ)
 ): Promise<ServerReceipt[]> {
-  const res = await fetch(`${base(serverUrl)}/receipts?client_id=${encodeURIComponent(clientId)}`, {
+  const laneQs = lane ? `&lane=${encodeURIComponent(lane)}` : ''
+  const res = await fetch(`${base(serverUrl)}/receipts?client_id=${encodeURIComponent(clientId)}${laneQs}`, {
     headers: { Authorization: `Bearer ${deviceToken}` },
   })
   if (!res.ok) {
     throw new Error(`受信箱の取得に失敗しました (${res.status})`)
   }
   return res.json() as Promise<ServerReceipt[]>
+}
+
+// --- 経費精算(申請=モバイル/web 両方。承認は web 専用) ---
+export interface ServerExpenseClaimItem {
+  receipt_id: string
+  vendor: string | null
+  amount_jpy: number | null
+  date: string | null
+}
+export interface ServerExpenseClaim {
+  id: string
+  title: string | null
+  status: string // draft | submitted | approved | rejected | withdrawn
+  applicant: string | null
+  applicant_user_id: string | null
+  reject_reason: string | null
+  created_at: string | null
+  item_count: number
+  total_jpy: number
+  items: ServerExpenseClaimItem[]
+}
+
+async function expenseReq<T>(serverUrl: string, deviceToken: string, path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${base(serverUrl)}${path}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${deviceToken}`, 'content-type': 'application/json', ...(init?.headers || {}) },
+  })
+  if (!res.ok) {
+    let msg = `操作に失敗しました (${res.status})`
+    try {
+      const body = JSON.parse(await res.text()) as { detail?: string }
+      if (body?.detail) msg = body.detail
+    } catch {
+      /* 本文が JSON でなければ既定メッセージのまま */
+    }
+    throw new Error(msg)
+  }
+  return res.json() as Promise<T>
+}
+
+export function listExpenseClaims(serverUrl: string, deviceToken: string, clientId: string, statusFilter?: string) {
+  const q = statusFilter ? `&status_filter=${encodeURIComponent(statusFilter)}` : ''
+  return expenseReq<ServerExpenseClaim[]>(
+    serverUrl, deviceToken, `/expense/claims?client_id=${encodeURIComponent(clientId)}${q}`,
+  )
+}
+export function createExpenseClaim(
+  serverUrl: string, deviceToken: string, clientId: string, body: { title?: string | null; receipt_ids: string[] },
+) {
+  return expenseReq<ServerExpenseClaim>(
+    serverUrl, deviceToken, `/expense/claims?client_id=${encodeURIComponent(clientId)}`,
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+}
+export function updateExpenseClaim(
+  serverUrl: string, deviceToken: string, claimId: string, body: { title?: string | null; receipt_ids: string[] },
+) {
+  return expenseReq<ServerExpenseClaim>(
+    serverUrl, deviceToken, `/expense/claims/${claimId}`, { method: 'PATCH', body: JSON.stringify(body) },
+  )
+}
+export function submitExpenseClaim(serverUrl: string, deviceToken: string, claimId: string) {
+  return expenseReq<{ status: string }>(serverUrl, deviceToken, `/expense/claims/${claimId}/submit`, { method: 'POST' })
+}
+export function withdrawExpenseClaim(serverUrl: string, deviceToken: string, claimId: string) {
+  return expenseReq<{ status: string }>(serverUrl, deviceToken, `/expense/claims/${claimId}/withdraw`, { method: 'POST' })
 }
 
 /** 領収書画像のプレビュー(PDFはサーバでPNG化)を取得し objectURL を返す。

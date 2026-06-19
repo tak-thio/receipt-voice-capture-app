@@ -40,7 +40,9 @@ export function InboxScreen() {
     setLoading(true)
     setError('')
     try {
-      setRows(await listReceipts(connection.serverUrl, connection.deviceToken, connection.clientId))
+      // 一般社員(client_user)の受信箱は立替(expense)トレイ。それ以外は会社経費(company)。
+      const lane = connection.role === 'client_user' ? 'expense' : 'company'
+      setRows(await listReceipts(connection.serverUrl, connection.deviceToken, connection.clientId, lane))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {

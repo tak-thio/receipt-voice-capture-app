@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import { CaptureScreen } from './pages/CaptureScreen'
 import { ConnectScreen } from './pages/ConnectScreen'
 import { DashboardScreen } from './pages/DashboardScreen'
+import { ExpenseScreen } from './pages/ExpenseScreen'
 import { InboxScreen } from './pages/InboxScreen'
 import { SettingsScreen } from './pages/SettingsScreen'
 import { useAppStore } from './store/app-store'
 
-type Tab = 'home' | 'capture' | 'inbox' | 'settings'
+type Tab = 'home' | 'capture' | 'inbox' | 'expense' | 'settings'
 
 export default function App() {
   const ready = useAppStore((state) => state.ready)
@@ -36,12 +37,16 @@ export default function App() {
     return <ConnectScreen />
   }
 
+  // 経費精算(申請)は一般社員(client_user)向け。撮ったものは立替レーンに入る。
+  const canExpense = connection.role === 'client_user'
+
   return (
     <div className="app">
       <main className="screen">
         {tab === 'home' && <DashboardScreen onGoCapture={() => setTab('capture')} onGoInbox={() => setTab('inbox')} />}
         {tab === 'capture' && <CaptureScreen onSent={() => setTab('home')} />}
         {tab === 'inbox' && <InboxScreen />}
+        {tab === 'expense' && <ExpenseScreen />}
         {tab === 'settings' && <SettingsScreen />}
       </main>
       {toast && (
@@ -53,6 +58,9 @@ export default function App() {
         <button className={tab === 'home' ? 'active' : ''} onClick={() => setTab('home')}>ホーム</button>
         <button className={tab === 'capture' ? 'active' : ''} onClick={() => setTab('capture')}>撮影</button>
         <button className={tab === 'inbox' ? 'active' : ''} onClick={() => setTab('inbox')}>受信箱</button>
+        {canExpense && (
+          <button className={tab === 'expense' ? 'active' : ''} onClick={() => setTab('expense')}>経費精算</button>
+        )}
         <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>設定</button>
       </nav>
     </div>
