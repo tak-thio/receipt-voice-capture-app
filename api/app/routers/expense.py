@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import audit
+from .. import audit, journaling
 from ..db import get_session
 from ..deps import Principal, get_principal
 from ..models import (
@@ -23,6 +23,7 @@ from ..models import (
     ExpenseClaimItem,
     Receipt,
     ReceiptFile,
+    ReceiptLane,
     Role,
     User,
 )
@@ -39,8 +40,14 @@ class ClaimIn(BaseModel):
     receipt_ids: list[UUID] = []
 
 
+class ApproveItem(BaseModel):
+    receipt_id: UUID
+    account_title_id: UUID | None = None  # 借方(費用)科目 — 経理が承認画面で確認/修正
+
+
 class ApproveBody(BaseModel):
-    journalize: bool = False  # 「支払いの仕訳データを作成する」チェックボックス
+    # 承認=記帳(1パス)。各領収書の借方科目を確定し、貸方は顧問先既定(未払金)で仕訳する。
+    items: list[ApproveItem] = []
 
 
 class RejectBody(BaseModel):
@@ -84,9 +91,22 @@ async def _receipts_map(session: AsyncSession, receipt_ids) -> dict:
     return {r.id: r for r in rows}
 
 
-def _claim_dict(c: ExpenseClaim, items, rmap, names) -> dict:
+def _claim_item(i: ExpenseClaimItem, r, suggested=None) -> dict:
+    return {
+        "receipt_id": str(i.receipt_id),
+        "vendor": r.vendor if r else None,
+        "amount_jpy": r.amount_jpy if r else None,
+        "date": r.captured_at.date().isoformat() if r and r.captured_at else None,
+        # 借方(費用)科目: 現在値と AI サジェスト(承認画面で経理が確認/修正する)。
+        "account_title_id": str(r.account_title_id) if r and r.account_title_id else None,
+        "suggested_account_title_id": str(suggested) if suggested else None,
+    }
+
+
+def _claim_dict(c: ExpenseClaim, items, rmap, names, suggest_map=None) -> dict:
     rs = [rmap.get(i.receipt_id) for i in items]
     total = sum((r.amount_jpy or 0) for r in rs if r is not None)
+    smap = suggest_map or {}
     return {
         "id": str(c.id),
         "title": c.title,
@@ -99,19 +119,7 @@ def _claim_dict(c: ExpenseClaim, items, rmap, names) -> dict:
         "created_at": c.created_at.isoformat() if c.created_at else None,
         "item_count": len(items),
         "total_jpy": total,
-        "items": [
-            {
-                "receipt_id": str(i.receipt_id),
-                "vendor": (rmap.get(i.receipt_id).vendor if rmap.get(i.receipt_id) else None),
-                "amount_jpy": (rmap.get(i.receipt_id).amount_jpy if rmap.get(i.receipt_id) else None),
-                "date": (
-                    rmap[i.receipt_id].captured_at.date().isoformat()
-                    if rmap.get(i.receipt_id) and rmap[i.receipt_id].captured_at
-                    else None
-                ),
-            }
-            for i in items
-        ],
+        "items": [_claim_item(i, rmap.get(i.receipt_id), smap.get(i.receipt_id)) for i in items],
     }
 
 
@@ -175,7 +183,13 @@ async def _set_items(session: AsyncSession, claim: ExpenseClaim, receipt_ids, pr
             continue
         seen.add(rid)
         r = await session.get(Receipt, rid)  # RLS-scoped: 見えない領収書は None
-        if r is None or r.client_id != claim.client_id:
+        # 立替(expense)レーンの、申請者本人が取り込んだ領収書のみ束ねられる。
+        if (
+            r is None
+            or r.client_id != claim.client_id
+            or r.lane != ReceiptLane.expense.value
+            or r.created_by != claim.applicant_user_id
+        ):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"領収書を束ねられません: {rid}")
         session.add(
             ExpenseClaimItem(
@@ -204,7 +218,13 @@ async def get_claim(
     items = await _items_of(session, claim.id)
     rmap = await _receipts_map(session, [i.receipt_id for i in items])
     names = await _names(session, [claim.applicant_user_id, claim.approver_user_id])
-    return _claim_dict(claim, items, rmap, names)
+    # 承認画面の借方科目プリフィル用: 未設定のものだけ AI サジェストを引く。
+    suggest_map: dict = {}
+    for i in items:
+        r = rmap.get(i.receipt_id)
+        if r is not None and r.account_title_id is None:
+            suggest_map[i.receipt_id] = (await journaling.suggest(session, r)).get("account_title_id")
+    return _claim_dict(claim, items, rmap, names, suggest_map)
 
 
 @router.patch("/claims/{claim_id}")
@@ -316,29 +336,32 @@ async def approve_claim(
     claim.approver_user_id = principal.user.id
     claim.decided_at = datetime.now(timezone.utc)
 
+    # 承認=記帳(1パス): 各領収書を 借方=確定した費用科目 / 貸方=未払金(顧問先既定)で仕訳する。
+    client = await session.get(Client, claim.client_id)
+    credit = client.expense_credit_account_title_id if client else None
+    debit_map = {it.receipt_id: it.account_title_id for it in body.items}
+    items = await _items_of(session, claim.id)
+    rmap = await _receipts_map(session, [i.receipt_id for i in items])
     journalized = 0
-    if body.journalize:
-        client = await session.get(Client, claim.client_id)
-        credit = client.expense_credit_account_title_id if client else None
-        items = await _items_of(session, claim.id)
-        rmap = await _receipts_map(session, [i.receipt_id for i in items])
-        for r in rmap.values():
-            if r.journalized_at is not None:
-                continue
-            if credit and r.credit_account_title_id is None:
-                r.credit_account_title_id = credit
-            r.journalized_at = datetime.now(timezone.utc)
-            r.journal_hold = False
-            journalized += 1
-            await audit.log_audit(
-                session, firm_id=r.firm_id, client_id=r.client_id, actor_user_id=principal.user.id,
-                action="journalized", target_type="receipt", target_id=r.id, summary="経費精算の承認で仕訳",
-            )
+    for r in rmap.values():
+        if r.journalized_at is not None:
+            continue
+        if debit_map.get(r.id) is not None:
+            r.account_title_id = debit_map[r.id]  # 借方(経理が承認画面で確認/修正)
+        if credit and r.credit_account_title_id is None:
+            r.credit_account_title_id = credit  # 貸方=未払金(立替)
+        r.journalized_at = datetime.now(timezone.utc)
+        r.journal_hold = False
+        journalized += 1
+        await audit.log_audit(
+            session, firm_id=r.firm_id, client_id=r.client_id, actor_user_id=principal.user.id,
+            action="journalized", target_type="receipt", target_id=r.id, summary="経費精算の承認で仕訳",
+        )
 
     await audit.log_audit(
         session, firm_id=claim.firm_id, client_id=claim.client_id, actor_user_id=principal.user.id,
         action="approved", target_type="expense_claim", target_id=claim.id,
-        summary=f"{claim.title or ''} (仕訳作成{journalized}件)" if body.journalize else claim.title,
+        summary=f"{claim.title or ''} (仕訳{journalized}件)",
     )
     await session.flush()
     return {"id": str(claim.id), "status": claim.status, "journalized": journalized}

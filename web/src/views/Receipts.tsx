@@ -38,11 +38,13 @@ export function ReceiptsView({
   showCreator,
   canPollGmail,
   lockDate,
+  lane = 'company',
 }: {
   clientId: string
   showCreator?: boolean
   canPollGmail?: boolean
   lockDate?: string | null // 締め日(YYYY-MM-DD)。取引日がこれ以前なら「期間外」警告
+  lane?: string // company=会社の受信箱 / expense=一般社員の未申請トレイ
 }) {
   const toast = useToast()
   const [rows, setRows] = useState<ReceiptRow[]>([])
@@ -111,7 +113,7 @@ export function ReceiptsView({
     }
     setLoading(true)
     try {
-      setRows(await api.receipts(clientId, q || undefined, { dateFrom, dateTo, amountMin, amountMax }))
+      setRows(await api.receipts(clientId, q || undefined, { dateFrom, dateTo, amountMin, amountMax, lane }))
     } finally {
       setLoading(false)
     }
@@ -120,7 +122,7 @@ export function ReceiptsView({
     setQ(''); setDateFrom(''); setDateTo(''); setAmountMin(''); setAmountMax('')
     setLoading(true)
     try {
-      setRows(await api.receipts(clientId))
+      setRows(await api.receipts(clientId, undefined, { lane }))
     } finally {
       setLoading(false)
     }

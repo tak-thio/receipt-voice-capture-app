@@ -24,6 +24,7 @@ from .ai import factory
 from .ai.base import ExtractedReceipt
 from .config import get_settings
 from .ingest.poll import poll_accounts
+from .lanes import resolve_lane
 from .models import (
     UNPARSED_VENDOR,
     Client,
@@ -213,7 +214,8 @@ def _seed_memo(file: File, page, audio_transcript) -> str | None:
 
 
 async def _create_receipt_from_item(
-    session, *, firm_id, client_id, source, created_by, capture_meta, file: File, item, page=None
+    session, *, firm_id, client_id, source, created_by, capture_meta, file: File, item, page=None,
+    lane="company",
 ) -> Receipt:
     """1件分の Receipt を起こしてファイルを紐付け、抽出項目(あれば)を反映する。page があれば
     capture_meta.page に記録。memo に「ファイル名/ページ/音声」を初期値で入れる。item が None は未解析。"""
@@ -224,6 +226,7 @@ async def _create_receipt_from_item(
         firm_id=firm_id,
         client_id=client_id,
         source=source,
+        lane=lane,
         doc_type=(item.doc_type if item else "receipt"),
         vendor=UNPARSED_VENDOR,
         capture_meta=meta,
@@ -270,6 +273,8 @@ async def _process_batch(session, job: Job, cfg: dict) -> None:
 
     created_by = UUID(uploaded_by) if uploaded_by else None
     capture_meta = {"audio_file_id": audio_id} if audio_id else {}
+    # 取り込んだ本人が一般社員なら立替(expense)レーン。1バッチは同一作成者なので1回解決。
+    lane = await resolve_lane(session, created_by, job.client_id)
 
     # 入力(ファイル/ページ)ごとにまとめ、どの入力も最低1件は起こす(抽出ゼロでも未解析で残す)。
     by_file: dict = {}
@@ -287,6 +292,7 @@ async def _process_batch(session, job: Job, cfg: dict) -> None:
                 file=f,
                 item=item,
                 page=page,
+                lane=lane,
             )
 
 

@@ -59,6 +59,7 @@ def _serialize(r: Receipt, image_file_id=None, created_by_name=None, image_mime=
         "id": str(r.id),
         "client_id": str(r.client_id),
         "source": r.source,
+        "lane": r.lane,  # 'company' | 'expense'
         "doc_type": r.doc_type,  # 'receipt' | 'card_statement'
         "match_id": str(r.match_id) if r.match_id else None,  # 突き合わせグループ
         "captured_at": r.captured_at.isoformat() if r.captured_at else None,
@@ -102,6 +103,7 @@ async def _creator_names(session: AsyncSession, rows) -> dict:
 async def list_receipts(
     client_id: UUID | None = None,
     q: str | None = None,
+    lane: str = "company",  # company=会社経費(受信箱) / expense=立替経費(未申請トレイ)
     date_from: str | None = None,  # 取引年月日(範囲・開始) YYYY-MM-DD
     date_to: str | None = None,  # 取引年月日(範囲・終了) YYYY-MM-DD
     amount_min: int | None = None,  # 取引金額(範囲・下限)
@@ -119,6 +121,8 @@ async def list_receipts(
     )
     if client_id:
         stmt = stmt.where(Receipt.client_id == client_id)
+    # レーンで絞り込み。既定=会社経費(company)。立替の未申請トレイは lane=expense を指定。
+    stmt = stmt.where(Receipt.lane == lane)
     if q:
         stmt = stmt.where(text("search_text ILIKE :q")).params(q=f"%{q}%")
     # 電子帳簿保存法の検索要件: 取引年月日(範囲)・取引金額(範囲)。取引先は q(search_text)で対応。

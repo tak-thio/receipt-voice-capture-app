@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { api, type ExpenseClaim, type ReceiptRow } from '../api'
+import { api, type ExpenseClaim, type ExpenseClaimItem, type MasterRow, type ReceiptRow } from '../api'
 import {
   Badge, Button, Card, cn, EmptyState, Icon, Input, Modal,
-  PageHeader, Table, Tbody, Td, Textarea, Th, Thead, Tr,
+  PageHeader, Select, Table, Tbody, Td, Textarea, Th, Thead, Tr,
 } from '../ui'
 import { useToast } from '../ui/toast'
 
@@ -151,7 +151,7 @@ export function ExpenseView({ clientId, canApprove, userId }: { clientId: string
           onSaved={() => { setEditing(null); void load() }}
         />
       )}
-      {approving && <ApproveModal claim={approving} onClose={() => setApproving(null)} onDone={() => { setApproving(null); void load() }} />}
+      {approving && <ApproveModal claim={approving} clientId={clientId} onClose={() => setApproving(null)} onDone={() => { setApproving(null); void load() }} />}
       {rejecting && <RejectModal claim={rejecting} onClose={() => setRejecting(null)} onDone={() => { setRejecting(null); void load() }} />}
     </>
   )
@@ -166,7 +166,8 @@ function ClaimEditModal({
   const [selected, setSelected] = useState<Set<string>>(new Set(claim?.items.map((i) => i.receipt_id) ?? []))
   const [busy, setBusy] = useState(false)
   useEffect(() => {
-    api.receipts(clientId).then(setReceipts).catch(() => setReceipts([]))
+    // 立替(expense)レーンの未申請領収書のみを候補にする(RLSで一般社員は自分の分だけ)。
+    api.receipts(clientId, undefined, { lane: 'expense' }).then(setReceipts).catch(() => setReceipts([]))
   }, [clientId])
   function toggle(id: string) {
     setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
@@ -217,15 +218,39 @@ function ClaimEditModal({
   )
 }
 
-function ApproveModal({ claim, onClose, onDone }: { claim: ExpenseClaim; onClose: () => void; onDone: () => void }) {
+// 承認=仕分け(1パス): 各領収書の借方科目を確認/修正 → 承認で仕訳(貸方=未払金 既定)。
+function ApproveModal({
+  claim, clientId, onClose, onDone,
+}: { claim: ExpenseClaim; clientId: string; onClose: () => void; onDone: () => void }) {
   const toast = useToast()
-  const [journalize, setJournalize] = useState(false)
+  const [titles, setTitles] = useState<MasterRow[]>([])
+  const [items, setItems] = useState<ExpenseClaimItem[]>([])
+  const [debit, setDebit] = useState<Record<string, string>>({}) // receipt_id -> account_title_id
   const [busy, setBusy] = useState(false)
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    let alive = true
+    Promise.all([api.expenseClaim(claim.id), api.accountTitles(clientId)])
+      .then(([full, ts]) => {
+        if (!alive) return
+        setItems(full.items)
+        setTitles(ts)
+        const d: Record<string, string> = {}
+        for (const it of full.items) d[it.receipt_id] = it.account_title_id ?? it.suggested_account_title_id ?? ''
+        setDebit(d)
+      })
+      .catch((e) => toast.error(e instanceof Error ? e.message : String(e)))
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claim.id, clientId])
+
   async function go() {
     setBusy(true)
     try {
-      const r = await api.approveExpenseClaim(claim.id, journalize)
-      toast.success(journalize ? `承認しました（仕訳${r.journalized}件作成）` : '承認しました')
+      const payload = items.map((it) => ({ receipt_id: it.receipt_id, account_title_id: debit[it.receipt_id] || null }))
+      const r = await api.approveExpenseClaim(claim.id, payload)
+      toast.success(`承認しました（仕訳${r.journalized}件）`)
       onDone()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e))
@@ -235,19 +260,39 @@ function ApproveModal({ claim, onClose, onDone }: { claim: ExpenseClaim; onClose
   }
   return (
     <Modal
-      open onClose={onClose} size="sm" title="承認"
+      open onClose={onClose} size="lg" title="承認して仕訳"
+      description="各領収書の借方科目を確認し、承認すると仕訳されます（貸方=未払金）。"
       footer={<>
         <Button variant="ghost" onClick={onClose} disabled={busy}>キャンセル</Button>
-        <Button variant="primary" onClick={() => void go()} disabled={busy}>{busy ? '処理中…' : '承認する'}</Button>
+        <Button variant="primary" onClick={() => void go()} disabled={busy || loading}>{busy ? '処理中…' : '承認して仕訳'}</Button>
       </>}
     >
-      <p className="text-sm text-slate-700">
-        「{claim.title || '(無題)'}」（{claim.item_count}件 / ¥{claim.total_jpy.toLocaleString()}）を承認します。
+      <p className="mb-2 text-sm text-slate-700">
+        「{claim.title || '(無題)'}」 {claim.applicant ?? ''} ・ {claim.item_count}件 / {yen(claim.total_jpy)}
       </p>
-      <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
-        <input type="checkbox" checked={journalize} onChange={(e) => setJournalize(e.target.checked)} />
-        支払いの仕訳データを作成する
-      </label>
+      {loading ? (
+        <div className="py-8 text-center text-sm text-slate-400">読み込み中…</div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((it) => (
+            <div key={it.receipt_id} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
+              <span className="w-20 shrink-0 text-xs text-slate-400">{it.date ?? '—'}</span>
+              <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{it.vendor || '(未解析)'}</span>
+              <span className="shrink-0 tabular-nums text-sm text-slate-700">{yen(it.amount_jpy)}</span>
+              <span className="shrink-0 text-xs text-slate-400">借方</span>
+              <Select
+                value={debit[it.receipt_id] ?? ''}
+                onChange={(e) => setDebit((d) => ({ ...d, [it.receipt_id]: e.target.value }))}
+                className="w-44 shrink-0"
+              >
+                <option value="">(科目未選択)</option>
+                {titles.map((t) => <option key={t.id} value={t.id}>{t.code ? `${t.code} ${t.name}` : t.name}</option>)}
+              </Select>
+            </div>
+          ))}
+          <p className="text-xs text-slate-500">貸方は顧問先の既定（未払金）で仕訳します。借方が未選択の行は後から元帳で設定できます。</p>
+        </div>
+      )}
     </Modal>
   )
 }

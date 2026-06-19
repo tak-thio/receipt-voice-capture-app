@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from .. import storage
+from ..lanes import resolve_lane
 from ..models import UNPARSED_VENDOR, File, GmailAccount, GmailMessage, Job, Receipt, ReceiptFile
 from .credentials import refresh_and_persist
 from .gmail import GmailClient, GmailMsg
@@ -53,6 +54,7 @@ async def _message_to_receipt(session: AsyncSession, account: GmailAccount, msg:
         firm_id=account.firm_id,
         client_id=account.client_id,
         source="email",
+        lane=await resolve_lane(session, account.connected_by, account.client_id),
         captured_at=captured_at,
         vendor=UNPARSED_VENDOR,
         created_by=account.connected_by,

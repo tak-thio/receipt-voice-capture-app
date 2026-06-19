@@ -58,6 +58,13 @@ class ApprovalStatus(str, enum.Enum):
     duplicate = "duplicate"
 
 
+class ReceiptLane(str, enum.Enum):
+    """領収書の処理レーン。company=会社経費(受信箱→仕分け→突き合わせ)、
+    expense=立替経費(経費精算で承認されるまで会社の記帳に入らない)。"""
+    company = "company"
+    expense = "expense"
+
+
 # --- mixins ----------------------------------------------------------------
 
 def _uuid_pk() -> Mapped[UUID]:
@@ -266,6 +273,11 @@ class Receipt(Base, TimestampMixin):
     # 書類種別: 通常の領収書 'receipt' か、クレジットカード利用明細の1行 'card_statement'。
     # 1枚の画像/明細から複数 Receipt を起こすとき、行/明細の性格を区別する。
     doc_type: Mapped[str] = mapped_column(String(20), default="receipt", server_default="receipt")
+    # 処理レーン: company=会社経費(受信箱→仕分け→突き合わせ) / expense=立替経費(経費精算)。
+    # 一般社員が取り込んだものは expense。expense は承認まで会社の記帳(受信箱/仕分け/突き合わせ)に出ない。
+    lane: Mapped[str] = mapped_column(
+        String(20), default=ReceiptLane.company.value, server_default="company", index=True
+    )
 
     captured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     vendor: Mapped[str | None] = mapped_column(String(300), nullable=True)  # 店舗名(支払先・OCR生)

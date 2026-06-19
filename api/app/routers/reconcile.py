@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import dedup
 from ..db import get_session
 from ..deps import Principal, get_principal
-from ..models import File, Receipt, ReceiptFile
+from ..models import File, Receipt, ReceiptFile, ReceiptLane
 
 router = APIRouter(prefix="/reconcile", tags=["reconcile"])
 
@@ -66,6 +66,7 @@ async def reconcile(
         await session.scalars(
             select(Receipt).where(
                 Receipt.client_id == client_id,
+                Receipt.lane == ReceiptLane.company.value,  # 立替は突き合わせに出さない
                 Receipt.match_id.is_not(None),
                 Receipt.approval_status.in_(["pending", "duplicate"]),
             )

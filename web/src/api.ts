@@ -60,6 +60,7 @@ export interface ReceiptRow {
   id: string
   client_id: string
   source: string
+  lane?: string // 'company'(会社経費) | 'expense'(立替経費)
   captured_at: string | null
   vendor: string | null
   amount_jpy: number | null
@@ -171,6 +172,8 @@ export interface ExpenseClaimItem {
   vendor: string | null
   amount_jpy: number | null
   date: string | null
+  account_title_id?: string | null // 借方(費用)科目の現在値
+  suggested_account_title_id?: string | null // 承認画面プリフィル用のAIサジェスト
 }
 export interface ExpenseClaim {
   id: string
@@ -322,11 +325,12 @@ export const api = {
   receipts: (
     clientId?: string,
     q?: string,
-    filters?: { dateFrom?: string; dateTo?: string; amountMin?: string; amountMax?: string },
+    filters?: { dateFrom?: string; dateTo?: string; amountMin?: string; amountMax?: string; lane?: string },
   ) => {
     const params = new URLSearchParams()
     if (clientId) params.set('client_id', clientId)
     if (q) params.set('q', q)
+    if (filters?.lane) params.set('lane', filters.lane) // company(受信箱) | expense(立替トレイ)
     if (filters?.dateFrom) params.set('date_from', filters.dateFrom)
     if (filters?.dateTo) params.set('date_to', filters.dateTo)
     if (filters?.amountMin) params.set('amount_min', filters.amountMin)
@@ -354,8 +358,15 @@ export const api = {
     req<ExpenseClaim>(`/expense/claims/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   submitExpenseClaim: (id: string) => req<{ status: string }>(`/expense/claims/${id}/submit`, { method: 'POST' }),
   withdrawExpenseClaim: (id: string) => req<{ status: string }>(`/expense/claims/${id}/withdraw`, { method: 'POST' }),
-  approveExpenseClaim: (id: string, journalize: boolean) =>
-    req<{ status: string; journalized: number }>(`/expense/claims/${id}/approve`, { method: 'POST', body: JSON.stringify({ journalize }) }),
+  // 承認=記帳: 各領収書の借方科目を確定して送る(貸方=未払金はサーバ側で既定付与)。
+  approveExpenseClaim: (
+    id: string,
+    items: { receipt_id: string; account_title_id: string | null }[],
+  ) =>
+    req<{ status: string; journalized: number }>(`/expense/claims/${id}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    }),
   rejectExpenseClaim: (id: string, reason: string) =>
     req<{ status: string }>(`/expense/claims/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }),
   // Web upload (multipart) — a logged-in user adds a receipt image/PDF to a client.

@@ -17,6 +17,7 @@ from starlette.concurrency import run_in_threadpool
 from .. import storage
 from ..db import get_session
 from ..deps import Principal, get_principal
+from ..lanes import resolve_lane
 from ..models import UNPARSED_VENDOR, Client, File, Job, Receipt, ReceiptFile, ReceiptSource
 
 router = APIRouter(prefix="/captures", tags=["captures"])
@@ -82,6 +83,7 @@ async def create_capture(
         firm_id=client.firm_id,
         client_id=client.id,
         source=ReceiptSource.mobile.value,
+        lane=await resolve_lane(session, principal.user.id, client.id),
         captured_at=datetime.fromisoformat(captured_at) if captured_at else None,
         capture_meta=capture_meta,
         created_by=principal.user.id,
@@ -180,6 +182,7 @@ async def create_web_capture(
         firm_id=client.firm_id,
         client_id=client.id,
         source=ReceiptSource.manual.value,
+        lane=await resolve_lane(session, principal.user.id, client.id),
         # Upload-time defaults: date = today, vendor = 未解析 placeholder. The worker
         # replaces the vendor once OCR/format parses the uploaded image.
         captured_at=datetime.fromisoformat(captured_at) if captured_at else datetime.now(timezone.utc),

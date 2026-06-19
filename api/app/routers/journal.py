@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import audit, journaling
 from ..db import get_session
 from ..deps import Principal, get_principal
-from ..models import UNPARSED_VENDOR, AccountTitle, File, Partner, Receipt, ReceiptFile, User
+from ..models import UNPARSED_VENDOR, AccountTitle, File, Partner, Receipt, ReceiptFile, ReceiptLane, User
 
 router = APIRouter(prefix="/journal", tags=["journal"])
 
@@ -128,7 +128,12 @@ async def queue(
     # 未処理（pending）のみ。否認/間違い/削除/重複（approval_status）は除外される。
     # 自動重複(突き合わせ)で duplicate にされた行は pending ではないので自動的に外れる
     # = 二重計上しない（本体＝親レコードだけが pending として残る）。
-    conds = [Receipt.journalized_at.is_(None), Receipt.approval_status == "pending"]
+    # 立替(expense)は経費精算の承認で仕訳されるため、通常の仕分けキューには出さない。
+    conds = [
+        Receipt.journalized_at.is_(None),
+        Receipt.approval_status == "pending",
+        Receipt.lane == ReceiptLane.company.value,
+    ]
     if client_id:
         conds.append(Receipt.client_id == client_id)
 

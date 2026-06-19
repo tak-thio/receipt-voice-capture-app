@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .journaling import normalize_vendor
-from .models import Receipt
+from .models import Receipt, ReceiptLane
 
 CARD = "card_statement"
 # dedup が管理する承認状態(これ以外: rejected/mistake/deleted は触らない)。
@@ -102,6 +102,8 @@ async def recompute_dedup(session: AsyncSession, client_id: UUID) -> None:
         await session.scalars(
             select(Receipt).where(
                 Receipt.client_id == client_id,
+                # 立替(expense)は突き合わせ対象外。会社経費(company)のみ。
+                Receipt.lane == ReceiptLane.company.value,
                 Receipt.approval_status.in_(_MANAGED),
             )
         )

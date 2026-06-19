@@ -246,6 +246,8 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
               showCreator={canSeeOthers}
               canPollGmail={perms.isFirm || !!clientMembership}
               lockDate={lockDate}
+              // 一般社員の受信箱は「未申請トレイ」(立替=expense)。それ以外は会社の受信箱(company)。
+              lane={clientRole === 'client_user' ? 'expense' : 'company'}
             />
           )}
           {tab === 'journal' && <JournalView clientId={clientId} showCreator={canSeeOthers} lockDate={lockDate} />}
