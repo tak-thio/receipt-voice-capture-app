@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections import defaultdict
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -19,6 +20,7 @@ from starlette.concurrency import run_in_threadpool
 from .. import storage
 from ..db import get_session
 from ..deps import Principal, get_principal
+from ..journaling import normalize_vendor
 from ..models import (
     UNPARSED_VENDOR,
     ApprovalStatus,
@@ -120,6 +122,23 @@ async def list_statements(
         if r.amount_jpy is not None:
             by_amount.setdefault(r.amount_jpy, []).append(r)
 
+    # 重複アップロード検知: 同じ明細行(取引日＋金額＋利用先)をグループ化。最古を本体、残りを重複候補。
+    groups: dict = defaultdict(list)
+    for c in cards:
+        if c.amount_jpy is None or c.captured_at is None:
+            continue
+        groups[(c.captured_at.date().isoformat(), c.amount_jpy, normalize_vendor(c.vendor))].append(c)
+    dup_key: dict = {}
+    dup_flag: dict = {}
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        members_sorted = sorted(members, key=lambda c: c.created_at)
+        primary = members_sorted[0]
+        for c in members_sorted:
+            dup_key[c.id] = str(primary.id)  # グループ識別子(本体のid)
+            dup_flag[c.id] = c.id != primary.id  # True=重複候補(削除してよい)
+
     imgs = await _images(session, [c.id for c in cards])
     out = []
     for c in cards:
@@ -145,5 +164,12 @@ async def list_statements(
             "receipt_id": str(match.id) if match else None,
             "image_file_id": str(fid) if fid else None,
             "image_mime": mime,
+            "dup_key": dup_key.get(c.id),   # 同一なら重複グループ(本体のid)。null=単独
+            "is_dup": dup_flag.get(c.id, False),  # True=重複候補
         })
-    return {"items": out, "total": len(out), "missing": sum(1 for x in out if not x["has_receipt"])}
+    return {
+        "items": out,
+        "total": len(out),
+        "missing": sum(1 for x in out if not x["has_receipt"]),
+        "dup_total": sum(1 for x in out if x["is_dup"]),  # 重複候補の件数
+    }

@@ -201,11 +201,14 @@ export interface CardStatementLine {
   receipt_id: string | null
   image_file_id?: string | null
   image_mime?: string | null
+  dup_key?: string | null // 同一なら重複グループ(本体のid)。null=単独
+  is_dup?: boolean // true=重複候補(削除してよい)
 }
 export interface CardStatementList {
   items: CardStatementLine[]
   total: number
   missing: number // 領収書が見つからない明細の件数
+  dup_total: number // 重複候補の件数
 }
 
 // 元帳 (ledger) = 仕分け済みの仕訳一覧。借方/貸方/取引先は解決済みの表示文字列。
