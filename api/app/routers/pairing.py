@@ -158,6 +158,52 @@ async def issue_self(
     }
 
 
+@router.post("/demo")
+async def demo(session: AsyncSession = Depends(get_session)):
+    """ログイン不要のデモ接続(ストア審査/お試し用)。デモ用顧問先(サンドボックス)の一般社員として
+    端末トークンを発行する。設定 demo_client_id が空ならデモ無効(404)。redeem と同じ形を返す。"""
+    if not settings.demo_client_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "demo not available")
+    try:
+        demo_cid = UUID(settings.demo_client_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "demo not available")
+    # デモ顧問先の一般社員(client_user)を使う(未認証=app_uid NULL なので memberships は NULL 逃しで読める)。
+    membership = await session.scalar(
+        select(Membership).where(
+            Membership.client_id == demo_cid,
+            Membership.role == Role.client_user.value,
+        )
+    )
+    if not membership:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "demo not configured")
+
+    device_token = new_token()
+    session.add(
+        DeviceSession(
+            user_id=membership.user_id,
+            client_id=membership.client_id,
+            refresh_token_hash=hash_token(device_token),
+        )
+    )
+    await session.flush()
+    await set_rls_context(session, membership.user_id)
+    user = await session.get(User, membership.user_id)
+    client = await session.get(Client, demo_cid)
+    firm = await session.get(Firm, membership.firm_id)
+    return {
+        "access_token": device_token,
+        "client_id": str(demo_cid),
+        "user_id": str(membership.user_id),
+        "user_name": user.name if user else "デモ利用者",
+        "job_title": "",
+        "role": membership.role,
+        "client_name": client.name if client else "デモ",
+        "firm_name": firm.name if firm else "",
+        "demo": True,
+    }
+
+
 @router.post("/redeem")
 async def redeem(body: RedeemBody, session: AsyncSession = Depends(get_session)):
     # No auth: the token IS the credential. Identity tables are not RLS-bound.

@@ -58,6 +58,11 @@ export default function App() {
 
   return (
     <div className="app">
+      {connection.demo && (
+        <div style={{ background: '#fde68a', color: '#78350f', textAlign: 'center', padding: '4px 8px', fontSize: 12 }}>
+          デモ中（サンプルデータ）・本番利用は事務所との連携が必要です
+        </div>
+      )}
       <main className="screen">
         {tab === 'home' && <DashboardScreen onGoCapture={() => setTab('capture')} onGoInbox={() => setTab('inbox')} />}
         {tab === 'capture' && <CaptureScreen onSent={() => setTab('home')} />}

@@ -8,4 +8,5 @@ export interface Connection {
   userName?: string
   jobTitle?: string
   role?: string
+  demo?: boolean // デモ接続(サンドボックス)。UIに「デモ中」を出す。
 }

@@ -221,6 +221,18 @@ export async function pairDevice(serverUrl: string, token: string): Promise<Pair
   return res.json() as Promise<PairResult>
 }
 
+/** ログイン不要のデモ接続。デモ用顧問先(サンドボックス)の端末トークンを得る。 */
+export async function demoConnect(serverUrl: string): Promise<PairResult> {
+  const res = await fetch(`${base(serverUrl)}/pairing/demo`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+  })
+  if (!res.ok) {
+    throw new Error(`デモ接続に失敗しました (${res.status})`)
+  }
+  return res.json() as Promise<PairResult>
+}
+
 export interface CaptureUpload {
   imageDataUrl?: string
   audio?: Blob

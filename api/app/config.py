@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     # 秘密情報なのでGitに入れず、サーバで secrets/ をマウントして渡す。
     fcm_credentials_path: str = ""
 
+    # --- デモモード(ストア審査/お試し用) ----------------------------------
+    # ログイン不要の「デモを試す」接続先。デモ用顧問先(サンドボックス)の client_id を設定すると
+    # /pairing/demo が有効になり、端末がその顧問先の一般社員として接続できる。空ならデモ無効。
+    demo_client_id: str = ""
+
     @property
     def runtime_database_url(self) -> str:
         return self.app_database_url or self.database_url

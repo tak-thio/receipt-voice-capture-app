@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { pairDevice } from '../api/server-api'
+import { demoConnect, pairDevice } from '../api/server-api'
 import { isQrScanSupported } from '../lib/qr-scan'
 import { QrScannerOverlay } from '../components/QrScannerOverlay'
 import { useAppStore } from '../store/app-store'
@@ -68,6 +68,30 @@ export function ConnectScreen() {
     }
   }
 
+  // ログイン不要のデモ。サンドボックスの顧問先に接続して、撮影→AI解析→受信箱まで試せる。
+  async function tryDemo() {
+    setBusy(true)
+    setMessage('')
+    try {
+      const result = await demoConnect(serverUrl)
+      setConnection({
+        serverUrl,
+        deviceToken: result.access_token,
+        clientId: result.client_id,
+        firmName: result.firm_name,
+        clientName: result.client_name,
+        userName: result.user_name,
+        jobTitle: result.job_title,
+        role: result.role,
+        demo: true,
+      })
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'デモ接続に失敗しました。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="connect-screen">
       <div className="connect-card">
@@ -96,6 +120,12 @@ export function ConnectScreen() {
           {busy ? '接続中...' : '接続'}
         </button>
         {message && <p className="muted small">{message}</p>}
+
+        <p className="muted small center" style={{ marginTop: 18 }}>または、アカウント不要で:</p>
+        <button className="primary-button big" disabled={busy} onClick={() => void tryDemo()}>
+          ログイン不要でデモを試す
+        </button>
+        <p className="muted small center">サンプルの顧問先で 撮影→AI読み取り→受信箱 を体験できます。</p>
       </div>
 
       {scanning && <QrScannerOverlay onResult={onQrResult} onCancel={() => setScanning(false)} />}
