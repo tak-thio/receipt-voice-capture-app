@@ -383,6 +383,24 @@ class ExpenseClaimItem(Base):
     applicant_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
+class DeviceToken(Base, TimestampMixin):
+    """FCM 登録トークン(モバイル端末)。ユーザー単位で通知先を保持。送信はサーバ(firebase-admin)。
+    RLS は client-scoped(own=自分のuser_id / all=管理者・経理・職員)。送信時は owner 接続で読む。"""
+
+    __tablename__ = "device_tokens"
+    __table_args__ = (UniqueConstraint("token", name="uq_device_token"),)
+
+    id: Mapped[UUID] = _uuid_pk()
+    firm_id: Mapped[UUID] = mapped_column(ForeignKey("firms.id", ondelete="CASCADE"), index=True)
+    client_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token: Mapped[str] = mapped_column(Text)
+    platform: Mapped[str] = mapped_column(String(20), default="android")
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 # --- masters ---------------------------------------------------------------
 # Account titles / sub-accounts: firm template (client_id NULL) + client override.
 # Partners / aliases / rules: per-client (learned from that client's receipts).

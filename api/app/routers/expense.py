@@ -14,13 +14,14 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import audit, journaling
+from .. import audit, fcm, journaling
 from ..db import get_session
 from ..deps import Principal, get_principal
 from ..models import (
     Client,
     ExpenseClaim,
     ExpenseClaimItem,
+    Membership,
     Receipt,
     ReceiptFile,
     ReceiptLane,
@@ -60,6 +61,17 @@ def _is_member(principal: Principal, client_id: UUID) -> bool:
 
 def _can_approve(principal: Principal, client_id: UUID) -> bool:
     return any(m.client_id == client_id and m.role in _APPROVER_ROLES for m in principal.memberships)
+
+
+async def _approver_ids(session: AsyncSession, client_id: UUID) -> list[UUID]:
+    """通知先の承認者(顧問先の管理者/経理)のユーザーID。memberships は同一firmなら読める。"""
+    rows = await session.scalars(
+        select(Membership.user_id).where(
+            Membership.client_id == client_id,
+            Membership.role.in_(list(_APPROVER_ROLES)),
+        )
+    )
+    return list(rows)
 
 
 async def _require_expense_enabled(session: AsyncSession, client_id: UUID) -> Client:
@@ -295,6 +307,14 @@ async def submit_claim(
         target_type="expense_claim", target_id=claim.id, summary=claim.title,
     )
     await session.flush()
+    # 承認者(管理者/経理)へ「新規申請」をプッシュ通知。
+    approvers = await _approver_ids(session, claim.client_id)
+    who = (await _names(session, [claim.applicant_user_id])).get(claim.applicant_user_id) or "社員"
+    fcm.fire(fcm.notify_users(
+        approvers, "経費精算の新規申請",
+        f"{who}さんが「{claim.title or '無題'}」を申請しました（{len(items)}件）",
+        {"type": "expense_submitted", "claim_id": str(claim.id)},
+    ))
     return {"id": str(claim.id), "status": claim.status}
 
 
@@ -364,6 +384,12 @@ async def approve_claim(
         summary=f"{claim.title or ''} (仕訳{journalized}件)",
     )
     await session.flush()
+    # 申請者へ「承認」をプッシュ通知。
+    fcm.fire(fcm.notify_users(
+        [claim.applicant_user_id], "経費精算が承認されました",
+        f"「{claim.title or '無題'}」が承認されました（仕訳{journalized}件）",
+        {"type": "expense_approved", "claim_id": str(claim.id)},
+    ))
     return {"id": str(claim.id), "status": claim.status, "journalized": journalized}
 
 
@@ -390,4 +416,10 @@ async def reject_claim(
         action="rejected", target_type="expense_claim", target_id=claim.id, summary=body.reason or claim.title,
     )
     await session.flush()
+    # 申請者へ「否認(理由つき)」をプッシュ通知。
+    fcm.fire(fcm.notify_users(
+        [claim.applicant_user_id], "経費精算が否認されました",
+        f"「{claim.title or '無題'}」が否認されました" + (f": {body.reason}" if body.reason else ""),
+        {"type": "expense_rejected", "claim_id": str(claim.id)},
+    ))
     return {"id": str(claim.id), "status": claim.status}

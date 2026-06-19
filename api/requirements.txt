@@ -19,3 +19,5 @@ google-api-python-client>=2.150
 google-auth>=2.36
 google-auth-oauthlib>=1.2
 google-auth-httplib2>=0.2
+# FCM プッシュ通知 (Phase D) — Firebase Admin SDK で送信
+firebase-admin>=6.5

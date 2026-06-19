@@ -32,3 +32,8 @@ __pycache__
 .env
 client_secret_*.json
 *.apps.googleusercontent.com.json
+
+# Firebase サービスアカウント鍵などの機密(サーバ直接配置・絶対にコミットしない)
+*-firebase-adminsdk-*.json
+**/secrets/
+fcm-sa.json

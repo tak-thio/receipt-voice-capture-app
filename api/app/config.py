@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     # 空なら QR は bare token のみ(端末側で URL を手入力)。
     public_api_url: str = ""
 
+    # --- FCM プッシュ通知 (Phase D) ---------------------------------------
+    # Firebase サービスアカウント鍵JSON(コンテナ内パス)。空なら通知は無効(送信をスキップ)。
+    # 秘密情報なのでGitに入れず、サーバで secrets/ をマウントして渡す。
+    fcm_credentials_path: str = ""
+
     @property
     def runtime_database_url(self) -> str:
         return self.app_database_url or self.database_url
