@@ -1,38 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { uploadBatch } from '../api/server-api'
 import { MediaRecorderService, getMediaRecordingSupport } from '../services/audio/media-recorder-service'
-import { getDetector, playShutterSound, unlockShutterAudio } from '../services/detection'
-import type { Detection, ObjectDetector } from '../services/detection'
 import type { RecordedAudioClip } from '../types/audio'
 import { useAppStore } from '../store/app-store'
 
-type AutoStatus = 'off' | 'loading' | 'on' | 'unavailable'
 type TrayItem = { id: number; dataUrl: string; ms: number }
 
-// 動きの収束判定: 主検出の中心+サイズが連続でほぼ動かなければ「収束」。
-// デモ用にゆるめ(早く確定・手ブレに寛容)。
-const STABLE_FRAMES = 2
-const MOTION_THRESH = 0.05 // 画像幅に対する移動量の許容
-// 推論はメインスレッド(WASM/CPU)で重い。間引いて体感負荷を下げる。
-const DETECT_INTERVAL_MS = 500
-// 1枚撮ったあと次の撮影を許可(再アーム)する条件。対象が消える/変わる以外に、
-// 一定時間で必ず再アームして「2枚目以降が切れない」を防ぐ。
-const REARM_COOLDOWN_MS = 1500
-const REARM_MOVE = 0.12 // 撮影時の枠から動いた量(画像幅比) がこれ以上なら別対象とみなす
-
-/** 撮影画面: 撮った写真はトレイに溜め(自動シャッター=赤枠→収束で緑枠+音、手動も可)、
- * 録音(セットの説明音声)を添えて「送信」で全画像+音声を1リクエストで一括送信する。
- * サーバが1回のAI呼び出しで全件(1枚に複数・カード明細含む)を解析する。 */
+/** 撮影画面: 手動シャッターで撮った写真をトレイに溜め、録音(セットの説明音声)を添えて
+ * 「送信」で全画像+音声を1リクエストで一括送信する。サーバが1回のAI呼び出しで
+ * 全件(1枚に複数・カード明細含む)を解析する。 */
 export function CaptureScreen({ onSent }: { onSent?: () => void }) {
   const connection = useAppStore((state) => state.connection)!
-  const autoPref = useAppStore((state) => state.autoCapture)
-  const setAutoPref = useAppStore((state) => state.setAutoCapture)
   const showToast = useAppStore((state) => state.showToast)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const overlayRef = useRef<HTMLCanvasElement>(null)
   const recorderRef = useRef<MediaRecorderService | null>(null)
-  const detectorRef = useRef<ObjectDetector | null>(null)
-  const loopCanvasRef = useRef<HTMLCanvasElement | null>(null) // 検出ループで使い回す(毎フレーム生成しない)
+  const idRef = useRef(1)
 
   const [camError, setCamError] = useState('')
   const [facing, setFacing] = useState<'environment' | 'user'>('environment')
@@ -43,17 +25,6 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
   const [message, setMessage] = useState('')
   const [sentCount, setSentCount] = useState(0)
   const [flash, setFlash] = useState(false)
-  const [autoStatus, setAutoStatus] = useState<AutoStatus>('off')
-
-  // 自動連続撮影の制御(ref: 検出ループから参照)
-  const idRef = useRef(1)
-  const armedRef = useRef(true) // 撮ったら一旦disarm、対象が消えたら再arm
-  const lastBoxRef = useRef<{ cx: number; cy: number; size: number } | null>(null)
-  const stableRef = useRef(0)
-  const captureBusyRef = useRef(false)
-  const autoStartedRef = useRef(false) // マウント時の自動開始を1回だけにする
-  const lastCaptureAtRef = useRef(0) // 直近の自動撮影時刻(再アームのクールダウン用)
-  const capturedBoxRef = useRef<{ cx: number; cy: number; size: number } | null>(null)
 
   // カメラ起動(前/背面切替で再起動)
   useEffect(() => {
@@ -91,15 +62,6 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
       stream?.getTracks().forEach((t) => t.stop())
     }
   }, [facing])
-
-  // 連続撮影モード: 開いたら(保存設定が ON なら)自動でモデルをロードして開始。
-  // 検出器は常駐するので unmount では破棄しない(タブ往復で再ロードしない)。
-  useEffect(() => {
-    if (autoStartedRef.current) return
-    autoStartedRef.current = true
-    if (autoPref) void startAuto()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   function grabFrame(): string | null {
     const video = videoRef.current
@@ -141,150 +103,6 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
     triggerFlash()
     addToTray(url, Date.now())
     setMessage('')
-  }
-
-  // 自動シャッター 検出ループ
-  useEffect(() => {
-    if (autoStatus !== 'on') return
-    let cancelled = false
-    let busy = false
-    const id = window.setInterval(async () => {
-      if (cancelled || busy) return
-      const det = detectorRef.current
-      const video = videoRef.current
-      const overlay = overlayRef.current
-      if (!det || !video || !video.videoWidth) return
-      busy = true
-      try {
-        const canvas = loopCanvasRef.current ?? (loopCanvasRef.current = document.createElement('canvas'))
-        if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth
-        if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight
-        canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height)
-        const dets = await det.detect({ canvas, width: canvas.width, height: canvas.height })
-        const primary: Detection | null = dets.length
-          ? dets.reduce((a, b) => (b.score > a.score ? b : a))
-          : null
-
-        // 収束判定
-        let converged = false
-        if (primary) {
-          const cx = primary.box.x + primary.box.width / 2
-          const cy = primary.box.y + primary.box.height / 2
-          const size = (primary.box.width + primary.box.height) / 2
-          const last = lastBoxRef.current
-          if (last) {
-            const move =
-              (Math.abs(cx - last.cx) + Math.abs(cy - last.cy) + Math.abs(size - last.size)) /
-              canvas.width
-            stableRef.current = move < MOTION_THRESH ? stableRef.current + 1 : 0
-          } else {
-            stableRef.current = 0
-          }
-          lastBoxRef.current = { cx, cy, size }
-          converged = stableRef.current >= STABLE_FRAMES
-
-          // 撮影後の再アーム: 別対象に移った(枠が動いた)か、クールダウン経過で許可。
-          // これで対象が映り続けていても2枚目以降が切れる。
-          if (!armedRef.current) {
-            const cap = capturedBoxRef.current
-            const moved = cap
-              ? (Math.abs(cx - cap.cx) + Math.abs(cy - cap.cy) + Math.abs(size - cap.size)) /
-                canvas.width
-              : 1
-            if (moved > REARM_MOVE || Date.now() - lastCaptureAtRef.current >= REARM_COOLDOWN_MS) {
-              armedRef.current = true
-              stableRef.current = 0
-            }
-          }
-        } else {
-          // 対象が消えたら再arm(次の領収書に備える)
-          stableRef.current = 0
-          lastBoxRef.current = null
-          armedRef.current = true
-        }
-
-        // 枠描画: 検出のみ=赤、収束=緑
-        if (overlay) {
-          overlay.width = canvas.width
-          overlay.height = canvas.height
-          const octx = overlay.getContext('2d')
-          if (octx) {
-            octx.clearRect(0, 0, overlay.width, overlay.height)
-            const color = converged ? '#34d399' : '#f87171'
-            octx.lineWidth = Math.max(3, canvas.width / 180)
-            octx.strokeStyle = color
-            octx.fillStyle = color
-            octx.font = `${Math.max(16, Math.round(canvas.width / 36))}px sans-serif`
-            for (const d of dets) {
-              octx.strokeRect(d.box.x, d.box.y, d.box.width, d.box.height)
-              octx.fillText(`${Math.round(d.score * 100)}%`, d.box.x, Math.max(d.box.y - 6, 16))
-            }
-          }
-        }
-
-        // 収束 & arm 済み → トレイへ追加(連続)
-        if (primary && converged && armedRef.current && !captureBusyRef.current) {
-          armedRef.current = false
-          stableRef.current = 0
-          lastCaptureAtRef.current = Date.now()
-          capturedBoxRef.current = {
-            cx: primary.box.x + primary.box.width / 2,
-            cy: primary.box.y + primary.box.height / 2,
-            size: (primary.box.width + primary.box.height) / 2,
-          }
-          captureBusyRef.current = true
-          try {
-            const url = grabFrame()
-            if (url) {
-              playShutterSound()
-              triggerFlash()
-              addToTray(url, Date.now())
-            }
-          } finally {
-            captureBusyRef.current = false
-          }
-        }
-      } catch {
-        /* per-frame error は無視 */
-      } finally {
-        busy = false
-      }
-    }, DETECT_INTERVAL_MS)
-    return () => {
-      cancelled = true
-      clearInterval(id)
-      const overlay = overlayRef.current
-      overlay?.getContext('2d')?.clearRect(0, 0, overlay.width, overlay.height)
-    }
-  }, [autoStatus])
-
-  // モデルをロードして連続撮影を開始(スピナー表示は autoStatus==='loading')。
-  async function startAuto() {
-    unlockShutterAudio()
-    if (autoStatus === 'on' || autoStatus === 'loading') return
-    setAutoStatus('loading')
-    try {
-      detectorRef.current = await getDetector()
-      stableRef.current = 0
-      lastBoxRef.current = null
-      capturedBoxRef.current = null
-      armedRef.current = true
-      setAutoStatus('on')
-    } catch {
-      setAutoStatus('unavailable')
-    }
-  }
-
-  // トグル: ON/OFF を localStorage に保存し、次回開いたときに適用する。
-  function toggleAuto() {
-    unlockShutterAudio()
-    if (autoStatus === 'on' || autoStatus === 'loading') {
-      setAutoPref(false)
-      setAutoStatus('off')
-    } else {
-      setAutoPref(true)
-      void startAuto()
-    }
   }
 
   async function toggleRecord() {
@@ -343,32 +161,13 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
     }
   }
 
-  const autoLabel =
-    autoStatus === 'loading' ? 'AI準備中…'
-    : autoStatus === 'on' ? '撮影中（タップで停止）'
-    : autoStatus === 'unavailable' ? '読み込み失敗・再試行'
-    : '自動撮影を開始'
   const audioSecs = audioClip ? Math.round(audioClip.durationMs / 1000) : 0
 
   return (
     <div className="capture-screen">
       <div className="cam-area">
         <video ref={videoRef} className="cam-video" autoPlay muted playsInline />
-        {autoStatus === 'on' && <canvas ref={overlayRef} className="cam-overlay" />}
         {flash && <div className="cam-flash" />}
-        {autoStatus === 'loading' && (
-          <div className="cam-spinner">
-            <span className="spinner lg" />
-            <span>AIモデルを準備中…</span>
-          </div>
-        )}
-        <button
-          className={`auto-toggle${autoStatus === 'on' ? ' on' : ''}${autoStatus === 'unavailable' ? ' off' : ''}`}
-          onClick={toggleAuto}
-          disabled={autoStatus === 'loading'}
-        >
-          {autoLabel}
-        </button>
         {!camError && (
           <button
             className="cam-flip"
@@ -418,17 +217,13 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
 
       <p className="muted small center">
         {message ||
-          (autoStatus === 'loading'
-            ? 'AIモデルを読み込んでいます…(初回は数秒)'
-            : recording
-              ? '録音中…領収書を撮りながら声で説明。送信時に画像とまとめて解析されます。'
-              : tray.length > 0
-                ? `${tray.length}枚をトレイに保持中。撮り終えたら「送信」。`
-                : autoStatus === 'on'
-                  ? '自動撮影中(収束で自動・対象を替えると次へ)。撮った写真はトレイに溜まります。'
-                  : sentCount > 0
-                    ? `この端末から送信: ${sentCount}枚`
-                    : `${connection.clientName ?? '顧問先'} に送信します`)}
+          (recording
+            ? '録音中…領収書を撮りながら声で説明。送信時に画像とまとめて解析されます。'
+            : tray.length > 0
+              ? `${tray.length}枚をトレイに保持中。撮り終えたら「送信」。`
+              : sentCount > 0
+                ? `この端末から送信: ${sentCount}枚`
+                : `${connection.clientName ?? '顧問先'} に送信します`)}
       </p>
     </div>
   )

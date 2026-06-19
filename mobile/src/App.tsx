@@ -4,7 +4,6 @@ import { ConnectScreen } from './pages/ConnectScreen'
 import { DashboardScreen } from './pages/DashboardScreen'
 import { InboxScreen } from './pages/InboxScreen'
 import { SettingsScreen } from './pages/SettingsScreen'
-import { prewarmDetector } from './services/detection'
 import { useAppStore } from './store/app-store'
 
 type Tab = 'home' | 'capture' | 'inbox' | 'settings'
@@ -15,18 +14,11 @@ export default function App() {
   const init = useAppStore((state) => state.init)
   const toast = useAppStore((state) => state.toast)
   const hideToast = useAppStore((state) => state.hideToast)
-  const autoCapture = useAppStore((state) => state.autoCapture)
   const [tab, setTab] = useState<Tab>('home')
 
   useEffect(() => {
     init()
   }, [init])
-
-  // 起動直後(ダッシュボード表示中)に検出モデルを裏でロード＆ウォームアップしておく。
-  // 撮影タブを開く頃には温まっているので、最初からスムーズに検出できる。
-  useEffect(() => {
-    if (ready && connection && autoCapture) prewarmDetector()
-  }, [ready, connection, autoCapture])
 
   // トーストは数秒で自動的に消す。
   useEffect(() => {
