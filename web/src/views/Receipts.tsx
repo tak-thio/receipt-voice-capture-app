@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { api, type NoteRow, type ReceiptRow } from '../api'
 import {
-  Badge, Button, Card, EmptyState, Icon, IconButton, Input, Modal, PageHeader,
+  Badge, Button, Card, cn, EmptyState, Icon, IconButton, Input, Modal, PageHeader,
   Select, Table, Tbody, Td, Textarea, Th, Thead, Tr,
 } from '../ui'
 import { NoteChips, NotePickerModal } from '../notes'
@@ -138,6 +138,38 @@ export function ReceiptsView({
     if (await toast.run(() => api.setApproval(r.id, 'deleted'), '削除しました')) void load()
   }
 
+  // 「これは重複ではない」= グループから外す(突き合わせと同じ /reconcile/not-duplicate)。
+  async function handleNotDuplicate(r: ReceiptRow) {
+    if (await toast.run(() => api.notDuplicate(r.id), '重複ではないとして外しました')) void load()
+  }
+
+  // 重複の可能性があるもの(同一 match_id)を突き合わせ画面のようにグルーピングして表示する。
+  const blocks = useMemo(() => {
+    type Block = { kind: 'single'; row: ReceiptRow } | { kind: 'group'; primary: ReceiptRow; dups: ReceiptRow[] }
+    const byMatch = new Map<string, ReceiptRow[]>()
+    for (const r of rows) {
+      if (!r.match_id) continue
+      const arr = byMatch.get(r.match_id) ?? []
+      arr.push(r)
+      byMatch.set(r.match_id, arr)
+    }
+    const out: Block[] = []
+    const done = new Set<string>()
+    for (const r of rows) {
+      if (done.has(r.id)) continue
+      const grp = r.match_id ? byMatch.get(r.match_id) : undefined
+      if (grp && grp.length >= 2) {
+        grp.forEach((g) => done.add(g.id))
+        const primary = grp.find((g) => g.approval_status === 'pending') ?? grp[0]
+        out.push({ kind: 'group', primary, dups: grp.filter((g) => g.id !== primary.id) })
+      } else {
+        done.add(r.id)
+        out.push({ kind: 'single', row: r })
+      }
+    }
+    return out
+  }, [rows])
+
   async function toggleNote(noteId: string) {
     if (!tagging) return
     const has = tagging.note_ids.includes(noteId)
@@ -145,6 +177,99 @@ export function ReceiptsView({
     setTagging({ ...tagging, note_ids: next })
     setRows((rs) => rs.map((r) => (r.id === tagging.id ? { ...r, note_ids: next } : r)))
     await toast.run(() => api.setReceiptNotes(tagging.id, next))
+  }
+
+  // 1行の描画。variant: normal=通常 / primary=重複グループの本体 / dup=重複の可能性(インデント表示)。
+  function renderRow(r: ReceiptRow, variant: 'normal' | 'primary' | 'dup', dupCount = 0) {
+    const isDup = variant === 'dup'
+    const grouped = variant !== 'normal'
+    const canEdit = r.approval_status === 'pending' && !r.journalized_at
+    return (
+      <Tr key={r.id} className={isDup ? 'bg-amber-50/70' : undefined}>
+        <Td className={cn('text-slate-500', grouped && 'border-l-2 border-amber-300')}>
+          {r.captured_at?.slice(0, 10) ?? '—'}
+        </Td>
+        <Td><SourceIcon source={r.source} /></Td>
+        <Td className="font-medium text-slate-800">
+          {isDup && <span className="mr-1 text-amber-600">↳</span>}
+          {r.parse_failed ? (
+            <span className="text-rose-600">請求書として認識できませんでした</span>
+          ) : (
+            r.vendor ?? '—'
+          )}
+        </Td>
+        <Td className="text-right font-medium tabular-nums">
+          {r.amount_jpy != null ? `¥${r.amount_jpy.toLocaleString()}` : '—'}
+        </Td>
+        {showCreator && <Td className="text-slate-500">{r.created_by_name ?? '—'}</Td>}
+        <Td className="text-sm text-slate-600">
+          <span className="block max-w-[14rem] truncate" title={r.description ?? ''}>{r.description || '—'}</span>
+        </Td>
+        <Td>
+          <div className="flex items-center gap-1.5">
+            <NoteChips ids={r.note_ids} notes={notes} />
+            <IconButton label="付箋を付ける" className="h-7 w-7" onClick={() => setTagging(r)}><Icon.Plus /></IconButton>
+          </div>
+        </Td>
+        <Td>
+          <div className="flex flex-wrap items-center gap-1">
+            {isDup ? <Badge tone="warning">重複の可能性</Badge> : statusBadge(r)}
+            {variant === 'primary' && dupCount > 0 && <Badge tone="warning">重複 {dupCount}件</Badge>}
+            {lockDate && r.captured_at && r.captured_at.slice(0, 10) <= lockDate && <Badge tone="danger">期間外</Badge>}
+          </div>
+        </Td>
+        <Td>
+          <div className="flex items-center gap-2 text-slate-500">
+            {r.image_file_id && (
+              <a
+                href={api.fileUrl(r.image_file_id, r.page)}
+                target="_blank"
+                rel="noreferrer"
+                title={r.page != null ? `このページ(P.${r.page})を開く` : (r.image_mime ?? '').includes('pdf') ? 'PDFを開く' : '画像を開く'}
+                className="inline-flex hover:text-brand-600"
+              >
+                {(r.image_mime ?? '').includes('pdf') ? <Icon.FileText className="text-lg" /> : <Icon.Image className="text-lg" />}
+              </a>
+            )}
+            {r.page != null && (
+              <span className="text-[10px] tabular-nums text-slate-400" title="PDFのページ">P.{r.page}</span>
+            )}
+            {r.source === 'email' && (
+              <button onClick={() => setEmailView(r)} title="メール本文を表示" className="inline-flex hover:text-brand-600">
+                <Icon.Mail className="text-lg" />
+              </button>
+            )}
+            {!r.image_file_id && r.source !== 'email' && <span className="text-slate-300">—</span>}
+          </div>
+        </Td>
+        <Td className="text-right">
+          <div className="flex items-center justify-end gap-1">
+            <IconButton label="変更履歴" className="h-7 w-7 hover:!text-brand-600" onClick={() => setHistoryId(r.id)}>
+              <Icon.Clock />
+            </IconButton>
+            {isDup && (
+              <button
+                onClick={() => void handleNotDuplicate(r)}
+                className="rounded-md px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100"
+                title="このグループから外す(重複ではない)"
+              >
+                重複でない
+              </button>
+            )}
+            {canEdit && (
+              <IconButton label="修正" className="h-7 w-7 hover:!text-brand-600" onClick={() => setEditing(r)}>
+                <Icon.Pencil />
+              </IconButton>
+            )}
+            {(canEdit || isDup) && (
+              <IconButton label="削除" className="h-7 w-7 hover:!text-red-600" onClick={() => void handleDelete(r)}>
+                <Icon.Trash />
+              </IconButton>
+            )}
+          </div>
+        </Td>
+      </Tr>
+    )
   }
 
   if (!clientId) {
@@ -227,85 +352,14 @@ export function ReceiptsView({
             </tr>
           </Thead>
           <Tbody>
-            {rows.map((r) => (
-              <Tr key={r.id}>
-                <Td className="text-slate-500">{r.captured_at?.slice(0, 10) ?? '—'}</Td>
-                <Td><SourceIcon source={r.source} /></Td>
-                <Td className="font-medium text-slate-800">
-                  {r.parse_failed ? (
-                    <span className="text-rose-600">請求書として認識できませんでした</span>
-                  ) : (
-                    r.vendor ?? '—'
-                  )}
-                </Td>
-                <Td className="text-right font-medium tabular-nums">
-                  {r.amount_jpy != null ? `¥${r.amount_jpy.toLocaleString()}` : '—'}
-                </Td>
-                {showCreator && <Td className="text-slate-500">{r.created_by_name ?? '—'}</Td>}
-                <Td className="text-sm text-slate-600">
-                  <span className="block max-w-[14rem] truncate" title={r.description ?? ''}>
-                    {r.description || '—'}
-                  </span>
-                </Td>
-                <Td>
-                  <div className="flex items-center gap-1.5">
-                    <NoteChips ids={r.note_ids} notes={notes} />
-                    <IconButton label="付箋を付ける" className="h-7 w-7" onClick={() => setTagging(r)}>
-                      <Icon.Plus />
-                    </IconButton>
-                  </div>
-                </Td>
-                <Td>
-                  <div className="flex flex-wrap items-center gap-1">
-                    {statusBadge(r)}
-                    {lockDate && r.captured_at && r.captured_at.slice(0, 10) <= lockDate && (
-                      <Badge tone="danger">期間外</Badge>
-                    )}
-                  </div>
-                </Td>
-                <Td>
-                  <div className="flex items-center gap-2 text-slate-500">
-                    {r.image_file_id && (
-                      <a
-                        href={api.fileUrl(r.image_file_id, r.page)}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={r.page != null ? `このページ(P.${r.page})を開く` : (r.image_mime ?? '').includes('pdf') ? 'PDFを開く' : '画像を開く'}
-                        className="inline-flex hover:text-brand-600"
-                      >
-                        {(r.image_mime ?? '').includes('pdf') ? <Icon.FileText className="text-lg" /> : <Icon.Image className="text-lg" />}
-                      </a>
-                    )}
-                    {r.page != null && (
-                      <span className="text-[10px] tabular-nums text-slate-400" title="PDFのページ">P.{r.page}</span>
-                    )}
-                    {r.source === 'email' && (
-                      <button onClick={() => setEmailView(r)} title="メール本文を表示" className="inline-flex hover:text-brand-600">
-                        <Icon.Mail className="text-lg" />
-                      </button>
-                    )}
-                    {!r.image_file_id && r.source !== 'email' && <span className="text-slate-300">—</span>}
-                  </div>
-                </Td>
-                <Td className="text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <IconButton label="変更履歴" className="h-7 w-7 hover:!text-brand-600" onClick={() => setHistoryId(r.id)}>
-                      <Icon.Clock />
-                    </IconButton>
-                    {r.approval_status === 'pending' && !r.journalized_at && (
-                      <>
-                        <IconButton label="修正" className="h-7 w-7 hover:!text-brand-600" onClick={() => setEditing(r)}>
-                          <Icon.Pencil />
-                        </IconButton>
-                        <IconButton label="削除" className="h-7 w-7 hover:!text-red-600" onClick={() => void handleDelete(r)}>
-                          <Icon.Trash />
-                        </IconButton>
-                      </>
-                    )}
-                  </div>
-                </Td>
-              </Tr>
-            ))}
+            {blocks.map((b) =>
+              b.kind === 'single'
+                ? renderRow(b.row, 'normal')
+                : [
+                    renderRow(b.primary, 'primary', b.dups.length),
+                    ...b.dups.map((d) => renderRow(d, 'dup')),
+                  ],
+            )}
             {rows.length === 0 && (
               <tr>
                 <td colSpan={showCreator ? 10 : 9} className="px-4 py-12 text-center text-sm text-slate-400">

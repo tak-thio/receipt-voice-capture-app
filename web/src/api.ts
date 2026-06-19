@@ -61,6 +61,7 @@ export interface ReceiptRow {
   client_id: string
   source: string
   lane?: string // 'company'(会社経費) | 'expense'(立替経費)
+  match_id?: string | null // 突き合わせ(重複)グループID。同一なら受信箱でグルーピング表示
   captured_at: string | null
   vendor: string | null
   amount_jpy: number | null
