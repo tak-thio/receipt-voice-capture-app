@@ -130,7 +130,8 @@ const NAV: NavItem[] = [
   { id: 'reconcile', label: '突き合わせ', icon: Icon.Link, needsClient: true, can: (p) => p.canJournal },
   { id: 'ledger', label: '元帳', icon: Icon.Book, needsClient: true, can: (p) => p.canJournal },
   { id: 'export', label: '出力', icon: Icon.Download, needsClient: true, can: (p) => p.canJournal },
-  { id: 'expense', label: '経費精算', icon: Icon.FileText, needsClient: true, can: (p) => p.expenseEnabled },
+  // 経費精算は顧問先(クライアント企業)の社内ワークフロー。会計事務所の職員には出さない(顧問先側ユーザーのみ)。
+  { id: 'expense', label: '経費精算', icon: Icon.FileText, needsClient: true, can: (p) => p.expenseEnabled && !p.isFirm },
   { id: 'masters', label: 'マスタ', icon: Icon.Database, needsClient: true, can: (p) => p.canMasters },
   { id: 'clients', label: '顧問先', icon: Icon.Building, needsClient: false, can: (p) => p.canClients },
   { id: 'users', label: 'ユーザー', icon: Icon.User, needsClient: false, can: (p) => p.canUsers },
