@@ -54,28 +54,30 @@ export class MediaRecorderService {
   private chunks: Blob[] = []
   private startedAtMs = 0
 
-  async start(preferredDeviceId?: string): Promise<void> {
-    if (this.mediaRecorder?.state === 'recording') {
-      return
-    }
-
+  // マイクを事前取得して温める。録音開始(start)を即時化するため画面表示時に呼ぶ。
+  // 既に live なストリームがあれば何もしない(毎回 getUserMedia しない=反応が速い)。
+  async prepare(preferredDeviceId?: string): Promise<void> {
+    if (this.stream?.getAudioTracks().some((t) => t.readyState === 'live')) return
     const support = getMediaRecordingSupport()
     if (!support.supported) {
       throw new Error(support.reason ?? '録音機能を利用できません。')
     }
-
     const constraints: MediaStreamConstraints = {
-      audio: preferredDeviceId
-        ? { deviceId: { exact: preferredDeviceId } }
-        : true,
+      audio: preferredDeviceId ? { deviceId: { exact: preferredDeviceId } } : true,
       video: false,
     }
-
     this.stream = await navigator.mediaDevices.getUserMedia(constraints)
+  }
+
+  async start(preferredDeviceId?: string): Promise<void> {
+    if (this.mediaRecorder?.state === 'recording') {
+      return
+    }
+    await this.prepare(preferredDeviceId) // 温まっていれば即返る(毎回マイク取得しない)
     this.chunks = []
     this.startedAtMs = Date.now()
 
-    this.mediaRecorder = new MediaRecorder(this.stream, {
+    this.mediaRecorder = new MediaRecorder(this.stream!, {
       mimeType: pickMimeType(),
     })
 
@@ -101,9 +103,8 @@ export class MediaRecorderService {
       recorder.stop()
     })
 
-    this.stream?.getTracks().forEach((track) => track.stop())
-    this.stream = null
     this.mediaRecorder = null
+    // ストリームは保持して次回の録音を即時化する(マイクは release() で解放)。
 
     const blob = new Blob(this.chunks, {
       type: recorder.mimeType || 'audio/webm',
@@ -120,5 +121,20 @@ export class MediaRecorderService {
       startedAt: new Date(this.startedAtMs).toISOString(),
       endedAt: new Date(endedAtMs).toISOString(),
     }
+  }
+
+  // マイクを解放(撮影画面を離れるとき)。録音中なら止める。
+  release(): void {
+    if (this.mediaRecorder?.state === 'recording') {
+      try {
+        this.mediaRecorder.stop()
+      } catch {
+        /* ignore */
+      }
+    }
+    this.mediaRecorder = null
+    this.stream?.getTracks().forEach((track) => track.stop())
+    this.stream = null
+    this.chunks = []
   }
 }

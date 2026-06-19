@@ -63,6 +63,15 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
     }
   }, [facing])
 
+  // マイクを温めておく(録音ボタンの反応を即時化)。画面を離れたら解放する。
+  useEffect(() => {
+    const rec = recorderRef.current ?? (recorderRef.current = new MediaRecorderService())
+    rec.prepare().catch(() => {
+      /* 権限未許可など。実際の録音時に再取得を試みる */
+    })
+    return () => rec.release()
+  }, [])
+
   function grabFrame(): string | null {
     const video = videoRef.current
     if (!video || !video.videoWidth) return null
@@ -107,9 +116,8 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
 
   async function toggleRecord() {
     if (recording) {
+      setRecording(false) // タップ即反映
       const clip = (await recorderRef.current?.stop()) ?? null
-      recorderRef.current = null
-      setRecording(false)
       if (clip) setAudioClip(clip) // セットの説明音声として保持(送信時に同梱)
       return
     }
@@ -118,12 +126,12 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
       setMessage(support.reason ?? '録音を利用できません。')
       return
     }
-    const service = new MediaRecorderService()
+    const recorder = recorderRef.current ?? (recorderRef.current = new MediaRecorderService())
+    setRecording(true) // 楽観的に即「録音中」表示(マイクは温め済みなので即開始)
     try {
-      await service.start()
-      recorderRef.current = service
-      setRecording(true)
+      await recorder.start()
     } catch (error) {
+      setRecording(false)
       setMessage(error instanceof Error ? error.message : '録音を開始できませんでした。')
     }
   }
@@ -134,7 +142,6 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
     let clip = audioClip
     if (recording) {
       clip = (await recorderRef.current?.stop()) ?? clip
-      recorderRef.current = null
       setRecording(false)
       setAudioClip(clip)
     }
