@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
+import { registerFcmToken } from './api/server-api'
 import { CaptureScreen } from './pages/CaptureScreen'
 import { ConnectScreen } from './pages/ConnectScreen'
 import { DashboardScreen } from './pages/DashboardScreen'
 import { ExpenseScreen } from './pages/ExpenseScreen'
 import { InboxScreen } from './pages/InboxScreen'
 import { SettingsScreen } from './pages/SettingsScreen'
+import { getFcmToken, isNativeFcmAvailable } from './services/fcm/native-fcm'
 import { useAppStore } from './store/app-store'
 
 type Tab = 'home' | 'capture' | 'inbox' | 'expense' | 'settings'
@@ -27,6 +29,20 @@ export default function App() {
     const t = window.setTimeout(hideToast, 3500)
     return () => window.clearTimeout(t)
   }, [toast, hideToast])
+
+  // FCM(Phase D): 接続済み端末で登録トークンを取得し、サーバに登録(プッシュ通知の宛先)。失敗は無視。
+  useEffect(() => {
+    if (!connection || !isNativeFcmAvailable()) return
+    void (async () => {
+      const token = await getFcmToken()
+      if (!token) return
+      try {
+        await registerFcmToken(connection.serverUrl, connection.deviceToken, token)
+      } catch {
+        /* best-effort */
+      }
+    })()
+  }, [connection])
 
   if (!ready) {
     return <div className="boot-screen">アプリを読み込んでいます...</div>

@@ -178,6 +178,18 @@ export function withdrawExpenseClaim(serverUrl: string, deviceToken: string, cla
   return expenseReq<{ status: string }>(serverUrl, deviceToken, `/expense/claims/${claimId}/withdraw`, { method: 'POST' })
 }
 
+/** FCM 登録トークンをサーバに登録(端末の利用者に紐づく)。Phase D のプッシュ通知用。 */
+export async function registerFcmToken(
+  serverUrl: string, deviceToken: string, token: string, platform = 'android',
+): Promise<void> {
+  const res = await fetch(`${base(serverUrl)}/devices/fcm-token`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${deviceToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ token, platform }),
+  })
+  if (!res.ok) throw new Error(`FCMトークン登録に失敗 (${res.status})`)
+}
+
 /** 領収書画像のプレビュー(PDFはサーバでPNG化)を取得し objectURL を返す。
  * Bearer ヘッダが要るので <img src> 直指定ではなく blob 取得→objectURL にする。 */
 export async function fetchPreviewObjectUrl(
