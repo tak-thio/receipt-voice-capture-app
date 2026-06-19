@@ -43,7 +43,7 @@ npm run tauri -- android init
 `src-tauri/gen/android/` に Gradle プロジェクトが生成されます。これはコミット対象です。
 権限と WebView 対応のため、以下を手動編集済み(再生成時は再適用):
 - `gen/android/app/src/main/AndroidManifest.xml`: `RECORD_AUDIO` / `CAMERA` / `MODIFY_AUDIO_SETTINGS` を追加。
-- `gen/android/app/src/main/java/com/tak/receiptvoicecapture/MainActivity.kt`: 起動時に CAMERA / RECORD_AUDIO の実行時権限を要求。
+- `gen/android/app/src/main/java/com/itsherpa/ffreceipt/MainActivity.kt`: 起動時に CAMERA / RECORD_AUDIO の実行時権限を要求。
 
 ### エミュレーター/実機で起動
 ```bash

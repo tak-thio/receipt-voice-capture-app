@@ -61,7 +61,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             #[cfg(target_os = "android")]
             {
                 let handle = _api
-                    .register_android_plugin("com.tak.receiptvoicecapture", "AudioRecorderPlugin")?;
+                    .register_android_plugin("com.itsherpa.ffreceipt", "AudioRecorderPlugin")?;
                 _app.manage(NativeAudio(handle));
             }
             Ok(())

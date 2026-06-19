@@ -1,4 +1,4 @@
-package com.tak.receiptvoicecapture
+package com.itsherpa.ffreceipt
 
 import android.Manifest
 import android.content.pm.PackageManager

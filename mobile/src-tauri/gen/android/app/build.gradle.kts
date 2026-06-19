@@ -23,10 +23,10 @@ val keystoreProperties = Properties().apply {
 
 android {
     compileSdk = 36
-    namespace = "com.tak.receiptvoicecapture"
+    namespace = "com.itsherpa.ffreceipt"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "com.tak.receiptvoicecapture"
+        applicationId = "com.itsherpa.ffreceipt"
         minSdk = 24
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()

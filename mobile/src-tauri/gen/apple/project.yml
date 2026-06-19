@@ -1,6 +1,6 @@
 name: receipt_voice_capture
 options:
-  bundleIdPrefix: com.tak.receiptvoicecapture
+  bundleIdPrefix: com.itsherpa.ffreceipt
   deploymentTarget:
     iOS: 14.0
 fileGroups: [../../src]
@@ -11,7 +11,7 @@ settingGroups:
   app:
     base:
       PRODUCT_NAME: 領収書入力
-      PRODUCT_BUNDLE_IDENTIFIER: com.tak.receiptvoicecapture
+      PRODUCT_BUNDLE_IDENTIFIER: com.itsherpa.ffreceipt
 targetTemplates:
   app:
     type: application
