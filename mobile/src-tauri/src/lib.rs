@@ -1,5 +1,6 @@
 mod commands;
 mod models;
+mod native_audio;
 mod repositories;
 mod services;
 
@@ -8,6 +9,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(native_audio::init())
         .invoke_handler(tauri::generate_handler![
             commands::audio::save_audio_clip,
             commands::session::create_session,
@@ -26,7 +28,9 @@ pub fn run() {
             commands::ai_formatter::format_receipt_text,
             commands::ai_formatter::extract_receipt_from_image_and_voice,
             commands::ai_formatter::get_ai_diagnostics,
-            commands::export::export_csv
+            commands::export::export_csv,
+            native_audio::native_start_recording,
+            native_audio::native_stop_recording
         ])
         .run(tauri::generate_context!())
         .expect("failed to run tauri application");

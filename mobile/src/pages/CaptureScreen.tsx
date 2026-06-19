@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { uploadBatch } from '../api/server-api'
 import { MediaRecorderService, getMediaRecordingSupport } from '../services/audio/media-recorder-service'
+import { isNativeAudioAvailable, nativeStartRecording, nativeStopRecording } from '../services/audio/native-recorder'
 import type { RecordedAudioClip } from '../types/audio'
 import { useAppStore } from '../store/app-store'
 
@@ -15,6 +16,8 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const recorderRef = useRef<MediaRecorderService | null>(null)
   const idRef = useRef(1)
+  const nativeAudio = isNativeAudioAvailable() // Android はネイティブ録音(反応が速い)
+  const nativeStartRef = useRef(0)
 
   const [camError, setCamError] = useState('')
   const [facing, setFacing] = useState<'environment' | 'user'>('environment')
@@ -63,13 +66,15 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
     }
   }, [facing])
 
-  // マイクを温めておく(録音ボタンの反応を即時化)。画面を離れたら解放する。
+  // マイクを温めておく(WebView録音時のみ。ネイティブ録音は温め不要)。画面を離れたら解放。
   useEffect(() => {
+    if (nativeAudio) return
     const rec = recorderRef.current ?? (recorderRef.current = new MediaRecorderService())
     rec.prepare().catch(() => {
       /* 権限未許可など。実際の録音時に再取得を試みる */
     })
     return () => rec.release()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function grabFrame(): string | null {
@@ -114,11 +119,45 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
     setMessage('')
   }
 
+  // 録音停止 → クリップ取得(ネイティブ/WebView 共通)。
+  async function stopToClip(): Promise<RecordedAudioClip | null> {
+    if (nativeAudio) {
+      const r = await nativeStopRecording()
+      const startedMs = nativeStartRef.current
+      const endedMs = Date.now()
+      return {
+        blob: r.blob,
+        objectUrl: URL.createObjectURL(r.blob),
+        mimeType: r.mime,
+        size: r.blob.size,
+        durationMs: endedMs - startedMs,
+        startedAt: new Date(startedMs).toISOString(),
+        endedAt: new Date(endedMs).toISOString(),
+      }
+    }
+    return (await recorderRef.current?.stop()) ?? null
+  }
+
   async function toggleRecord() {
     if (recording) {
       setRecording(false) // タップ即反映
-      const clip = (await recorderRef.current?.stop()) ?? null
-      if (clip) setAudioClip(clip) // セットの説明音声として保持(送信時に同梱)
+      try {
+        const clip = await stopToClip()
+        if (clip) setAudioClip(clip) // セットの説明音声として保持(送信時に同梱)
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : '録音の停止に失敗しました。')
+      }
+      return
+    }
+    if (nativeAudio) {
+      setRecording(true) // 楽観的に即「録音中」
+      nativeStartRef.current = Date.now()
+      try {
+        await nativeStartRecording()
+      } catch (error) {
+        setRecording(false)
+        setMessage(error instanceof Error ? error.message : '録音を開始できませんでした。')
+      }
       return
     }
     const support = getMediaRecordingSupport()
@@ -141,8 +180,12 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
     if (tray.length === 0 || uploading) return
     let clip = audioClip
     if (recording) {
-      clip = (await recorderRef.current?.stop()) ?? clip
       setRecording(false)
+      try {
+        clip = (await stopToClip()) ?? clip
+      } catch {
+        /* 録音停止に失敗しても画像だけ送る */
+      }
       setAudioClip(clip)
     }
     const count = tray.length
