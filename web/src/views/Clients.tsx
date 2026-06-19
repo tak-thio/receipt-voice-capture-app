@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, type AiConfigPatch, type ClientDetail, type ClientRow, type MemberRow } from '../api'
+import { api, type AiConfigPatch, type ClientDetail, type ClientRow, type MasterRow, type MemberRow } from '../api'
 import {
   Badge, Button, Card, EmptyState, Field, Icon, IconButton, Input, Modal,
   PageHeader, Section, Select, Table, Tbody, Td, Th, Thead, Textarea, Tr,
@@ -368,6 +368,11 @@ function ClientForm({
   function set<K extends keyof ClientDetail>(k: K, v: ClientDetail[K]) {
     setD((p) => ({ ...p, [k]: v }))
   }
+  // 経費精算の既定貸方科目ピッカー用に、編集中の顧問先の勘定科目を読み込む(新規作成時は無し)。
+  const [titles, setTitles] = useState<MasterRow[]>([])
+  useEffect(() => {
+    if (d.id) api.accountTitles(d.id).then(setTitles).catch(() => setTitles([]))
+  }, [d.id])
   return (
     <>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -401,6 +406,17 @@ function ClientForm({
             この顧問先で有効にする
           </label>
         </Field>
+        {d.expense_enabled && d.id && (
+          <Field label="経費精算の既定貸方科目(承認時の仕訳)">
+            <Select value={d.expense_credit_account_title_id ?? ''}
+              onChange={(e) => set('expense_credit_account_title_id', e.target.value || null)}>
+              <option value="">(設定しない)</option>
+              {titles.map((t) => (
+                <option key={t.id} value={t.id}>{t.code ? `${t.code} ${t.name}` : t.name}</option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <Field label="業種">
           <Input value={d.industry ?? ''} onChange={(e) => set('industry', e.target.value)} />
         </Field>
