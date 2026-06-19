@@ -190,6 +190,23 @@ export interface ExpenseClaim {
   items: ExpenseClaimItem[]
 }
 
+// クレジット明細の各行 + 紐づく領収書の有無(網羅チェック)。
+export interface CardStatementLine {
+  id: string
+  date: string | null
+  vendor: string | null
+  amount_jpy: number | null
+  has_receipt: boolean
+  receipt_id: string | null
+  image_file_id?: string | null
+  image_mime?: string | null
+}
+export interface CardStatementList {
+  items: CardStatementLine[]
+  total: number
+  missing: number // 領収書が見つからない明細の件数
+}
+
 // 元帳 (ledger) = 仕分け済みの仕訳一覧。借方/貸方/取引先は解決済みの表示文字列。
 export interface LedgerRow {
   id: string
@@ -378,6 +395,18 @@ export const api = {
     const res = await fetch(`${BASE}/captures/web`, { method: 'POST', credentials: 'include', body: fd })
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
     return (await res.json()) as { receipt_id: string; status: string }
+  },
+
+  // --- クレジット明細(専用取込＋領収書の網羅チェック) ---
+  cardStatements: (clientId: string) =>
+    req<CardStatementList>(`/card-statements?client_id=${clientId}`),
+  importCardStatement: async (clientId: string, file: File) => {
+    const fd = new FormData()
+    fd.append('client_id', clientId)
+    fd.append('file', file)
+    const res = await fetch(`${BASE}/card-statements/import`, { method: 'POST', credentials: 'include', body: fd })
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+    return (await res.json()) as { status: string }
   },
 
   journalQueue: (clientId?: string, view: 'queue' | 'held' = 'queue') => {

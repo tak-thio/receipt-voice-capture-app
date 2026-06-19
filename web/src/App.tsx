@@ -4,6 +4,7 @@ import { ReceiptsView } from './views/Receipts'
 import { JournalView } from './views/Journal'
 import { LedgerView } from './views/LedgerView'
 import { ReconcileView } from './views/Reconcile'
+import { CardStatementsView } from './views/CardStatements'
 import { MastersView } from './views/Masters'
 import { ClientsView, ClientUsers, ClientAiConfig } from './views/Clients'
 import { ExpenseView } from './views/Expense'
@@ -111,7 +112,7 @@ function Login({ onLogin }: { onLogin: (me: Me) => void }) {
   )
 }
 
-type Tab = 'receipts' | 'journal' | 'reconcile' | 'ledger' | 'export' | 'expense' | 'masters' | 'clients' | 'users' | 'settings'
+type Tab = 'receipts' | 'journal' | 'reconcile' | 'cards' | 'ledger' | 'export' | 'expense' | 'masters' | 'clients' | 'users' | 'settings'
 // Capability context derived from the principal's memberships.
 type Perms = {
   isFirm: boolean        // 職員 (firm_owner/firm_staff)
@@ -128,6 +129,7 @@ const NAV: NavItem[] = [
   { id: 'receipts', label: '受信箱', icon: Icon.Inbox, needsClient: true, can: () => true },
   { id: 'journal', label: '仕分け', icon: Icon.Sort, needsClient: true, can: (p) => p.canJournal },
   { id: 'reconcile', label: '突き合わせ', icon: Icon.Link, needsClient: true, can: (p) => p.canJournal },
+  { id: 'cards', label: 'クレジット明細', icon: Icon.Receipt, needsClient: true, can: (p) => p.canJournal },
   { id: 'ledger', label: '元帳', icon: Icon.Book, needsClient: true, can: (p) => p.canJournal },
   { id: 'export', label: '出力', icon: Icon.Download, needsClient: true, can: (p) => p.canJournal },
   // 経費精算は顧問先(クライアント企業)の社内ワークフロー。会計事務所の職員には出さない(顧問先側ユーザーのみ)。
@@ -259,6 +261,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
             />
           )}
           {tab === 'reconcile' && <ReconcileView clientId={clientId} />}
+          {tab === 'cards' && <CardStatementsView clientId={clientId} />}
           {tab === 'ledger' && <LedgerView clientId={clientId} showCreator={canSeeOthers} />}
           {tab === 'export' && <ExportView clientId={clientId} />}
           {tab === 'masters' && <MastersView clientId={clientId} firmId={firmId} />}

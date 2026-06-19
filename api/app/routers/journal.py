@@ -128,11 +128,12 @@ async def queue(
     # 未処理（pending）のみ。否認/間違い/削除/重複（approval_status）は除外される。
     # 自動重複(突き合わせ)で duplicate にされた行は pending ではないので自動的に外れる
     # = 二重計上しない（本体＝親レコードだけが pending として残る）。
-    # 立替(expense)は経費精算の承認で仕訳されるため、通常の仕分けキューには出さない。
+    # 立替(expense)は経費精算の承認で仕訳。クレジット明細(card_statement)は仕訳の元にしない。
     conds = [
         Receipt.journalized_at.is_(None),
         Receipt.approval_status == "pending",
         Receipt.lane == ReceiptLane.company.value,
+        Receipt.doc_type != "card_statement",
     ]
     if client_id:
         conds.append(Receipt.client_id == client_id)
@@ -216,6 +217,8 @@ async def ledger(
     stmt = select(Receipt).where(Receipt.journalized_at.is_not(None))
     # 自動重複でまとめられた重複行は二重計上防止のため元帳から除外(本体＝親だけ残す)。
     stmt = stmt.where(Receipt.approval_status != "duplicate")
+    # クレジット明細は照合用で仕訳の元にしないため元帳には出さない。
+    stmt = stmt.where(Receipt.doc_type != "card_statement")
     if client_id:
         stmt = stmt.where(Receipt.client_id == client_id)
     rows = list(await session.scalars(stmt.order_by(Receipt.journalized_at.desc()).limit(500)))

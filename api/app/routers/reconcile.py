@@ -67,6 +67,7 @@ async def reconcile(
             select(Receipt).where(
                 Receipt.client_id == client_id,
                 Receipt.lane == ReceiptLane.company.value,  # 立替は突き合わせに出さない
+                Receipt.doc_type != "card_statement",  # クレジット明細は専用画面で照合
                 Receipt.match_id.is_not(None),
                 Receipt.approval_status.in_(["pending", "duplicate"]),
             )

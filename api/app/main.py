@@ -11,6 +11,7 @@ from .worker import run_gmail_poller, run_worker
 from .routers import (
     auth,
     captures,
+    card_statements,
     clients,
     expense,
     export,
@@ -67,5 +68,6 @@ async def health():
 for r in (
     auth, operator, pairing, invites, firm, members, clients,
     captures, receipts, masters, journal, export, files, gmail, reconcile, expense,
+    card_statements,
 ):
     app.include_router(r.router)

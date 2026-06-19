@@ -215,10 +215,11 @@ def _seed_memo(file: File, page, audio_transcript) -> str | None:
 
 async def _create_receipt_from_item(
     session, *, firm_id, client_id, source, created_by, capture_meta, file: File, item, page=None,
-    lane="company",
+    lane="company", force_doc_type=None,
 ) -> Receipt:
     """1件分の Receipt を起こしてファイルを紐付け、抽出項目(あれば)を反映する。page があれば
-    capture_meta.page に記録。memo に「ファイル名/ページ/音声」を初期値で入れる。item が None は未解析。"""
+    capture_meta.page に記録。memo に「ファイル名/ページ/音声」を初期値で入れる。item が None は未解析。
+    force_doc_type を渡すと AI 判定に関係なく doc_type を固定(クレジット明細の専用取込)。"""
     meta = dict(capture_meta or {})
     if page is not None:
         meta["page"] = page
@@ -227,7 +228,7 @@ async def _create_receipt_from_item(
         client_id=client_id,
         source=source,
         lane=lane,
-        doc_type=(item.doc_type if item else "receipt"),
+        doc_type=force_doc_type or (item.doc_type if item else "receipt"),
         vendor=UNPARSED_VENDOR,
         capture_meta=meta,
         memo=_seed_memo(file, page, item.audio_transcript if item is not None else None),
@@ -338,11 +339,13 @@ async def _process(session, job: Job) -> None:
             # 設定OCRプロバイダが複数抽出(extract_batch)非対応。本番はGemini前提なので通常起きない
             # (起きたら設定エラーとしてジョブを失敗させ、jobsテーブルで気づけるようにする)。
             raise ValueError("configured OCR provider lacks extract_batch (use gemini)")
+        # クレジット明細の専用取込: AI判定に関係なく全行を card_statement に固定する。
+        force_doc = job.params.get("force_doc_type")
         if grouped:
             # 1ファイルから 0..N 件。先頭は既存(プレースホルダ)receiptに、2件目以降は同じファイルを
             # 共有する追加 receipt に起こす(複数領収書・カード明細・複数ページPDF 対応)。
             first, _f, first_page = grouped[0]
-            receipt.doc_type = first.doc_type
+            receipt.doc_type = force_doc or first.doc_type
             if first_page is not None:
                 receipt.capture_meta = {**(receipt.capture_meta or {}), "page": first_page}
             receipt.memo = _seed_memo(file, first_page, first.audio_transcript)
@@ -363,6 +366,8 @@ async def _process(session, job: Job) -> None:
                     file=f,
                     item=item,
                     page=page,
+                    lane=receipt.lane,  # プレースホルダのレーンを引き継ぐ(一般社員=expense等)
+                    force_doc_type=force_doc,
                 )
         else:
             _mark_parse_outcome(receipt)
