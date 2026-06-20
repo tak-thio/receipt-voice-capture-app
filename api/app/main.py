@@ -10,6 +10,7 @@ from .config import get_settings
 from .worker import run_gmail_poller, run_worker
 from .routers import (
     auth,
+    billing,
     captures,
     card_statements,
     clients,
@@ -70,6 +71,6 @@ async def health():
 for r in (
     auth, operator, pairing, invites, firm, members, clients,
     captures, receipts, masters, journal, export, files, gmail, reconcile, expense,
-    card_statements, devices, individual,
+    card_statements, devices, individual, billing,
 ):
     app.include_router(r.router)

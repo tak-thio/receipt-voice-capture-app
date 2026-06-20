@@ -65,6 +65,13 @@ class Settings(BaseSettings):
     # 空なら個人firmはAI未設定=解析不可。本番では Gemini が入った firm の id を設定する。
     platform_ai_firm_id: str = ""
 
+    # --- アプリ内課金 (IAP / ⑤) -------------------------------------------
+    # Google Play Developer API のサービスアカウント鍵JSON(コンテナ内パス)。空なら購入検証は無効。
+    play_service_account_path: str = ""
+    play_package_name: str = "com.itsherpa.ffreceipt"
+    # サブスク(pro)の商品ID(Play Console の定期購入で作る)。
+    play_pro_product_id: str = "pro_monthly"
+
     @property
     def runtime_database_url(self) -> str:
         return self.app_database_url or self.database_url

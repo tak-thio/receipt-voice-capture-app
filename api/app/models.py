@@ -401,6 +401,22 @@ class DeviceToken(Base, TimestampMixin):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class Subscription(Base, TimestampMixin):
+    """アプリ内課金(IAP)の購読。firm単位。検証済み購入で plan=pro を付与する。
+    更新/解約はストア通知(RTDN/ASSN)で status/current_period_end を更新。"""
+
+    __tablename__ = "subscriptions"
+    __table_args__ = (UniqueConstraint("purchase_token", name="uq_sub_token"),)
+
+    id: Mapped[UUID] = _uuid_pk()
+    firm_id: Mapped[UUID] = mapped_column(ForeignKey("firms.id", ondelete="CASCADE"), index=True)
+    platform: Mapped[str] = mapped_column(String(20), default="google")  # google | apple
+    product_id: Mapped[str] = mapped_column(String(100))
+    purchase_token: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(40), default="active")  # active | canceled | expired ...
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 # --- masters ---------------------------------------------------------------
 # Account titles / sub-accounts: firm template (client_id NULL) + client override.
 # Partners / aliases / rules: per-client (learned from that client's receipts).
