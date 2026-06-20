@@ -11,6 +11,8 @@ export interface PairResult {
   role?: string
   client_name?: string
   firm_name?: string
+  individual?: boolean // 個人プラン(サインアップ/ログイン)で接続したとき true
+  plan?: string // 'free' | 'pro' | 'business'
 }
 
 function base(url: string): string {
@@ -234,6 +236,61 @@ export async function demoConnect(serverUrl: string): Promise<PairResult> {
   return res.json() as Promise<PairResult>
 }
 
+async function _postNoAuth<T>(serverUrl: string, path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${base(serverUrl)}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    let msg = `失敗しました (${res.status})`
+    try {
+      const b = JSON.parse(await res.text()) as { detail?: string }
+      if (b?.detail) msg = b.detail
+    } catch {
+      /* 本文が JSON でなければ既定メッセージ */
+    }
+    throw new Error(msg)
+  }
+  return res.json() as Promise<T>
+}
+
+/** 個人プラン: 新規登録(1人用テナントを自動生成し device token を得る)。 */
+export function individualSignup(
+  serverUrl: string, body: { email: string; password: string; name?: string },
+): Promise<PairResult> {
+  return _postNoAuth<PairResult>(serverUrl, '/individual/signup', body)
+}
+
+/** 個人プラン: ログイン(再インストール/機種変更時)。 */
+export function individualLogin(
+  serverUrl: string, body: { email: string; password: string },
+): Promise<PairResult> {
+  return _postNoAuth<PairResult>(serverUrl, '/individual/login', body)
+}
+
+/** 個人プラン: 退会(アカウント＋データを削除)。 */
+export async function deleteIndividualAccount(serverUrl: string, deviceToken: string): Promise<void> {
+  const res = await fetch(`${base(serverUrl)}/individual/account`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${deviceToken}` },
+  })
+  if (!res.ok) {
+    throw new Error(`退会に失敗しました (${res.status})`)
+  }
+}
+
+export interface UsageInfo {
+  used: number
+  cap: number | null // null=無制限(会社)
+  plan: string
+}
+
+/** 当月の解析枚数・上限・プラン(メーター表示用)。 */
+export function getUsage(serverUrl: string, deviceToken: string): Promise<UsageInfo> {
+  return expenseReq<UsageInfo>(serverUrl, deviceToken, '/captures/usage')
+}
+
 export interface CaptureUpload {
   imageDataUrl?: string
   audio?: Blob
@@ -317,7 +374,15 @@ export async function uploadBatch(
     body: form,
   })
   if (!res.ok) {
-    throw new Error(`アップロードに失敗しました (${res.status})`)
+    // 402(上限到達)など、サーバの詳細メッセージをそのまま見せる。
+    let msg = `アップロードに失敗しました (${res.status})`
+    try {
+      const b = JSON.parse(await res.text()) as { detail?: string }
+      if (b?.detail) msg = b.detail
+    } catch {
+      /* 本文が JSON でなければ既定メッセージ */
+    }
+    throw new Error(msg)
   }
   return res.json() as Promise<{ status: string; images: number }>
 }

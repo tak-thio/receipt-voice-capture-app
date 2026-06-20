@@ -9,4 +9,6 @@ export interface Connection {
   jobTitle?: string
   role?: string
   demo?: boolean // デモ接続(サンドボックス)。UIに「デモ中」を出す。
+  individual?: boolean // 個人プラン(無料/サブスク)。退会・使用量メーター等を出す。
+  plan?: string // 'free' | 'pro' | 'business'
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { uploadBatch } from '../api/server-api'
+import { getUsage, uploadBatch, type UsageInfo } from '../api/server-api'
 import { MediaRecorderService, getMediaRecordingSupport } from '../services/audio/media-recorder-service'
 import { isNativeAudioAvailable, nativeStartRecording, nativeStopRecording } from '../services/audio/native-recorder'
 import type { RecordedAudioClip } from '../types/audio'
@@ -32,6 +32,20 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
   const [message, setMessage] = useState('')
   const [sentCount, setSentCount] = useState(0)
   const [flash, setFlash] = useState(false)
+  const [usage, setUsage] = useState<UsageInfo | null>(null)
+
+  // 個人(無料/サブスク)の今月の解析枚数メーター。会社(cap=null)では出さない。
+  async function loadUsage() {
+    try {
+      setUsage(await getUsage(connection.serverUrl, connection.deviceToken))
+    } catch {
+      /* 取得失敗時は出さない */
+    }
+  }
+  useEffect(() => {
+    void loadUsage()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // カメラ起動(前/背面切替で再起動)
   useEffect(() => {
@@ -242,6 +256,12 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
           </button>
         ))}
       </div>
+      {usage && usage.cap != null && (
+        <p className="muted small center" style={{ margin: '0 auto 4px' }}>
+          今月の解析: {usage.used} / {usage.cap} 枚
+          {usage.used >= usage.cap && <span style={{ color: '#dc2626' }}>（上限に達しました）</span>}
+        </p>
+      )}
       <div className="cam-area">
         <video ref={videoRef} className="cam-video" autoPlay muted playsInline />
         {flash && <div className="cam-flash" />}
