@@ -84,7 +84,7 @@ class CreateFirm(BaseModel):
     owner_email: str
     owner_password: str
     owner_name: str = ""
-    plan: str = "free"
+    plan: str = "business"  # operator が作るのは会社(B2B)=business(枚数無制限)。個人サインアップは free。
 
 
 @router.post("/firms", status_code=status.HTTP_201_CREATED)

@@ -14,11 +14,11 @@ from fastapi import File as FormFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from .. import storage
+from .. import metering, plans, storage
 from ..db import get_session
 from ..deps import Principal, get_principal
 from ..lanes import resolve_lane
-from ..models import UNPARSED_VENDOR, Client, File, Job, Receipt, ReceiptFile, ReceiptLane, ReceiptSource
+from ..models import UNPARSED_VENDOR, Client, File, Firm, Job, Receipt, ReceiptFile, ReceiptLane, ReceiptSource
 
 router = APIRouter(prefix="/captures", tags=["captures"])
 
@@ -133,6 +133,15 @@ async def create_batch(
             f"一度に送れる画像は {MAX_BATCH_IMAGES} 枚までです",
         )
 
+    # 無料(30)/サブスク(500)の月間解析枚数の上限。会社(business)は無制限。
+    firm = await session.get(Firm, client.firm_id)
+    cap = plans.monthly_cap(firm.plan if firm else None)
+    if cap is not None and await metering.monthly_usage(session, client.firm_id) >= cap:
+        raise HTTPException(
+            status.HTTP_402_PAYMENT_REQUIRED,
+            f"今月の解析枚数の上限（{cap}枚）に達しました。プランをアップグレードしてください。",
+        )
+
     image_file_ids: list[str] = []
     for img in images:
         f = await _store_file(session, client.firm_id, client.id, img, "image", principal.user.id)
@@ -159,6 +168,27 @@ async def create_batch(
         },
     ))
     return {"status": "queued", "images": len(image_file_ids)}
+
+
+@router.get("/usage")
+async def usage(
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """当月の解析枚数・上限・プラン。アプリのメーター表示用(会社は cap=null=無制限)。"""
+    client_id = principal.device_client_id or next(
+        (m.client_id for m in principal.memberships if m.client_id is not None), None
+    )
+    if not client_id:
+        return {"used": 0, "cap": None, "plan": plans.PLAN_BUSINESS}
+    client = await session.get(Client, client_id)
+    firm = await session.get(Firm, client.firm_id) if client else None
+    plan = firm.plan if firm else None
+    return {
+        "used": await metering.monthly_usage(session, client.firm_id) if client else 0,
+        "cap": plans.monthly_cap(plan),
+        "plan": plan,
+    }
 
 
 @router.post("/web", status_code=status.HTTP_201_CREATED)
