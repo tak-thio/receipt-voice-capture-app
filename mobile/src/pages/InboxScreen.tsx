@@ -40,9 +40,8 @@ export function InboxScreen() {
     setLoading(true)
     setError('')
     try {
-      // 一般社員(client_user)の受信箱は立替(expense)トレイ。それ以外は会社経費(company)。
-      const lane = connection.role === 'client_user' ? 'expense' : 'company'
-      setRows(await listReceipts(connection.serverUrl, connection.deviceToken, connection.clientId, lane))
+      // 自分のアップロードを請求書・経費精算まとめて表示(行にモードバッジ)。
+      setRows(await listReceipts(connection.serverUrl, connection.deviceToken, connection.clientId, 'all'))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -98,6 +97,7 @@ export function InboxScreen() {
               <div className="inbox-sub">
                 <span>{r.captured_at ? r.captured_at.slice(0, 10) : '—'}</span>
                 <span className="src">{SOURCE_LABEL[r.source] ?? r.source}</span>
+                <span className="img-mark">{r.lane === 'expense' ? '経費精算' : '請求書'}</span>
                 {hasImage && <span className="img-mark">画像</span>}
                 {r.page != null && <span className="img-mark">P.{r.page}</span>}
                 {isEditable(r) && <span className="img-mark">修正可</span>}

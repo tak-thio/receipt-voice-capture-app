@@ -121,8 +121,11 @@ async def list_receipts(
     )
     if client_id:
         stmt = stmt.where(Receipt.client_id == client_id)
-    # レーンで絞り込み(既定=会社経費)。クレジット明細は専用画面で扱うので受信箱には出さない。
-    stmt = stmt.where(Receipt.lane == lane, Receipt.doc_type != "card_statement")
+    # レーンで絞り込み(既定=会社経費)。lane='all' は両モード(モバイルの本人受信箱用)。
+    # クレジット明細は専用画面で扱うので受信箱には出さない。
+    if lane != "all":
+        stmt = stmt.where(Receipt.lane == lane)
+    stmt = stmt.where(Receipt.doc_type != "card_statement")
     if q:
         stmt = stmt.where(text("search_text ILIKE :q")).params(q=f"%{q}%")
     # 電子帳簿保存法の検索要件: 取引年月日(範囲)・取引金額(範囲)。取引先は q(search_text)で対応。

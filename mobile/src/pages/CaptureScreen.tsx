@@ -13,6 +13,10 @@ type TrayItem = { id: number; dataUrl: string; ms: number }
 export function CaptureScreen({ onSent }: { onSent?: () => void }) {
   const connection = useAppStore((state) => state.connection)!
   const showToast = useAppStore((state) => state.showToast)
+  const uploadMode = useAppStore((state) => state.uploadMode)
+  const setUploadMode = useAppStore((state) => state.setUploadMode)
+  // 未設定なら役割で既定(一般社員=経費精算 / それ以外=請求書)。トグルで上書き・永続化。
+  const mode = uploadMode ?? (connection.role === 'client_user' ? 'expense' : 'company')
   const videoRef = useRef<HTMLVideoElement>(null)
   const recorderRef = useRef<MediaRecorderService | null>(null)
   const idRef = useRef(1)
@@ -195,6 +199,7 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
       await uploadBatch(connection.serverUrl, connection.deviceToken, {
         images: tray.map((t) => ({ dataUrl: t.dataUrl })),
         audio: clip?.blob,
+        lane: mode, // 請求書(company) / 経費精算(expense)
         metadata: { source: 'mobile', captured_at_ms: tray.map((t) => t.ms) },
       })
       setSentCount((n) => n + count)
@@ -215,6 +220,28 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
 
   return (
     <div className="capture-screen">
+      {/* アップロード先のモード(請求書=会社の受信箱 / 経費精算=立替トレイ)。選択は維持される。 */}
+      <div
+        style={{
+          display: 'flex', margin: '8px auto 4px', borderRadius: 8, overflow: 'hidden',
+          border: '1px solid #cbd5e1', maxWidth: 300, width: '100%',
+        }}
+      >
+        {(['company', 'expense'] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => setUploadMode(m)}
+            style={{
+              flex: 1, padding: '8px 0', fontSize: 14, border: 'none', cursor: 'pointer',
+              background: mode === m ? '#2563eb' : '#fff',
+              color: mode === m ? '#fff' : '#334155',
+              fontWeight: mode === m ? 700 : 400,
+            }}
+          >
+            {m === 'company' ? '請求書' : '経費精算'}
+          </button>
+        ))}
+      </div>
       <div className="cam-area">
         <video ref={videoRef} className="cam-video" autoPlay muted playsInline />
         {flash && <div className="cam-flash" />}

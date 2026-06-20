@@ -21,6 +21,7 @@ function base(url: string): string {
 export interface ServerReceipt {
   id: string
   source: string
+  lane?: string // 'company'(請求書) | 'expense'(経費精算)
   captured_at: string | null
   vendor: string | null
   amount_jpy: number | null
@@ -286,6 +287,7 @@ export interface BatchUpload {
   images: { dataUrl: string }[]
   audio?: Blob
   metadata?: Record<string, unknown>
+  lane?: string // 'company'(請求書) | 'expense'(経費精算)。未指定はサーバが役割で判定
 }
 
 /** 撮影セットを一括送信: 複数画像(+任意の音声)を1リクエストで /captures/batch へ。
@@ -305,6 +307,9 @@ export async function uploadBatch(
   }
   if (batch.metadata) {
     form.append('metadata', JSON.stringify(batch.metadata))
+  }
+  if (batch.lane) {
+    form.append('lane', batch.lane)
   }
   const res = await fetch(`${base(serverUrl)}/captures/batch`, {
     method: 'POST',

@@ -18,7 +18,7 @@ from .. import storage
 from ..db import get_session
 from ..deps import Principal, get_principal
 from ..lanes import resolve_lane
-from ..models import UNPARSED_VENDOR, Client, File, Job, Receipt, ReceiptFile, ReceiptSource
+from ..models import UNPARSED_VENDOR, Client, File, Job, Receipt, ReceiptFile, ReceiptLane, ReceiptSource
 
 router = APIRouter(prefix="/captures", tags=["captures"])
 
@@ -112,6 +112,7 @@ async def create_batch(
     images: list[UploadFile] = FormFile(...),
     audio: UploadFile | None = None,
     metadata: str | None = Form(default=None),
+    lane: str | None = Form(default=None),  # 'company'(請求書) | 'expense'(経費精算)。未指定は役割で自動判定
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
@@ -142,6 +143,10 @@ async def create_batch(
         af = await _store_file(session, client.firm_id, client.id, audio, "audio", principal.user.id)
         audio_file_id = str(af.id)
 
+    # モード(トグル)が来ていればそれをレーンに採用、無ければ役割で自動判定。
+    chosen = lane if lane in (ReceiptLane.company.value, ReceiptLane.expense.value) else None
+    resolved_lane = chosen or await resolve_lane(session, principal.user.id, client.id)
+
     session.add(Job(
         firm_id=client.firm_id,
         client_id=client.id,
@@ -150,6 +155,7 @@ async def create_batch(
             "image_file_ids": image_file_ids,
             "audio_file_id": audio_file_id,
             "uploaded_by": str(principal.user.id),
+            "lane": resolved_lane,
         },
     ))
     return {"status": "queued", "images": len(image_file_ids)}

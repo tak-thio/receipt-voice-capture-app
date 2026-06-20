@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from starlette.concurrency import run_in_threadpool
 
-from . import dedup, journaling, storage
+from . import dedup, fcm, journaling, storage
 from .ai import factory
 from .ai.base import ExtractedReceipt
 from .config import get_settings
@@ -244,6 +244,28 @@ async def _create_receipt_from_item(
     return receipt
 
 
+def _notify_upload_result(created_by, lane, created) -> None:
+    """アップロードの解析結果を本人へPUSH(投げっぱなし)。経費精算=申請を促す/失敗=両モード共通。
+    請求書(company)×成功は通知しない(会社受信箱に入るだけで本人の操作不要)。"""
+    if not created_by or not created:
+        return
+    failed = sum(1 for r in created if (r.capture_meta or {}).get("parse_failed"))
+    ok = len(created) - failed
+    if ok == 0:
+        fcm.fire(fcm.notify_users(
+            [created_by], "解析できませんでした",
+            f"アップロードした領収書を読み取れませんでした（{failed}件）。",
+            {"type": "upload_failed"},
+        ))
+    elif lane == "expense":
+        extra = f"（{failed}件は読み取れませんでした）" if failed else ""
+        fcm.fire(fcm.notify_users(
+            [created_by], "解析が終了しました",
+            f"解析が終了しました{extra}。引き続き申請を行ってください。",
+            {"type": "upload_done_expense"},
+        ))
+
+
 async def _process_batch(session, job: Job, cfg: dict) -> None:
     """撮影セット/一括: 画像/PDF + 任意の音声を1回のマルチモーダル呼び出しで解析し、含まれる
     領収書/カード明細行をすべて Receipt として起こす。1入力から複数件(複数領収書・明細の各行・
@@ -274,27 +296,32 @@ async def _process_batch(session, job: Job, cfg: dict) -> None:
 
     created_by = UUID(uploaded_by) if uploaded_by else None
     capture_meta = {"audio_file_id": audio_id} if audio_id else {}
-    # 取り込んだ本人が一般社員なら立替(expense)レーン。1バッチは同一作成者なので1回解決。
-    lane = await resolve_lane(session, created_by, job.client_id)
+    # アップロードのモード(トグル)が来ていればそれをレーンに採用。無ければ役割で自動判定。
+    lane = job.params.get("lane") or await resolve_lane(session, created_by, job.client_id)
 
     # 入力(ファイル/ページ)ごとにまとめ、どの入力も最低1件は起こす(抽出ゼロでも未解析で残す)。
     by_file: dict = {}
     for it, f, page in grouped:
         by_file.setdefault(f.id, []).append((it, page))
+    created: list = []
     for f in files:
         for item, page in by_file.get(f.id) or [(None, None)]:
-            await _create_receipt_from_item(
-                session,
-                firm_id=job.firm_id,
-                client_id=job.client_id,
-                source=ReceiptSource.mobile.value,
-                created_by=created_by,
-                capture_meta=capture_meta,
-                file=f,
-                item=item,
-                page=page,
-                lane=lane,
+            created.append(
+                await _create_receipt_from_item(
+                    session,
+                    firm_id=job.firm_id,
+                    client_id=job.client_id,
+                    source=ReceiptSource.mobile.value,
+                    created_by=created_by,
+                    capture_meta=capture_meta,
+                    file=f,
+                    item=item,
+                    page=page,
+                    lane=lane,
+                )
             )
+    # 解析完了/失敗を本人へPUSH(経費精算=申請を促す / 失敗=両モード共通)。
+    _notify_upload_result(created_by, lane, created)
 
 
 def _resolve_ai(firm_cfg: dict | None, client_cfg: dict | None) -> dict:

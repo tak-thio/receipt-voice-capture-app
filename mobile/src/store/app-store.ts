@@ -3,6 +3,18 @@ import type { Connection } from '../types/connection'
 
 const STORAGE_KEY = 'rvc.connection'
 const AUTO_KEY = 'rvc.autoCapture'
+const MODE_KEY = 'rvc.uploadMode' // 'company'(請求書) | 'expense'(経費精算)
+
+export type UploadMode = 'company' | 'expense'
+
+function loadUploadMode(): UploadMode | null {
+  try {
+    const v = localStorage.getItem(MODE_KEY)
+    return v === 'company' || v === 'expense' ? v : null
+  } catch {
+    return null
+  }
+}
 
 function loadConnection(): Connection | null {
   try {
@@ -26,10 +38,12 @@ interface AppState {
   ready: boolean
   connection: Connection | null
   autoCapture: boolean
+  uploadMode: UploadMode | null // 未設定(null)なら役割で既定を決める
   toast: string | null
   init: () => void
   setConnection: (connection: Connection) => void
   setAutoCapture: (on: boolean) => void
+  setUploadMode: (mode: UploadMode) => void
   showToast: (message: string) => void
   hideToast: () => void
   disconnect: () => void
@@ -40,8 +54,10 @@ export const useAppStore = create<AppState>((set) => ({
   ready: false,
   connection: null,
   autoCapture: true,
+  uploadMode: null,
   toast: null,
-  init: () => set({ connection: loadConnection(), autoCapture: loadAutoCapture(), ready: true }),
+  init: () =>
+    set({ connection: loadConnection(), autoCapture: loadAutoCapture(), uploadMode: loadUploadMode(), ready: true }),
   setConnection: (connection) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(connection))
     set({ connection })
@@ -53,6 +69,14 @@ export const useAppStore = create<AppState>((set) => ({
       /* localStorage 不可でもメモリ状態は更新する */
     }
     set({ autoCapture: on })
+  },
+  setUploadMode: (mode) => {
+    try {
+      localStorage.setItem(MODE_KEY, mode)
+    } catch {
+      /* localStorage 不可でもメモリ状態は更新する */
+    }
+    set({ uploadMode: mode })
   },
   showToast: (message) => set({ toast: message }),
   hideToast: () => set({ toast: null }),
