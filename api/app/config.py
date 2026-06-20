@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     # /pairing/demo が有効になり、端末がその顧問先の一般社員として接続できる。空ならデモ無効。
     demo_client_id: str = ""
 
+    # --- 個人プラン(無料/サブスク) ---------------------------------------
+    # 個人サインアップで作る1人用firmが継承するAI設定の参照元firm(プラットフォームのGemini鍵)。
+    # 空なら個人firmはAI未設定=解析不可。本番では Gemini が入った firm の id を設定する。
+    platform_ai_firm_id: str = ""
+
     @property
     def runtime_database_url(self) -> str:
         return self.app_database_url or self.database_url
