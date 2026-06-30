@@ -15,11 +15,11 @@ from uuid import UUID
 
 import fitz  # PyMuPDF: PDFをページ単位の1ページPDFに分割(再ラスタライズせずページをコピー)
 from PIL import Image
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from starlette.concurrency import run_in_threadpool
 
-from . import dedup, fcm, journaling, storage
+from . import dedup, fcm, journaling, plans, storage
 from .ai import factory
 from .ai.base import ExtractedReceipt
 from .config import get_settings
@@ -32,9 +32,11 @@ from .models import (
     Firm,
     GmailAccount,
     Job,
+    Membership,
     Receipt,
     ReceiptFile,
     ReceiptSource,
+    User,
 )
 
 settings = get_settings()
@@ -333,6 +335,16 @@ def _resolve_ai(firm_cfg: dict | None, client_cfg: dict | None) -> dict:
     return merged
 
 
+def _operator_gemini_config(key: str, model: str = "") -> dict:
+    """運営提供の Gemini キー(.env, 平文)で stt/ocr/format をまかなう ai_config。
+    無料プラン/有料サブスク(個人)向け。会社(事務所)は firm ごとの key_enc を使う。
+    factory は key(平文)/key_enc(暗号)どちらも受ける。model 未指定なら provider 既定。"""
+    cap = {"provider": "gemini", "key": key}
+    if model:
+        cap["model"] = model
+    return {"stt": dict(cap), "ocr": dict(cap), "format": dict(cap)}
+
+
 async def _process(session, job: Job) -> None:
     firm = await session.get(Firm, job.firm_id)
     if not firm:
@@ -341,6 +353,12 @@ async def _process(session, job: Job) -> None:
     # Per-client AI config overrides the firm's (client > firm).
     client = await session.get(Client, job.client_id) if job.client_id else None
     cfg = _resolve_ai(firm.ai_config, client.ai_config if client else None)
+    # 個人プランは運営提供の Gemini キー(.env)で解析。会社(事務所)は firm ごとの設定(key_enc)のまま。
+    # 空のキーなら従来どおり firm の ai_config にフォールバックする(後方互換)。
+    if firm.plan == plans.PLAN_FREE and settings.free_gemini_api_key:
+        cfg = _operator_gemini_config(settings.free_gemini_api_key, settings.free_gemini_model)
+    elif firm.plan == plans.PLAN_PRO and settings.paid_gemini_api_key:
+        cfg = _operator_gemini_config(settings.paid_gemini_api_key, settings.paid_gemini_model)
 
     # 撮影セット一括: receipt_id を持たず、複数画像+音声から複数 Receipt を起こす別経路。
     if job.kind == "batch":
@@ -521,3 +539,59 @@ async def run_gmail_poller() -> None:
         except Exception:  # noqa: BLE001 — ループは絶対に止めない
             log.exception("gmail poller tick failed")
         await asyncio.sleep(interval)
+
+
+# --- 匿名アカウントの掃除 ----------------------------------------------------
+# 「個人で始める」(匿名スタート)で作られたメール未登録の個人アカウントのうち、一定期間まったく
+# 利用が無い(=領収書アップロードが無い)ものを定期削除する。データのロストは許容方針(無料枠の範囲。
+# 登録すれば残せる)なのでシンプルに掃除する。登録済み(email あり)・会社プランは対象外。
+_ANON_RETENTION_DAYS = 7
+
+
+async def _cleanup_anonymous_tick() -> int:
+    """メール未登録の個人(free)アカウントで、直近 _ANON_RETENTION_DAYS 日に利用が無いものを削除。
+    利用 = その firm の領収書(receipt)アップロード。owner 接続(RLSバイパス)で firm/user を明示削除し、
+    client/receipts/files/memberships/device_sessions は CASCADE。S3 の実体ファイルも消す。"""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_ANON_RETENTION_DAYS)
+    deleted = 0
+    async with _Session() as session:
+        async with session.begin():
+            candidates = (
+                await session.execute(
+                    select(User.id, Firm.id)
+                    .join(Membership, Membership.user_id == User.id)
+                    .join(Firm, Firm.id == Membership.firm_id)
+                    .where(User.email.is_(None), Firm.plan == "free", Firm.created_at < cutoff)
+                )
+            ).all()
+            for user_id, firm_id in candidates:
+                recent = await session.scalar(
+                    select(Receipt.id)
+                    .where(Receipt.firm_id == firm_id, Receipt.created_at >= cutoff)
+                    .limit(1)
+                )
+                if recent:
+                    continue  # 直近に利用あり → 残す
+                for key in list(await session.scalars(select(File.path).where(File.firm_id == firm_id))):
+                    try:
+                        await run_in_threadpool(storage.delete, key)
+                    except Exception:  # noqa: BLE001 — blob 削除失敗は無視(DB行は消す)
+                        logging.getLogger("worker").warning("cleanup: blob delete failed key=%s", key)
+                await session.execute(delete(Firm).where(Firm.id == firm_id))
+                await session.execute(delete(User).where(User.id == user_id))
+                deleted += 1
+    return deleted
+
+
+async def run_cleanup() -> None:
+    """匿名アカウントの定期掃除(1日1回)。worker と同じプロセスで回る。"""
+    log = logging.getLogger("worker")
+    await asyncio.sleep(120)  # 起動直後の集中を避ける
+    while True:
+        try:
+            n = await _cleanup_anonymous_tick()
+            if n:
+                log.info("anonymous cleanup: deleted %d dormant account(s)", n)
+        except Exception:  # noqa: BLE001 — ループは絶対に止めない
+            log.exception("anonymous cleanup tick failed")
+        await asyncio.sleep(24 * 3600)

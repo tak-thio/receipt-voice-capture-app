@@ -32,10 +32,14 @@ def _build(registry: dict, cfg: dict):
     model = cfg.get("model")
     if provider in _SELF_HOSTED:
         return cls(model=model)
-    key_enc = cfg.get("key_enc")
-    if not key_enc:
-        raise ValueError(f"provider {provider!r} requires an encrypted key")
-    return cls(decrypt_secret(key_enc), model)
+    # 平文 key(無料プラン用の .env キー等)を優先。無ければ暗号化済み key_enc を復号。
+    key = cfg.get("key")
+    if not key:
+        key_enc = cfg.get("key_enc")
+        key = decrypt_secret(key_enc) if key_enc else None
+    if not key:
+        raise ValueError(f"provider {provider!r} requires an API key")
+    return cls(key, model)
 
 
 def stt_for(ai_config: dict) -> SttProvider:

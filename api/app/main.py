@@ -7,7 +7,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import storage
 from .config import get_settings
-from .worker import run_gmail_poller, run_worker
+from .worker import run_cleanup, run_gmail_poller, run_worker
 from .routers import (
     auth,
     billing,
@@ -15,6 +15,7 @@ from .routers import (
     card_statements,
     clients,
     devices,
+    drive,
     expense,
     export,
     files,
@@ -42,11 +43,13 @@ async def lifespan(_: FastAPI):
         print(f"[startup] object storage not ready: {exc}")
     worker = asyncio.create_task(run_worker())
     poller = asyncio.create_task(run_gmail_poller())  # 連携メールの定期取り込み(Cron相当)
+    cleaner = asyncio.create_task(run_cleanup())  # 匿名アカウントの定期掃除(1日1回)
     try:
         yield
     finally:
         worker.cancel()
         poller.cancel()
+        cleaner.cancel()
 
 
 app = FastAPI(title="Receipt SaaS API", version="0.1.0", lifespan=lifespan)
@@ -71,6 +74,6 @@ async def health():
 for r in (
     auth, operator, pairing, invites, firm, members, clients,
     captures, receipts, masters, journal, export, files, gmail, reconcile, expense,
-    card_statements, devices, individual, billing,
+    card_statements, devices, individual, billing, drive,
 ):
     app.include_router(r.router)

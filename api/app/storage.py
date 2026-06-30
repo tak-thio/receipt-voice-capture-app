@@ -33,3 +33,7 @@ def put(key: str, data: bytes, content_type: str = "application/octet-stream") -
 
 def get(key: str) -> bytes:
     return _s3.get_object(Bucket=settings.s3_bucket, Key=key)["Body"].read()
+
+
+def delete(key: str) -> None:
+    _s3.delete_object(Bucket=settings.s3_bucket, Key=key)

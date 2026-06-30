@@ -17,6 +17,11 @@ settings = get_settings()
 engine = create_async_engine(settings.runtime_database_url, pool_pre_ping=True, future=True)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
+# Owner (RLS-bypass) connection for trusted, cross-tenant system flows that have no
+# tenant principal (e.g. the Play RTDN webhook). Always scope queries by explicit id.
+owner_engine = create_async_engine(settings.database_url, pool_pre_ping=True, future=True)
+OwnerSessionLocal = async_sessionmaker(owner_engine, expire_on_commit=False, class_=AsyncSession)
+
 
 class Base(DeclarativeBase):
     pass

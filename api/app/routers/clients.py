@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
@@ -329,8 +330,10 @@ async def create_client_user(
     if not client:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
     email = (body.email or "").strip() or f"app-{uuid4().hex[:12]}@app.local"
+    # 事前チェックは RLS スコープ内のみ可視。別テナント(個人アカウント等)の同一メールは
+    # ここでは検知できないため、flush の unique 制約違反(IntegrityError)も受けて 409 にする(500防止)。
     if await session.scalar(select(User).where(User.email == email)):
-        raise HTTPException(status.HTTP_409_CONFLICT, "email already registered")
+        raise HTTPException(status.HTTP_409_CONFLICT, "このメールアドレスは既に使われています")
     user = User(
         email=email,
         name=body.name,
@@ -339,7 +342,10 @@ async def create_client_user(
         password_hash=hash_password(body.password) if body.password else None,
     )
     session.add(user)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError:
+        raise HTTPException(status.HTTP_409_CONFLICT, "このメールアドレスは既に使われています")
     session.add(
         Membership(user_id=user.id, firm_id=client.firm_id, client_id=client.id, role=body.role)
     )

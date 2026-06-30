@@ -98,7 +98,7 @@ class User(Base, TimestampMixin):
     __tablename__ = "users"
 
     id: Mapped[UUID] = _uuid_pk()
-    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    email: Mapped[str | None] = mapped_column(String(320), unique=True, index=True, nullable=True)
     name: Mapped[str] = mapped_column(String(200), default="")
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -415,6 +415,23 @@ class Subscription(Base, TimestampMixin):
     purchase_token: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(40), default="active")  # active | canceled | expired ...
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DriveConnection(Base, TimestampMixin):
+    """個人(firm)が連携した Google Drive。エクスポート(CSV/画像)を本人の Drive へ書き出す。
+    トークンは Fernet 暗号化。個人=1人firm なので firm 単位に1件。"""
+
+    __tablename__ = "drive_connections"
+    __table_args__ = (UniqueConstraint("firm_id", name="uq_drive_firm"),)
+
+    id: Mapped[UUID] = _uuid_pk()
+    firm_id: Mapped[UUID] = mapped_column(ForeignKey("firms.id", ondelete="CASCADE"), index=True)
+    refresh_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    access_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    scopes: Mapped[str] = mapped_column(String(1024), default="")
+    connected_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 # --- masters ---------------------------------------------------------------

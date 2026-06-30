@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import func, select, text
+from sqlalchemy import func, nullslast, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import audit, dedup
@@ -116,7 +116,8 @@ async def list_receipts(
     stmt = (
         select(Receipt)
         .where(Receipt.approval_status != ApprovalStatus.deleted.value)
-        .order_by(Receipt.created_at.desc())
+        # 領収書の日付(captured_at)の新しい順。日付なし(未読取等)は末尾、同日は取込順(created_at)。
+        .order_by(nullslast(Receipt.captured_at.desc()), Receipt.created_at.desc())
         .limit(min(limit, 500))
     )
     if client_id:

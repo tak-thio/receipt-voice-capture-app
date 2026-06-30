@@ -67,3 +67,22 @@ def verify_google_subscription(purchase_token: str, product_id: str) -> dict | N
         "expiry": exp_dt,
         "state": state or "UNKNOWN",
     }
+
+
+def cancel_google_subscription(purchase_token: str, product_id: str) -> bool:
+    """Play 定期購入の自動更新を停止する(返金はしない)。退会時に呼ぶ。ブロッキングなので
+    呼び出し側は run_in_threadpool で。成功なら True。課金未設定/権限不足/既に終了済み/失敗は
+    False(退会自体はブロックしない)。"""
+    svc = _publisher()
+    if svc is None:
+        return False
+    try:
+        svc.purchases().subscriptions().cancel(
+            packageName=_settings.play_package_name,
+            subscriptionId=product_id,
+            token=purchase_token,
+        ).execute()
+        return True
+    except Exception:
+        _log.exception("Play subscription cancel failed")
+        return False

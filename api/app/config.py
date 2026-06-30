@@ -37,7 +37,9 @@ class Settings(BaseSettings):
     # (リダイレクトURIに公開HTTPSドメインが必須)。
     google_client_id: str = ""
     google_client_secret: str = ""
-    gmail_oauth_redirect_uri: str = ""  # 例 https://receipt.billpo.jp/api/gmail/oauth/callback
+    gmail_oauth_redirect_uri: str = ""  # 例 https://receipt.orderbridge.jp/api/gmail/oauth/callback
+    # Drive エクスポート用 OAuth(個人のデータを本人の Google Drive へ書き出す)。スコープは drive.file。
+    drive_oauth_redirect_uri: str = ""  # 例 https://receipt.orderbridge.jp/api/drive/oauth/callback
     # 取り込み対象を絞る Gmail 検索クエリ(参考実装と同じ)。
     gmail_query: str = (
         '(receipt OR invoice OR "領収" OR "請求" OR "ご利用明細" OR "ご請求" OR "お支払い")'
@@ -65,12 +67,27 @@ class Settings(BaseSettings):
     # 空なら個人firmはAI未設定=解析不可。本番では Gemini が入った firm の id を設定する。
     platform_ai_firm_id: str = ""
 
+    # 無料プラン専用の Gemini APIキー(平文)。設定すると free プランの解析はこのキーで行い、
+    # pro/business は従来どおり firm の ai_config を使う(無料/有料でキー・課金枠を分離)。
+    # 空なら従来どおり platform_ai_firm_id 由来のキーにフォールバック。
+    free_gemini_api_key: str = ""
+    free_gemini_model: str = ""  # 例 gemini-2.5-flash。空なら provider 既定。
+
+    # 有料サブスク(個人 pro)専用の Gemini APIキー(平文)。pro の解析はこのキーで行う。
+    # 無料/有料(個人)/会社 でキー・課金枠を分離する用途。空なら従来どおり firm の ai_config にフォールバック。
+    # (会社プランは常に事務所ごとの key_enc を使うので、ここは個人プラン用。)
+    paid_gemini_api_key: str = ""
+    paid_gemini_model: str = ""  # 例 gemini-2.5-flash。空なら provider 既定。
+
     # --- アプリ内課金 (IAP / ⑤) -------------------------------------------
     # Google Play Developer API のサービスアカウント鍵JSON(コンテナ内パス)。空なら購入検証は無効。
     play_service_account_path: str = ""
     play_package_name: str = "com.itsherpa.ffreceipt"
     # サブスク(pro)の商品ID(Play Console の定期購入で作る)。
     play_pro_product_id: str = "pro_monthly"
+    # RTDN(更新/解約/返金の自動同期)Webhook の認証シークレット。Pub/Sub push のURLに ?token= で付ける。
+    # 空なら RTDN エンドポイントは無効(401)。
+    play_rtdn_secret: str = ""
 
     @property
     def runtime_database_url(self) -> str:
