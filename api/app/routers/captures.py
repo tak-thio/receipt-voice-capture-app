@@ -133,13 +133,21 @@ async def create_batch(
             f"一度に送れる画像は {MAX_BATCH_IMAGES} 枚までです",
         )
 
-    # 無料(30)/サブスク(500)の月間解析枚数の上限。会社(business)は無制限。
+    # 無料(10)/サブスク(500)の月間解析枚数の上限。会社(business)は無制限。
     firm = await session.get(Firm, client.firm_id)
     cap = plans.monthly_cap(firm.plan if firm else None)
     if cap is not None and await metering.monthly_usage(session, client.firm_id) >= cap:
         raise HTTPException(
             status.HTTP_402_PAYMENT_REQUIRED,
             f"今月の解析枚数の上限（{cap}枚）に達しました。プランをアップグレードしてください。",
+        )
+    # 無料プランは全体(全フリーユーザー合計)で1日あたりの解析上限も設ける(運営のAIコスト保護)。
+    if (firm.plan if firm else plans.PLAN_FREE) == plans.PLAN_FREE \
+            and await metering.free_daily_usage_global() >= plans.FREE_DAILY_GLOBAL_CAP:
+        raise HTTPException(
+            status.HTTP_402_PAYMENT_REQUIRED,
+            "本日の無料での解析が上限に達しました。明日以降に再度お試しいただくか、"
+            "サブスク（Pro）にアップグレードするとすぐにご利用いただけます。",
         )
 
     image_file_ids: list[str] = []
