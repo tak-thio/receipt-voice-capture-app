@@ -204,6 +204,30 @@ export function HomePage() {
           </div>
         </section>
       </main>
+
+      <footer className="border-t border-white/10 bg-slate-950 text-slate-400">
+        <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+            <a href="/" className="flex items-center gap-2 font-bold text-white" aria-label="領収ボックス ホーム">
+              <span className="grid h-8 w-8 place-items-center rounded-lg bg-emerald-500 text-lg text-white">
+                <Icon.Receipt />
+              </span>
+              <span>領収ボックス</span>
+            </a>
+            <nav className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+              <a className="hover:text-white" href="/privacy.html">プライバシーポリシー</a>
+              <a className="hover:text-white" href="/terms.html">利用規約</a>
+              <a className="hover:text-white" href="/tokushoho.html">特定商取引法に基づく表記</a>
+              <a className="hover:text-white" href="/account-deletion.html">アカウント・データの削除</a>
+            </nav>
+          </div>
+          <p className="mt-8 text-xs leading-6 text-slate-500">
+            運営：株式会社ff（〒810-0073 福岡県福岡市中央区舞鶴2-3-6 赤坂プライムビル2F）
+            <br />
+            © 2026 株式会社ff
+          </p>
+        </div>
+      </footer>
     </div>
   )
 }
