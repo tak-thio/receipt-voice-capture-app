@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getUsage, uploadBatch, type UsageInfo } from '../api/server-api'
 import { MediaRecorderService, getMediaRecordingSupport } from '../services/audio/media-recorder-service'
 import { isNativeAudioAvailable, nativeStartRecording, nativeStopRecording } from '../services/audio/native-recorder'
+import { isBillingAvailable, upgradeToPro } from '../services/billing/native-billing'
 import type { RecordedAudioClip } from '../types/audio'
 import { useAppStore } from '../store/app-store'
 
@@ -13,6 +14,7 @@ type TrayItem = { id: number; dataUrl: string; ms: number }
 export function CaptureScreen({ onSent }: { onSent?: () => void }) {
   const connection = useAppStore((state) => state.connection)!
   const showToast = useAppStore((state) => state.showToast)
+  const setConnection = useAppStore((state) => state.setConnection)
   const uploadMode = useAppStore((state) => state.uploadMode)
   const setUploadMode = useAppStore((state) => state.setUploadMode)
   // 未設定なら役割で既定(一般社員=経費精算 / それ以外=請求書)。トグルで上書き・永続化。
@@ -33,6 +35,7 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
   const [sentCount, setSentCount] = useState(0)
   const [flash, setFlash] = useState(false)
   const [usage, setUsage] = useState<UsageInfo | null>(null)
+  const [upgrading, setUpgrading] = useState(false)
 
   // 個人(無料/サブスク)の今月の解析枚数メーター。会社(cap=null)では出さない。
   async function loadUsage() {
@@ -40,6 +43,29 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
       setUsage(await getUsage(connection.serverUrl, connection.deviceToken))
     } catch {
       /* 取得失敗時は出さない */
+    }
+  }
+
+  // 上限到達時のアップグレード: 購入→検証→pro 付与。成功すればメーター(500枚)と plan を即更新。
+  async function upgrade() {
+    if (!connection.email) {
+      showToast('サブスクのご利用には、設定からメールアドレスの登録（無料）が必要です。')
+      return
+    }
+    setUpgrading(true)
+    try {
+      const r = await upgradeToPro(connection.serverUrl, connection.deviceToken)
+      if (r.active) {
+        setConnection({ ...connection, plan: r.plan })
+        setUsage(r) // VerifyPurchaseResult は used/cap/plan を含む
+        showToast('サブスクを開始しました。今月から月500枚まで解析できます。')
+      } else {
+        showToast('購入を確認しています。反映まで少しお待ちください。')
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'アップグレードに失敗しました')
+    } finally {
+      setUpgrading(false)
     }
   }
   useEffect(() => {
@@ -234,7 +260,8 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
 
   return (
     <div className="capture-screen">
-      {/* アップロード先のモード(請求書=会社の受信箱 / 経費精算=立替トレイ)。選択は維持される。 */}
+      {/* アップロード先のモード(請求書/経費精算)は一般社員(client_user)のみ。個人・事務所スタッフは通常レーン固定。 */}
+      {connection.role === 'client_user' && (
       <div
         style={{
           display: 'flex', margin: '8px auto 4px', borderRadius: 8, overflow: 'hidden',
@@ -256,11 +283,22 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
           </button>
         ))}
       </div>
+      )}
       {usage && usage.cap != null && (
         <p className="muted small center" style={{ margin: '0 auto 4px' }}>
           今月の解析: {usage.used} / {usage.cap} 枚
           {usage.used >= usage.cap && <span style={{ color: '#dc2626' }}>（上限に達しました）</span>}
         </p>
+      )}
+      {usage && usage.plan === 'free' && usage.cap != null && usage.used >= usage.cap && isBillingAvailable() && (
+        <button
+          className="accent-button"
+          style={{ display: 'block', margin: '0 auto 8px' }}
+          disabled={upgrading}
+          onClick={() => void upgrade()}
+        >
+          {upgrading ? '処理中…' : 'サブスクにアップグレード（月500枚）'}
+        </button>
       )}
       <div className="cam-area">
         <video ref={videoRef} className="cam-video" autoPlay muted playsInline />

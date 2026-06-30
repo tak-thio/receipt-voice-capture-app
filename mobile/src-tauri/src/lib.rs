@@ -1,6 +1,7 @@
 mod commands;
 mod models;
 mod native_audio;
+mod native_billing;
 mod native_fcm;
 mod repositories;
 mod services;
@@ -10,8 +11,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(native_audio::init())
         .plugin(native_fcm::init())
+        .plugin(native_billing::init())
         .invoke_handler(tauri::generate_handler![
             commands::audio::save_audio_clip,
             commands::session::create_session,
@@ -33,7 +36,8 @@ pub fn run() {
             commands::export::export_csv,
             native_audio::native_start_recording,
             native_audio::native_stop_recording,
-            native_fcm::get_fcm_token
+            native_fcm::get_fcm_token,
+            native_billing::native_subscribe
         ])
         .run(tauri::generate_context!())
         .expect("failed to run tauri application");

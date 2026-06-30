@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react'
-import { registerFcmToken } from './api/server-api'
+import { useEffect, useRef, useState } from 'react'
+import { individualStart, registerFcmToken } from './api/server-api'
+import { DEFAULT_SERVER } from './config'
+import { toConnection } from './lib/pairing'
 import { CaptureScreen } from './pages/CaptureScreen'
 import { ConnectScreen } from './pages/ConnectScreen'
 import { DashboardScreen } from './pages/DashboardScreen'
@@ -14,14 +16,31 @@ type Tab = 'home' | 'capture' | 'inbox' | 'expense' | 'settings'
 export default function App() {
   const ready = useAppStore((state) => state.ready)
   const connection = useAppStore((state) => state.connection)
+  const started = useAppStore((state) => state.started)
+  const authPrompt = useAppStore((state) => state.authPrompt)
+  const setConnection = useAppStore((state) => state.setConnection)
+  const setAuthPrompt = useAppStore((state) => state.setAuthPrompt)
   const init = useAppStore((state) => state.init)
   const toast = useAppStore((state) => state.toast)
   const hideToast = useAppStore((state) => state.hideToast)
   const [tab, setTab] = useState<Tab>('home')
+  const [autoStartDone, setAutoStartDone] = useState(false)
+  const startingRef = useRef(false)
 
   useEffect(() => {
     init()
   }, [init])
+
+  // 初回起動(まだ一度も接続していない)は、登録不要で匿名アカウントを自動作成してすぐ使える状態にする。
+  // ログアウト後(started=true)は作らない。オフライン等で失敗したら下の連携画面でログイン/再試行できる。
+  useEffect(() => {
+    if (!ready || connection || started || startingRef.current) return
+    startingRef.current = true
+    individualStart(DEFAULT_SERVER)
+      .then((r) => setConnection(toConnection(DEFAULT_SERVER, r)))
+      .catch(() => { /* オフライン等。連携画面にフォールバック。 */ })
+      .finally(() => setAutoStartDone(true))
+  }, [ready, connection, started, setConnection])
 
   // トーストは数秒で自動的に消す。
   useEffect(() => {
@@ -48,9 +67,25 @@ export default function App() {
     return <div className="boot-screen">アプリを読み込んでいます...</div>
   }
 
-  // 未接続なら最初に連携(ペアリング)画面。
+  // 初回起動: 匿名アカウントを自動作成中(登録不要)。
+  if (!connection && !started && !autoStartDone) {
+    return <div className="boot-screen">準備しています...</div>
+  }
+
+  // 未接続(自動作成に失敗 / ログアウト後 / 退会後)なら連携・ログイン画面。
   if (!connection) {
     return <ConnectScreen />
+  }
+
+  // 設定からの「ログイン」「会社と連携」は、現在の接続を保ったままオーバーレイ表示。
+  if (authPrompt) {
+    return (
+      <ConnectScreen
+        initialView={authPrompt}
+        onClose={() => setAuthPrompt(null)}
+        onConnected={() => setAuthPrompt(null)}
+      />
+    )
   }
 
   // 経費精算(申請)は一般社員(client_user)向け。撮ったものは立替レーンに入る。
@@ -64,7 +99,7 @@ export default function App() {
         </div>
       )}
       <main className="screen">
-        {tab === 'home' && <DashboardScreen onGoCapture={() => setTab('capture')} onGoInbox={() => setTab('inbox')} />}
+        {tab === 'home' && <DashboardScreen onGoCapture={() => setTab('capture')} onGoInbox={() => setTab('inbox')} onGoExpense={canExpense ? () => setTab('expense') : undefined} />}
         {tab === 'capture' && <CaptureScreen onSent={() => setTab('home')} />}
         {tab === 'inbox' && <InboxScreen />}
         {tab === 'expense' && <ExpenseScreen />}

@@ -16,9 +16,10 @@
     "tauri:dev:gemini": "tauri dev"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.8.0",
-    "@tauri-apps/plugin-dialog": "^2.6.0",
-    "@tauri-apps/plugin-os": "^2.3.2",
+    "@tauri-apps/api": "~2.10.0",
+    "@tauri-apps/plugin-dialog": "2.6.0",
+    "@tauri-apps/plugin-opener": "2.5.3",
+    "@tauri-apps/plugin-os": "2.3.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.9.6",

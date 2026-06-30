@@ -17,18 +17,22 @@ function shortDate(iso: string | null): string {
 export function DashboardScreen({
   onGoCapture,
   onGoInbox,
+  onGoExpense,
 }: {
   onGoCapture: () => void
   onGoInbox: () => void
+  onGoExpense?: () => void
 }) {
   const connection = useAppStore((state) => state.connection)!
+  const individual = !!connection.individual // 個人(アプリのみ)は仕分け/経費精算の概念が無い
   const [rows, setRows] = useState<ServerReceipt[]>([])
   const [loading, setLoading] = useState(false)
 
   async function load() {
     setLoading(true)
     try {
-      setRows(await listReceipts(connection.serverUrl, connection.deviceToken, connection.clientId))
+      // 受信箱と同じく両レーン(会社経費+経費精算)を取得。経費精算も「最近の領収書」に出す。
+      setRows(await listReceipts(connection.serverUrl, connection.deviceToken, connection.clientId, 'all'))
     } catch {
       /* 失敗時は0件表示 */
     } finally {
@@ -45,19 +49,29 @@ export function DashboardScreen({
   const thisMonth = rows.filter((r) => (r.captured_at ?? '').slice(0, 7) === ym)
   const monthCount = thisMonth.length
   const monthSum = thisMonth.reduce((s, r) => s + (r.amount_jpy ?? 0), 0)
-  const unsorted = rows.filter((r) => !r.journalized_at).length
-  const sorted = rows.filter((r) => r.journalized_at).length
+  // 仕訳(未処理/処理済)は会社経費レーンの概念。経費精算(立替)は仕訳対象外なので除外する。
+  const companyRows = rows.filter((r) => r.lane !== 'expense')
+  const unsorted = companyRows.filter((r) => !r.journalized_at).length
+  const sorted = companyRows.filter((r) => r.journalized_at).length
   const bySource = (s: string) => rows.filter((r) => r.source === s).length
-  const recent = rows.slice(0, 6)
+  // 最近の領収書は「領収書の日付(captured_at)」の新しい順。日付なし(未読取等)は末尾へ。
+  // 同日内は元の取込順(created_at降順)を保つ(Array.sort は安定)。
+  const recent = [...rows]
+    .sort((a, b) => (b.captured_at ?? '').localeCompare(a.captured_at ?? ''))
+    .slice(0, 6)
 
   return (
     <div className="dash">
       <header className="dash-top">
         <div>
-          <h1 className="dash-client">{connection.clientName || '顧問先'}</h1>
+          <h1 className="dash-client">
+            {individual ? connection.userName || 'マイアカウント' : connection.clientName || '顧問先'}
+          </h1>
+          {!individual && (
           <p className="dash-meta">
             {[connection.firmName, connection.userName].filter(Boolean).join(' / ') || ' '}
           </p>
+          )}
         </div>
         <span className="dash-period">
           {now.getFullYear()}年{now.getMonth() + 1}月
@@ -78,20 +92,22 @@ export function DashboardScreen({
         </div>
       </section>
 
-      <section className="dash-status">
-        <div className="st-item">
-          <span className="dot amber" />
-          未処理 <b>{unsorted}</b>
-        </div>
-        <div className="st-item">
-          <span className="dot green" />
-          処理済 <b>{sorted}</b>
-        </div>
-        <div className="st-src">
-          取込元 {SRC_LABEL.email} {bySource('email')} ・ {SRC_LABEL.mobile} {bySource('mobile')} ・{' '}
-          {SRC_LABEL.manual} {bySource('manual')}
-        </div>
-      </section>
+      {!individual && (
+        <section className="dash-status">
+          <div className="st-item">
+            <span className="dot amber" />
+            未処理 <b>{unsorted}</b>
+          </div>
+          <div className="st-item">
+            <span className="dot green" />
+            処理済 <b>{sorted}</b>
+          </div>
+          <div className="st-src">
+            取込元 {SRC_LABEL.email} {bySource('email')} ・ {SRC_LABEL.mobile} {bySource('mobile')} ・{' '}
+            {SRC_LABEL.manual} {bySource('manual')}
+          </div>
+        </section>
+      )}
 
       <section className="dash-recent">
         <div className="sec-head">
@@ -105,15 +121,20 @@ export function DashboardScreen({
         ) : (
           <ul className="rlist">
             {recent.map((r) => (
-              <li key={r.id} className="ritem" onClick={onGoInbox}>
+              <li key={r.id} className="ritem"
+                onClick={() => (r.lane === 'expense' ? (onGoExpense ?? onGoInbox)() : onGoInbox())}>
                 <span className="rdate">{shortDate(r.captured_at)}</span>
                 <span className={`rvendor${r.parse_failed ? ' failed' : ''}`}>
                   {r.parse_failed ? '認識できませんでした' : r.vendor || '未解析'}
                 </span>
                 <span className="ramount">{r.amount_jpy != null ? yen(r.amount_jpy) : '—'}</span>
-                <span className={`rbadge ${r.journalized_at ? 'done' : 'todo'}`}>
-                  {r.journalized_at ? '仕分済' : '未仕分け'}
-                </span>
+                {!individual && (r.lane === 'expense' ? (
+                  <span className="rbadge expense">経費精算</span>
+                ) : (
+                  <span className={`rbadge ${r.journalized_at ? 'done' : 'todo'}`}>
+                    {r.journalized_at ? '仕分済' : '未仕分け'}
+                  </span>
+                ))}
               </li>
             ))}
           </ul>

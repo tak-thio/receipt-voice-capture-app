@@ -3,13 +3,16 @@ package com.itsherpa.ffreceipt
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
-import androidx.activity.enableEdgeToEdge
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 class MainActivity : TauriActivity() {
+  // 以前は enableEdgeToEdge() で常に画面端まで描画していたが、Android 14 以下の WebView は
+  // env(safe-area-inset-bottom) にナビゲーションバーの高さを返さず、下部メニューがナビバーに
+  // かぶってしまう。enableEdgeToEdge を外すと、旧 Android では OS がシステムバーの内側に
+  // コンテンツを収める(=かぶらない)。Android 15+ は強制エッジ to エッジのままで、CSS の
+  // env(safe-area-inset-*) 側でタブバーを持ち上げる(index.css 参照)。
   override fun onCreate(savedInstanceState: Bundle?) {
-    enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     requestMediaPermissions()
   }

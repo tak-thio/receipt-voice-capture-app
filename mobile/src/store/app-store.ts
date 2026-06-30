@@ -4,6 +4,7 @@ import type { Connection } from '../types/connection'
 const STORAGE_KEY = 'rvc.connection'
 const AUTO_KEY = 'rvc.autoCapture'
 const MODE_KEY = 'rvc.uploadMode' // 'company'(請求書) | 'expense'(経費精算)
+const STARTED_KEY = 'rvc.started' // 一度でも接続したか。ログアウト後に自動で匿名アカウントを作らないため。
 
 export type UploadMode = 'company' | 'expense'
 
@@ -34,16 +35,28 @@ function loadAutoCapture(): boolean {
   }
 }
 
+// 一度でも接続(個人スタート/ログイン/会社連携)したか。ログアウト後に自動で匿名アカウントを作らないため。
+function loadStarted(): boolean {
+  try {
+    return localStorage.getItem(STARTED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 interface AppState {
   ready: boolean
   connection: Connection | null
   autoCapture: boolean
   uploadMode: UploadMode | null // 未設定(null)なら役割で既定を決める
   toast: string | null
+  started: boolean // 一度でも接続したか(ログアウト後の自動匿名作成を防ぐ)
+  authPrompt: 'login' | 'firm' | null // 設定からのログイン/会社連携オーバーレイ
   init: () => void
   setConnection: (connection: Connection) => void
   setAutoCapture: (on: boolean) => void
   setUploadMode: (mode: UploadMode) => void
+  setAuthPrompt: (v: 'login' | 'firm' | null) => void
   showToast: (message: string) => void
   hideToast: () => void
   disconnect: () => void
@@ -56,12 +69,19 @@ export const useAppStore = create<AppState>((set) => ({
   autoCapture: true,
   uploadMode: null,
   toast: null,
+  started: false,
+  authPrompt: null,
   init: () =>
-    set({ connection: loadConnection(), autoCapture: loadAutoCapture(), uploadMode: loadUploadMode(), ready: true }),
+    set({
+      connection: loadConnection(), autoCapture: loadAutoCapture(), uploadMode: loadUploadMode(),
+      started: loadStarted(), ready: true,
+    }),
   setConnection: (connection) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(connection))
-    set({ connection })
+    try { localStorage.setItem(STARTED_KEY, '1') } catch { /* localStorage 不可でも続行 */ }
+    set({ connection, started: true, authPrompt: null })
   },
+  setAuthPrompt: (authPrompt) => set({ authPrompt }),
   setAutoCapture: (on) => {
     try {
       localStorage.setItem(AUTO_KEY, on ? 'on' : 'off')

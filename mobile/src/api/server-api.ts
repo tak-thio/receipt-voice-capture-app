@@ -13,6 +13,7 @@ export interface PairResult {
   firm_name?: string
   individual?: boolean // 個人プラン(サインアップ/ログイン)で接続したとき true
   plan?: string // 'free' | 'pro' | 'business'
+  email?: string | null // 個人アカウントの登録メール。匿名スタート(未登録)なら null/空。
 }
 
 function base(url: string): string {
@@ -135,20 +136,33 @@ export interface ServerExpenseClaim {
   items: ServerExpenseClaimItem[]
 }
 
+/** API がエラー応答(非2xx)を返したときに投げる型付きエラー。status と server detail を持つので、
+ *  呼び出し側が種別(401/403/409/5xx 等)で分岐できる。 */
+export class ApiError extends Error {
+  readonly status: number
+  readonly detail?: string
+  constructor(status: number, message: string, detail?: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.detail = detail
+  }
+}
+
 async function expenseReq<T>(serverUrl: string, deviceToken: string, path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${base(serverUrl)}${path}`, {
     ...init,
     headers: { Authorization: `Bearer ${deviceToken}`, 'content-type': 'application/json', ...(init?.headers || {}) },
   })
   if (!res.ok) {
-    let msg = `操作に失敗しました (${res.status})`
+    let detail: string | undefined
     try {
       const body = JSON.parse(await res.text()) as { detail?: string }
-      if (body?.detail) msg = body.detail
+      if (body?.detail) detail = body.detail
     } catch {
-      /* 本文が JSON でなければ既定メッセージのまま */
+      /* 本文が JSON でなければ detail なし */
     }
-    throw new Error(msg)
+    throw new ApiError(res.status, detail ?? `操作に失敗しました (${res.status})`, detail)
   }
   return res.json() as Promise<T>
 }
@@ -269,6 +283,56 @@ export function individualLogin(
   return _postNoAuth<PairResult>(serverUrl, '/individual/login', body)
 }
 
+/** 個人プラン: 匿名スタート(メール/パスワード不要)。すぐ撮影でき、後で claim で登録する。 */
+export function individualStart(serverUrl: string): Promise<PairResult> {
+  return _postNoAuth<PairResult>(serverUrl, '/individual/start', {})
+}
+
+export interface ClaimResult {
+  email: string
+  user_name: string
+  plan: string
+  individual: boolean
+}
+
+/** 個人プラン: 匿名アカウントにメール/パスワードを登録(遅延サインアップ)。device token はそのまま有効。 */
+export function individualClaim(
+  serverUrl: string, deviceToken: string, body: { email: string; password: string; name?: string },
+): Promise<ClaimResult> {
+  return expenseReq<ClaimResult>(serverUrl, deviceToken, '/individual/claim', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+// --- Google Drive エクスポート(個人) ---
+/** Drive 連携済みか(エクスポートUIの出し分け用)。 */
+/** 個人アカウントの表示名を変更する。 */
+export function updateIndividualName(
+  serverUrl: string, deviceToken: string, name: string,
+): Promise<{ user_name: string }> {
+  return expenseReq<{ user_name: string }>(serverUrl, deviceToken, '/individual/profile', {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  })
+}
+
+export function driveStatus(serverUrl: string, deviceToken: string): Promise<{ connected: boolean }> {
+  return expenseReq<{ connected: boolean }>(serverUrl, deviceToken, '/drive/status')
+}
+/** Drive 連携開始。Google 同意URLを返す(アプリが外部ブラウザで開く)。 */
+export function driveConnectUrl(serverUrl: string, deviceToken: string): Promise<{ auth_url: string }> {
+  return expenseReq<{ auth_url: string }>(serverUrl, deviceToken, '/drive/connect')
+}
+/** 全領収書をCSVにして本人のDriveへ書き出す。未連携は 409。 */
+export function driveExport(
+  serverUrl: string, deviceToken: string,
+): Promise<{ count: number; link: string | null }> {
+  return expenseReq<{ count: number; link: string | null }>(serverUrl, deviceToken, '/drive/export', {
+    method: 'POST',
+  })
+}
+
 /** 個人プラン: 退会(アカウント＋データを削除)。 */
 export async function deleteIndividualAccount(serverUrl: string, deviceToken: string): Promise<void> {
   const res = await fetch(`${base(serverUrl)}/individual/account`, {
@@ -276,7 +340,7 @@ export async function deleteIndividualAccount(serverUrl: string, deviceToken: st
     headers: { Authorization: `Bearer ${deviceToken}` },
   })
   if (!res.ok) {
-    throw new Error(`退会に失敗しました (${res.status})`)
+    throw new ApiError(res.status, `退会に失敗しました (${res.status})`)
   }
 }
 
@@ -289,6 +353,21 @@ export interface UsageInfo {
 /** 当月の解析枚数・上限・プラン(メーター表示用)。 */
 export function getUsage(serverUrl: string, deviceToken: string): Promise<UsageInfo> {
   return expenseReq<UsageInfo>(serverUrl, deviceToken, '/captures/usage')
+}
+
+export interface VerifyPurchaseResult extends UsageInfo {
+  active: boolean // 購読が有効(active/猶予期間)なら true。false なら pro 付与されない。
+}
+
+/** アプリ内課金(IAP / ⑤): Play の購入トークンをサーバで検証し、有効なら pro を付与する。
+ * 端末が Play Billing で購入した直後に呼ぶ。戻り値は最新の plan/used/cap と有効フラグ。 */
+export function verifyPurchase(
+  serverUrl: string, deviceToken: string, purchaseToken: string, productId?: string,
+): Promise<VerifyPurchaseResult> {
+  return expenseReq<VerifyPurchaseResult>(serverUrl, deviceToken, '/billing/google/verify', {
+    method: 'POST',
+    body: JSON.stringify({ purchase_token: purchaseToken, product_id: productId }),
+  })
 }
 
 export interface CaptureUpload {
