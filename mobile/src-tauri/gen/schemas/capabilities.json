@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Default permissions for the receipt input app (desktop + mobile).","local":true,"windows":["main"],"permissions":["core:default","os:default","dialog:default","dialog:allow-save","opener:default","opener:allow-open-url"],"platforms":["linux","macOS","windows","android","iOS"]}}

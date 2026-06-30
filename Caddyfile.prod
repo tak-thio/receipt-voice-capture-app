@@ -1,0 +1,81 @@
+# Production host with a SPLIT between tenant traffic and the operator (運営) surface.
+#
+#   :443   receipt.orderbridge.jp          -> tenant SPA + tenant API. Operator routes BLOCKED (404).
+#   :8443  receipt.orderbridge.jp:8443     -> operator console + operator API ONLY.
+#
+# The operator surface ("全体を触る" API) is moved to a dedicated port so it can be
+# locked down by the firewall (IP allowlist) independently of normal tenant use.
+# Caddy reuses the receipt.orderbridge.jp certificate for the :8443 site automatically.
+#
+# NOTE: receipt.billpo.jp is kept as a temporary alias so the already-distributed
+# build (DEFAULT_SERVER baked to the old host) keeps working during the cutover.
+# Remove it once a new app build pointing at receipt.orderbridge.jp is rolled out
+# AND the old DNS no longer points here (otherwise Caddy logs ACME failures for it).
+{
+	email kawano@itsherpa.com
+	# Coraza must run before reverse_proxy / file_server.
+	order coraza_waf first
+}
+
+# OWASP CRS (Coraza) — shared by both sites. Rules mounted at /etc/caddy/coraza.
+(waf) {
+	coraza_waf {
+		directives `
+		Include /etc/caddy/coraza/coraza.conf
+		Include /etc/caddy/coraza/crs/crs-setup.conf
+		# アプリAPIは REST(PATCH/PUT/DELETE)を使う。CRS 911100 は既定で
+		# GET/HEAD/POST/OPTIONS しか許さず、編集/削除系が 403 になるため明示的に許可する。
+		# (crs-setup の include 後・rules の include 前に置くことで 911100 より先に効く)
+		SecAction "id:90100,phase:1,nolog,pass,t:none,setvar:'tx.allowed_methods=GET HEAD POST OPTIONS PUT PATCH DELETE'"
+		Include /etc/caddy/coraza/crs/rules/*.conf
+		SecRuleEngine On
+		`
+	}
+}
+
+# ---- Public tenant site (:443) -------------------------------------------
+receipt.orderbridge.jp, receipt.billpo.jp {
+	import waf
+	route {
+		# Operator surface is NOT public — served only on the IP-restricted :8443.
+		@operator path /operator* /api/operator/*
+		respond @operator 404
+
+		# Tenant API under /api/* -> FastAPI (strip the /api prefix).
+		handle_path /api/* {
+			reverse_proxy api:8000
+		}
+
+		# Tenant SPA, with history fallback for client routing.
+		handle {
+			root * /srv
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}
+
+# ---- Operator console site (:8443, firewall IP-allowlisted) ---------------
+receipt.orderbridge.jp:8443, receipt.billpo.jp:8443 {
+	import waf
+	route {
+		# Operator API only: /api/operator/* -> FastAPI (strip /api). Other /api -> 404.
+		handle_path /api/* {
+			route {
+				@op path /operator/*
+				reverse_proxy @op api:8000
+				respond 404
+			}
+		}
+
+		# Operator console + shared assets — real static files, NO SPA fallback.
+		@assets path /operator.html /assets/*
+		handle @assets {
+			root * /srv
+			file_server
+		}
+
+		# Nothing else is exposed on this port.
+		respond 404
+	}
+}

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "330664791045",
+    "project_id": "receiptbox-8726e",
+    "storage_bucket": "receiptbox-8726e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:330664791045:android:70be72a6c2d3691546a06c",
+        "android_client_info": {
+          "package_name": "com.itsherpa.ffreceipt"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8NJ1NgBYkA-tbMeGkuBsKnO-pWxeLwwc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,1 +1,0 @@
-{"default":{"identifier":"default","description":"Default desktop permissions for the receipt input app.","local":true,"windows":["main"],"permissions":["core:default","dialog:default","dialog:allow-save"]}}

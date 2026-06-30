@@ -1,0 +1,2 @@
+# Local secrets (never commit). Python caches/venv are ignored at the repo root.
+.env

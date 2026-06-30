@@ -1,0 +1,82 @@
+# Receipt SaaS — PRODUCTION compose (self-hosted VM, public domain + TLS).
+# Usage:  docker compose -f docker-compose.prod.yml up -d --build
+#
+# Port bindings are explicit because Docker bypasses ufw: ONLY caddy is public.
+#   caddy : 0.0.0.0:80,443  -> public (Caddy auto-TLS via Let's Encrypt)
+#   api   : 127.0.0.1:8000  -> localhost only (SSH-tunnel debug)
+#   minio : 127.0.0.1:9000/9001 -> localhost only
+#   db    : no host port     -> internal docker network only
+#
+# Requires: ./api/.env (secrets) and ./.env (POSTGRES_*/MINIO_ROOT_* for interpolation),
+# plus a built ./web/dist and ./Caddyfile.prod with your domain. See docs/deploy-production.md.
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-receipt}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-receipt}
+      POSTGRES_DB: ${POSTGRES_DB:-receipt}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-receipt}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    env_file:
+      - ./api/.env
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:8000:8000"
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  caddy:
+    build: ./caddy   # custom Caddy with Coraza WAF + OWASP CRS
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+      # Operator console/API on a dedicated port. Bound to 0.0.0.0 so the host
+      # firewall can IP-allowlist it; restrict this port at the FW (operator only).
+      - "8443:8443"
+    volumes:
+      - ./Caddyfile.prod:/etc/caddy/Caddyfile
+      - ./web/dist:/srv
+      - ./coraza:/etc/caddy/coraza:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  db_data:
+  minio_data:
+  caddy_data:
+  caddy_config:

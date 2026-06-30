@@ -1,0 +1,98 @@
+import { useEffect, useState } from 'react'
+import { listReceipts, type ServerReceipt } from '../api/server-api'
+import { ReceiptDetailScreen, isEditable, statusOf } from '../components/receipt-detail'
+import { useAppStore } from '../store/app-store'
+
+const SOURCE_LABEL: Record<string, string> = {
+  email: 'メール',
+  manual: 'アップロード',
+  mobile: 'アプリ',
+}
+
+/** 受信箱: 会社経費(請求書)レーンの領収書一覧。経費精算(立替)は「経費精算」タブへ分離。行タップで詳細/修正。 */
+export function InboxScreen() {
+  const connection = useAppStore((state) => state.connection)!
+  const individual = !!connection.individual // 個人(アプリのみ)は仕分け/レーン(請求書/経費精算)の概念が無い
+  const [rows, setRows] = useState<ServerReceipt[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [selected, setSelected] = useState<ServerReceipt | null>(null)
+
+  async function load() {
+    setLoading(true)
+    setError('')
+    try {
+      // 会社経費(請求書)レーンのみ。経費精算(立替)は「経費精算」タブで扱う。個人は概念が無いので全件。
+      setRows(
+        await listReceipts(
+          connection.serverUrl, connection.deviceToken, connection.clientId,
+          individual ? 'all' : 'company',
+        ),
+      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+  useEffect(() => {
+    void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  if (selected) {
+    return (
+      <ReceiptDetailScreen
+        receipt={selected}
+        onBack={() => setSelected(null)}
+        onSaved={(u) => {
+          setRows((rs) => rs.map((x) => (x.id === u.id ? { ...x, ...u } : x)))
+          setSelected(null)
+        }}
+        onDeleted={(id) => {
+          setRows((rs) => rs.filter((x) => x.id !== id))
+          setSelected(null)
+        }}
+      />
+    )
+  }
+
+  return (
+    <div className="inbox-screen">
+      <div className="inbox-head">
+        <h1>受信箱</h1>
+        <button className="ghost-button" onClick={() => void load()} disabled={loading}>
+          {loading ? '更新中…' : '更新'}
+        </button>
+      </div>
+      {error && <p className="muted small">{error}</p>}
+      {rows.length === 0 && !loading && !error && (
+        <p className="muted center inbox-empty">領収書がありません</p>
+      )}
+      <ul className="inbox-list">
+        {rows.map((r) => {
+          const s = statusOf(r)
+          const hasImage = !!r.image_file_id
+          return (
+            <li key={r.id} className="inbox-row tappable" onClick={() => setSelected(r)}>
+              <div className="inbox-main">
+                <span className={`v${r.parse_failed ? ' failed' : ''}`}>
+                  {r.parse_failed ? '請求書として認識できませんでした' : r.vendor || '未解析'}
+                </span>
+                <span className="amt">{r.amount_jpy != null ? `¥${r.amount_jpy.toLocaleString()}` : '—'}</span>
+              </div>
+              <div className="inbox-sub">
+                <span>{r.captured_at ? r.captured_at.slice(0, 10) : '—'}</span>
+                <span className="src">{SOURCE_LABEL[r.source] ?? r.source}</span>
+                {hasImage && <span className="img-mark">画像</span>}
+                {r.page != null && <span className="img-mark">P.{r.page}</span>}
+                {isEditable(r) && <span className="img-mark">修正可</span>}
+                {(!individual || r.parse_failed) && <span className={`st ${s.cls}`}>{s.text}</span>}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}

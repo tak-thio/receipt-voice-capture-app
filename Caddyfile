@@ -1,0 +1,17 @@
+# Single-origin: serve the web SPA and proxy the API under /api.
+# Local dev uses :80 (http://localhost:8080). For production, replace the
+# site address with your domain and Caddy will provision TLS automatically.
+
+:80 {
+	# API under /api/* -> FastAPI (strip the /api prefix).
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+
+	# Everything else -> the built SPA, with history fallback for client routing.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

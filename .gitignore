@@ -1,13 +1,39 @@
+# Root ignores shared by all packages. App-specific ignores live in
+# mobile/.gitignore and api/.gitignore.
+
+# OS / editors
+.DS_Store
+tmp
+
+# Node (any package: mobile/, web/)
 node_modules
 dist
-tmp
-.DS_Store
-src-tauri/target
-receipt-sessions
-src-tauri/receipt-sessions
-.venv-stt
+
+# Python (any package: api/)
 __pycache__
-settings.json
-src-tauri/settings.json
-*.command
-scripts/dev-tauri-gemini.sh
+*.pyc
+.venv
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Vite cache
+.vite
+*.tsbuildinfo
+
+# Fetched OWASP CRS / coraza rules (populated by caddy/fetch-crs.sh at deploy)
+/coraza/
+
+# ML モデル成果物(サイズ大・差し替え可能。public/models/ に配置してAPK同梱)
+*.pt
+*.onnx
+
+# Secrets — never commit
+.env
+client_secret_*.json
+*.apps.googleusercontent.com.json
+
+# Firebase サービスアカウント鍵などの機密(サーバ直接配置・絶対にコミットしない)
+*-firebase-adminsdk-*.json
+**/secrets/
+fcm-sa.json
