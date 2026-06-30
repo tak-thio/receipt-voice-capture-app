@@ -1,6 +1,6 @@
 # 本番デプロイ手順(自社VM + ドメイン + TLS)
 
-現行デプロイ先: **`receipt.billpo.jp`**(`its-receipt@receipt.billpo.jp`, Ubuntu 24.04)。
+現行デプロイ先: **`receipt.orderbridge.jp`**(`its-receipt@receipt.orderbridge.jp`, Ubuntu 24.04)。
 構成は [`architecture.md`](architecture.md) / [`saas-design.md`](saas-design.md) を参照。
 
 ## 前提
@@ -22,7 +22,7 @@
    ```bash
    (cd web && npm ci && npm run build)
    tar czf - --exclude='__pycache__' --exclude='*.pyc' --exclude='.env' --exclude='node_modules' \
-     -C . api web/dist | ssh its-receipt@receipt.billpo.jp 'mkdir -p ~/receipt-app && tar xzf - -C ~/receipt-app'
+     -C . api web/dist | ssh its-receipt@receipt.orderbridge.jp 'mkdir -p ~/receipt-app && tar xzf - -C ~/receipt-app'
    ```
 2. **本番設定を配置**: `docker-compose.prod.yml` を VM の `~/receipt-app/docker-compose.yml` として、`Caddyfile.prod` を `~/receipt-app/Caddyfile` として置く(ドメイン/メールを自分のものに)。
 3. **シークレットを生成**(VM上、値は出力しない)。`~/receipt-app/.env`(compose展開用)と `~/receipt-app/api/.env`(API用):

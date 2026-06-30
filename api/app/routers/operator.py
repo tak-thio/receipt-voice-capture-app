@@ -15,11 +15,12 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .. import plans
 from ..config import get_settings
 from ..db import get_session, set_rls_context
 from ..deps import OperatorPrincipal, get_operator
@@ -122,11 +123,18 @@ async def create_firm(
 
 @router.get("/firms")
 async def list_firms(
+    kind: str = Query("firm"),  # firm=会計事務所(business) / individual=個人(free,pro) / all=全件
     _: OperatorPrincipal = Depends(get_operator),
     session: AsyncSession = Depends(get_session),
 ):
-    """Management list of firms (metadata + owner emails only — NOT firm data)."""
-    firms = (await session.scalars(select(Firm).order_by(Firm.created_at))).all()
+    """Management list of firms (metadata + owner emails only — NOT firm data).
+    kind で会計事務所(business)と個人(free/pro)を分けて返す(既定=事務所のみ)。"""
+    stmt = select(Firm).order_by(Firm.created_at)
+    if kind == "firm":
+        stmt = stmt.where(Firm.plan == plans.PLAN_BUSINESS)
+    elif kind == "individual":
+        stmt = stmt.where(Firm.plan.in_([plans.PLAN_FREE, plans.PLAN_PRO]))
+    firms = (await session.scalars(stmt)).all()
     owner_rows = await session.execute(
         select(Membership.firm_id, User.email)
         .join(User, User.id == Membership.user_id)

@@ -12,11 +12,13 @@ import { GmailLink } from './views/GmailLink'
 import { SettingsView } from './views/Settings'
 import { ExportView } from './views/Export'
 import { InviteRedeem } from './views/InviteRedeem'
+import { HomePage } from './views/HomePage'
 import { Alert, Button, Card, cn, Icon, Input, Modal, PageHeader, Select, Spinner } from './ui'
 import type { IconComponent } from './ui/icons'
 import { ToastProvider } from './ui/toast'
 
 export function App() {
+  const isLoginPage = window.location.pathname === '/login'
   const [me, setMe] = useState<Me | null>(null)
   const [loading, setLoading] = useState(true)
   const [inviteToken, setInviteToken] = useState<string | null>(() => {
@@ -32,8 +34,12 @@ export function App() {
       setLoading(false)
       return
     }
+    if (!isLoginPage) {
+      setLoading(false)
+      return
+    }
     refreshMe().finally(() => setLoading(false))
-  }, [inviteToken])
+  }, [inviteToken, isLoginPage])
 
   return (
     <ToastProvider>
@@ -51,6 +57,8 @@ export function App() {
         </div>
       ) : me ? (
         <Dashboard me={me} onLogout={() => setMe(null)} />
+      ) : !isLoginPage ? (
+        <HomePage />
       ) : (
         <Login onLogin={setMe} />
       )}

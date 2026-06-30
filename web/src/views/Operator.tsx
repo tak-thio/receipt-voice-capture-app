@@ -117,20 +117,23 @@ function OperatorLogin({ onLogin }: { onLogin: (me: OperatorInfo) => void }) {
 function OperatorDashboard({ me, onLogout }: { me: OperatorInfo; onLogout: () => void }) {
   const toast = useToast()
   const [firms, setFirms] = useState<OperatorFirm[] | null>(null)
+  const [kind, setKind] = useState<'firm' | 'individual'>('firm')
   const [showCreate, setShowCreate] = useState(false)
   const [editing, setEditing] = useState<OperatorFirm | null>(null)
 
   async function reload() {
     try {
-      setFirms(await operatorApi.firms())
+      setFirms(await operatorApi.firms(kind))
     } catch (e) {
       toast.error(String(e instanceof Error ? e.message : e))
       setFirms([])
     }
   }
   useEffect(() => {
+    setFirms(null)
     void reload()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind])
 
   async function logout() {
     await operatorApi.logout().catch(() => {})
@@ -165,14 +168,35 @@ function OperatorDashboard({ me, onLogout }: { me: OperatorInfo; onLogout: () =>
 
       <main className="mx-auto w-full max-w-6xl flex-1 p-5 sm:p-6">
         <PageHeader
-          title="税理士事務所"
-          description="新しい事務所の作成と、各事務所の停止・再開を管理します。事務所内の領収書データは表示しません。"
+          title={kind === 'firm' ? '税理士事務所' : '個人ユーザー'}
+          description={
+            kind === 'firm'
+              ? '新しい事務所の作成と、各事務所の停止・再開を管理します。事務所内の領収書データは表示しません。'
+              : '個人(無料/サブスク)アカウントの一覧と、停止・再開を管理します。個人データは表示しません。'
+          }
           actions={
-            <Button variant="primary" onClick={() => setShowCreate(true)}>
-              <Icon.Plus /> 新規事務所
-            </Button>
+            kind === 'firm' ? (
+              <Button variant="primary" onClick={() => setShowCreate(true)}>
+                <Icon.Plus /> 新規事務所
+              </Button>
+            ) : null
           }
         />
+
+        <div className="mb-4 inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+          {([['firm', '税理士事務所'], ['individual', '個人ユーザー']] as const).map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setKind(k)}
+              className={
+                'rounded-md px-4 py-1.5 text-sm font-semibold transition ' +
+                (kind === k ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800')
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
         <Card>
           {firms === null ? (
@@ -182,22 +206,28 @@ function OperatorDashboard({ me, onLogout }: { me: OperatorInfo; onLogout: () =>
           ) : firms.length === 0 ? (
             <EmptyState
               icon={<Icon.Building />}
-              title="事務所がありません"
-              description="「新規事務所」から最初の税理士事務所を作成してください。"
+              title={kind === 'firm' ? '事務所がありません' : '個人ユーザーがいません'}
+              description={
+                kind === 'firm'
+                  ? '「新規事務所」から最初の税理士事務所を作成してください。'
+                  : 'アプリから個人登録があると、ここに表示されます。'
+              }
               action={
-                <Button variant="primary" onClick={() => setShowCreate(true)}>
-                  <Icon.Plus /> 新規事務所
-                </Button>
+                kind === 'firm' ? (
+                  <Button variant="primary" onClick={() => setShowCreate(true)}>
+                    <Icon.Plus /> 新規事務所
+                  </Button>
+                ) : undefined
               }
             />
           ) : (
             <Table>
               <Thead>
                 <Tr>
-                  <Th>事務所名</Th>
+                  <Th>{kind === 'firm' ? '事務所名' : 'アカウント'}</Th>
                   <Th>プラン</Th>
                   <Th>状態</Th>
-                  <Th>管理者(owner)</Th>
+                  <Th>{kind === 'firm' ? '管理者(owner)' : 'メール'}</Th>
                   <Th>作成日</Th>
                   <Th className="text-right">操作</Th>
                 </Tr>

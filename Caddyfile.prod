@@ -1,11 +1,16 @@
 # Production host with a SPLIT between tenant traffic and the operator (運営) surface.
 #
-#   :443   receipt.billpo.jp          -> tenant SPA + tenant API. Operator routes BLOCKED (404).
-#   :8443  receipt.billpo.jp:8443     -> operator console + operator API ONLY.
+#   :443   receipt.orderbridge.jp          -> tenant SPA + tenant API. Operator routes BLOCKED (404).
+#   :8443  receipt.orderbridge.jp:8443     -> operator console + operator API ONLY.
 #
 # The operator surface ("全体を触る" API) is moved to a dedicated port so it can be
 # locked down by the firewall (IP allowlist) independently of normal tenant use.
-# Caddy reuses the receipt.billpo.jp certificate for the :8443 site automatically.
+# Caddy reuses the receipt.orderbridge.jp certificate for the :8443 site automatically.
+#
+# NOTE: receipt.billpo.jp is kept as a temporary alias so the already-distributed
+# build (DEFAULT_SERVER baked to the old host) keeps working during the cutover.
+# Remove it once a new app build pointing at receipt.orderbridge.jp is rolled out
+# AND the old DNS no longer points here (otherwise Caddy logs ACME failures for it).
 {
 	email kawano@itsherpa.com
 	# Coraza must run before reverse_proxy / file_server.
@@ -29,7 +34,7 @@
 }
 
 # ---- Public tenant site (:443) -------------------------------------------
-receipt.billpo.jp {
+receipt.orderbridge.jp, receipt.billpo.jp {
 	import waf
 	route {
 		# Operator surface is NOT public — served only on the IP-restricted :8443.
@@ -51,7 +56,7 @@ receipt.billpo.jp {
 }
 
 # ---- Operator console site (:8443, firewall IP-allowlisted) ---------------
-receipt.billpo.jp:8443 {
+receipt.orderbridge.jp:8443, receipt.billpo.jp:8443 {
 	import waf
 	route {
 		# Operator API only: /api/operator/* -> FastAPI (strip /api). Other /api -> 404.

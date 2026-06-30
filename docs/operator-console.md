@@ -12,8 +12,8 @@
 
 | 環境 | 用途 | URL |
 |---|---|---|
-| **本番** | **運営コンソール** | **https://receipt.billpo.jp:8443/operator.html** （※FWで運営者IPのみ許可） |
-| 本番 | テナント（事務所/顧客） | https://receipt.billpo.jp/ |
+| **本番** | **運営コンソール** | **https://receipt.orderbridge.jp:8443/operator.html** （※FWで運営者IPのみ許可） |
+| 本番 | テナント（事務所/顧客） | https://receipt.orderbridge.jp/ |
 | ローカル | 運営コンソール | http://localhost:8088/operator.html |
 | ローカル | テナント | http://localhost:8088/ |
 
@@ -67,7 +67,7 @@ docker compose exec api python scripts/create_operator.py --email ops@local.test
 - **編集**: 事務所名・プラン・状態の変更
 - **停止 / 再開**: 状態を `suspended`/`active` に変更（停止中の事務所はテナント側でログイン不可）
 
-作成された事務所の owner は、テナント側（`https://receipt.billpo.jp/`）にログインして顧客(顧問先)を登録・運用する。
+作成された事務所の owner は、テナント側（`https://receipt.orderbridge.jp/`）にログインして顧客(顧問先)を登録・運用する。
 
 ---
 

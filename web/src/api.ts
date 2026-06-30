@@ -608,7 +608,8 @@ export const operatorApi = {
       body: JSON.stringify({ email, password }),
     }),
   logout: () => req('/operator/logout', { method: 'POST' }),
-  firms: () => req<OperatorFirm[]>('/operator/firms'),
+  firms: (kind: 'firm' | 'individual' | 'all' = 'firm') =>
+    req<OperatorFirm[]>(`/operator/firms?kind=${kind}`),
   createFirm: (body: {
     firm_name: string
     owner_email: string
