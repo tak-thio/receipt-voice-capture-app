@@ -115,6 +115,22 @@ export function ReceiptEditFields({
     return ''
   }, [titleId, creditTitleId, titles])
   const subParentName = titles.find((t) => t.id === subParentId)?.name ?? ''
+  // 補助科目は「補助科目を持つ科目」(借方優先/なければ貸方)に紐づく。その科目の直下に描画するため、
+  // 借方紐づきかどうかと、補助科目フィールド自体を用意しておく。
+  const subIsDebit = subParentId !== '' && subParentId === titleId
+  const subAccountField = subAccounts.length > 0 ? (
+    <label className="block space-y-1">
+      <span className="text-xs font-medium text-slate-500">
+        補助科目{subParentName && `（${subParentName}）`}
+      </span>
+      <Select value={subTitleId} onChange={(e) => setSubTitleId(e.target.value)}>
+        <option value="">(なし)</option>
+        {subAccounts.map((s) => (
+          <option key={s.id} value={s.id}>{s.code ? `${s.code} ${s.name}` : s.name}</option>
+        ))}
+      </Select>
+    </label>
+  ) : null
   useEffect(() => {
     if (!subParentId) { setSubAccounts([]); return }
     let alive = true
@@ -324,20 +340,8 @@ export function ReceiptEditFields({
           {titleButtons(shownDebit, titleId, setTitleId)}
         </div>
 
-        {/* 補助科目（選択中の借方科目に補助科目が登録されている場合だけ表示） */}
-        {subAccounts.length > 0 && (
-          <label className="block space-y-1">
-            <span className="text-xs font-medium text-slate-500">
-              補助科目{subParentName && `（${subParentName}）`}
-            </span>
-            <Select value={subTitleId} onChange={(e) => setSubTitleId(e.target.value)}>
-              <option value="">(なし)</option>
-              {subAccounts.map((s) => (
-                <option key={s.id} value={s.id}>{s.code ? `${s.code} ${s.name}` : s.name}</option>
-              ))}
-            </Select>
-          </label>
-        )}
+        {/* 補助科目: 借方科目に補助科目がある場合は、その直下に表示 */}
+        {subIsDebit && subAccountField}
 
         {/* 貸方科目 */}
         <div className="space-y-2">
@@ -372,6 +376,9 @@ export function ReceiptEditFields({
             ))}
           </div>
         </div>
+
+        {/* 補助科目: 貸方科目に補助科目がある場合は、その直下に表示 */}
+        {!subIsDebit && subAccountField}
 
         {/* 金額・消費税（すべて編集可能）: 合計金額 / 税抜 / 消費税合計 / 10% / 8% */}
         <div className="space-y-1.5 border-t border-slate-100 pt-2.5">
