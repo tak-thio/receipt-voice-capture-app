@@ -31,6 +31,7 @@ export function ReceiptDetailScreen({
   purposeMode = false,
   editableOverride,
   notice,
+  onUnmerge,
 }: {
   receipt: ServerReceipt
   onBack: () => void
@@ -41,6 +42,8 @@ export function ReceiptDetailScreen({
   editableOverride?: boolean
   // 上部に出す通知(例: 否認理由)。
   notice?: string
+  // 統合伝票(画像複数)の「ばらす」。これがあれば画像切替の横に「ばらす」ボタンを出す。
+  onUnmerge?: () => void
 }) {
   const connection = useAppStore((state) => state.connection)!
   const editable = editableOverride ?? isEditable(receipt)
@@ -56,22 +59,33 @@ export function ReceiptDetailScreen({
   const [imgUrl, setImgUrl] = useState<string | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  // マージ済み(明細+鏡)は画像複数。images があればそれを、無ければ従来の1枚を使う。
+  const images = receipt.images?.length
+    ? receipt.images
+    : receipt.image_file_id
+      ? [{ file_id: receipt.image_file_id, mime: receipt.image_mime ?? null }]
+      : []
+  const [imgIdx, setImgIdx] = useState(0)
+  const curIdx = Math.min(imgIdx, Math.max(0, images.length - 1))
+  const curFileId = images[curIdx]?.file_id ?? null
 
   useEffect(() => {
     let revoke: string | null = null
-    if (receipt.image_file_id) {
-      fetchPreviewObjectUrl(connection.serverUrl, connection.deviceToken, receipt.image_file_id, receipt.page)
+    if (curFileId) {
+      fetchPreviewObjectUrl(connection.serverUrl, connection.deviceToken, curFileId, receipt.page)
         .then((u) => {
           revoke = u
           setImgUrl(u)
         })
         .catch(() => {})
+    } else {
+      setImgUrl(null)
     }
     return () => {
       if (revoke) URL.revokeObjectURL(revoke)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [receipt.image_file_id])
+  }, [curFileId])
 
   async function save() {
     setSaving(true)
@@ -121,6 +135,16 @@ export function ReceiptDetailScreen({
 
       {notice && <p className="detail-notice">{notice}</p>}
       {imgUrl && <img className="detail-img" src={imgUrl} alt="領収書" />}
+      {images.length > 1 && (
+        <div className="img-switch">
+          {images.map((im, i) => (
+            <button key={im.file_id} className={i === curIdx ? 'active' : ''} onClick={() => setImgIdx(i)}>
+              画像{i + 1}
+            </button>
+          ))}
+          {onUnmerge && <button className="unmerge" onClick={onUnmerge}>ばらす</button>}
+        </div>
+      )}
       {receipt.page != null && <p className="muted small">ページ {receipt.page}</p>}
       {receipt.parse_failed && editable && (
         <p className="detail-failed">請求書として認識できませんでした。内容を入力して保存してください。</p>

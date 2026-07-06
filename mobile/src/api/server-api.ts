@@ -35,7 +35,9 @@ export interface ServerReceipt {
   journalized_at: string | null
   description: string | null
   memo?: string | null // 自由メモ(ファイル名/ページ/音声を初期値、編集可)
-  image_file_id?: string | null
+  image_file_id?: string | null // 代表画像(images の先頭)
+  image_mime?: string | null
+  images?: { file_id: string; mime: string | null }[] // capture画像(複数=マージで束ねた明細+鏡)
   page?: number | null // PDFの何ページ目由来か
   parse_failed?: boolean // AIが請求書として認識できなかった(店舗名も金額も取れず)
 }
@@ -50,6 +52,43 @@ export interface ReceiptPatch {
   t_number?: string | null
   description?: string | null // 摘要
   memo?: string | null // 自由メモ
+}
+
+/** 明細+鏡などを1つの統合伝票にまとめる。基準(primaryId)を優先し統合伝票を作成、元は紐付けて隠す。 */
+export async function mergeReceipts(
+  serverUrl: string,
+  deviceToken: string,
+  primaryId: string,
+  mergeIds: string[],
+): Promise<void> {
+  const res = await fetch(`${base(serverUrl)}/receipts/merge`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${deviceToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ primary_id: primaryId, merge_ids: mergeIds }),
+  })
+  if (!res.ok) {
+    let msg = `マージに失敗しました (${res.status})`
+    try { const b = JSON.parse(await res.text()) as { detail?: string }; if (b?.detail) msg = b.detail } catch { /* */ }
+    throw new ApiError(res.status, msg, msg)
+  }
+}
+
+/** 統合伝票をばらす: 束ねた元を復元して統合伝票を削除。 */
+export async function unmergeReceipts(
+  serverUrl: string,
+  deviceToken: string,
+  voucherId: string,
+): Promise<void> {
+  const res = await fetch(`${base(serverUrl)}/receipts/unmerge`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${deviceToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ voucher_id: voucherId }),
+  })
+  if (!res.ok) {
+    let msg = `ばらすのに失敗しました (${res.status})`
+    try { const b = JSON.parse(await res.text()) as { detail?: string }; if (b?.detail) msg = b.detail } catch { /* */ }
+    throw new ApiError(res.status, msg, msg)
+  }
 }
 
 /** 領収書の中身を修正する（承認前の自分の領収書のみ。権限/状態はサーバが判定）。 */
