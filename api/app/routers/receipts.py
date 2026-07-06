@@ -32,6 +32,11 @@ class ReceiptPatch(BaseModel):
     note_ids: list[str] | None = None  # 付箋: replace the attached set
 
 
+class MergeBody(BaseModel):
+    primary_id: UUID       # データ(金額/日付/仕訳)を残す「主」
+    merge_ids: list[UUID]  # 主に画像を束ねて削除する領収書(明細+鏡などの重複分)
+
+
 # 登録者本人(RLS='own', 一般社員/利用者)が触れる「領収書の中身」。AI の読み取り間違いを
 # 直すための項目で、承認(仕訳)前に限り編集できる。
 _OWN_CONTENT_FIELDS = {
@@ -54,7 +59,8 @@ def _parse_date(s: str | None) -> datetime | None:
         return None
 
 
-def _serialize(r: Receipt, image_file_id=None, created_by_name=None, image_mime=None) -> dict:
+def _serialize(r: Receipt, images=None, created_by_name=None) -> dict:
+    imgs = images or []  # [(file_id, mime), ...] capture画像。複数=マージ(明細+鏡)で1支払いに束ねたもの。
     return {
         "id": str(r.id),
         "client_id": str(r.client_id),
@@ -80,8 +86,10 @@ def _serialize(r: Receipt, image_file_id=None, created_by_name=None, image_mime=
         "journalized_at": r.journalized_at.isoformat() if r.journalized_at else None,
         "note_ids": r.note_ids or [],
         # The captured image (kind='capture'), so the UI can show/open it.
-        "image_file_id": str(image_file_id) if image_file_id else None,
-        "image_mime": image_mime,  # application/pdf か image/* かでアイコンを出し分け
+        # 先頭を代表画像として image_file_id/image_mime に(既存フロント互換)。images に全画像。
+        "image_file_id": str(imgs[0][0]) if imgs else None,
+        "image_mime": imgs[0][1] if imgs else None,  # application/pdf か image/* かでアイコンを出し分け
+        "images": [{"file_id": str(fid), "mime": mime} for fid, mime in imgs],
         # PDFの何ページ目由来か(プレビューを ?page=N で出すため)。画像/単票は null。
         "page": (r.capture_meta or {}).get("page"),
         # 登録者名（管理者/経理/職員のみ意味を持つ。一般社員は自分のみ）。
@@ -97,6 +105,17 @@ async def _creator_names(session: AsyncSession, rows) -> dict:
         select(User.id, User.name, User.email).where(User.id.in_(ids))
     )
     return {uid: (name or email) for uid, name, email in crows.all()}
+
+
+async def _capture_images(session: AsyncSession, receipt_id) -> list:
+    """その領収書の capture 画像を全部 [(file_id, mime), ...] で返す(マージで複数になりうる)。"""
+    rows = await session.execute(
+        select(ReceiptFile.file_id, File.mime)
+        .join(File, File.id == ReceiptFile.file_id)
+        .where(ReceiptFile.receipt_id == receipt_id, ReceiptFile.kind == "capture")
+        .order_by(ReceiptFile.id)
+    )
+    return [(fid, mime) for fid, mime in rows.all()]
 
 
 @router.get("")
@@ -155,16 +174,16 @@ async def list_receipts(
                 ReceiptFile.receipt_id.in_([r.id for r in rows]),
                 ReceiptFile.kind == "capture",
             )
+            .order_by(ReceiptFile.id)
         )
         for rid, fid, mime in rf.all():
-            img_map.setdefault(rid, (fid, mime))
+            img_map.setdefault(rid, []).append((fid, mime))
         creators = await _creator_names(session, rows)
     else:
         creators = {}
     out = []
     for r in rows:
-        fid, mime = img_map.get(r.id, (None, None))
-        out.append(_serialize(r, fid, creators.get(r.created_by), mime))
+        out.append(_serialize(r, img_map.get(r.id, []), creators.get(r.created_by)))
     return out
 
 
@@ -177,16 +196,9 @@ async def get_receipt(
     r = await session.get(Receipt, receipt_id)
     if not r:
         return {"error": "not found"}
-    img_row = (
-        await session.execute(
-            select(ReceiptFile.file_id, File.mime)
-            .join(File, File.id == ReceiptFile.file_id)
-            .where(ReceiptFile.receipt_id == r.id, ReceiptFile.kind == "capture")
-        )
-    ).first()
-    fid, mime = (img_row[0], img_row[1]) if img_row else (None, None)
+    imgs = await _capture_images(session, r.id)
     creators = await _creator_names(session, [r])
-    return _serialize(r, fid, creators.get(r.created_by), mime)
+    return _serialize(r, imgs, creators.get(r.created_by))
 
 
 @router.get("/{receipt_id}/email")
@@ -278,16 +290,57 @@ async def patch_receipt(
         )
     # 一覧/詳細と同じ形(画像・登録者名込み)で返す。フロントが行をそのまま差し替えても
     # 画像リンク等が欠けないようにする。
-    img_row = (
-        await session.execute(
-            select(ReceiptFile.file_id, File.mime)
-            .join(File, File.id == ReceiptFile.file_id)
-            .where(ReceiptFile.receipt_id == r.id, ReceiptFile.kind == "capture")
-        )
-    ).first()
-    fid, mime = (img_row[0], img_row[1]) if img_row else (None, None)
+    imgs = await _capture_images(session, r.id)
     creators = await _creator_names(session, [r])
-    return _serialize(r, fid, creators.get(r.created_by), mime)
+    return _serialize(r, imgs, creators.get(r.created_by))
+
+
+@router.post("/merge")
+async def merge_receipts(
+    body: MergeBody,
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """明細+鏡など「1つの支払いに画像が複数」ある領収書を1件に束ねる。主(primary)のデータを
+    残し、従の capture 画像を主へ付け替え、従はソフト削除(金額の二重計上を解消)。未仕訳のみ。
+    RLS で見えない/権限外の行は session.get が None を返すので触れない。"""
+    primary = await session.get(Receipt, body.primary_id)
+    if primary is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "主の領収書が見つかりません")
+    if primary.journalized_at is not None or primary.approval_status != ApprovalStatus.pending.value:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "確定済み/処理済みの領収書はマージできません")
+    merged = 0
+    for mid in body.merge_ids:
+        if mid == primary.id:
+            continue
+        r = await session.get(Receipt, mid)
+        if r is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "マージ対象が見つかりません")
+        if r.client_id != primary.client_id or r.lane != primary.lane:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "顧問先/レーンが異なる領収書はマージできません")
+        if r.journalized_at is not None or r.approval_status != ApprovalStatus.pending.value:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "確定済み/処理済みの領収書はマージできません")
+        # capture 画像を主へ付け替え(= 1支払いに画像複数)。
+        for f in list(await session.scalars(
+            select(ReceiptFile).where(
+                ReceiptFile.receipt_id == r.id, ReceiptFile.kind == "capture"
+            )
+        )):
+            f.receipt_id = primary.id
+        # 従はソフト削除(受信箱から除外)。金額の二重計上を解消。
+        r.approval_status = ApprovalStatus.deleted.value
+        await audit.log_audit(
+            session, firm_id=r.firm_id, client_id=r.client_id, actor_user_id=principal.user.id,
+            action="merged", target_type="receipt", target_id=r.id,
+            summary=f"領収書 {primary.id} に画像を統合(明細+鏡)",
+        )
+        merged += 1
+    await session.flush()
+    # 従が抜けたので重複(突き合わせ)を再計算。
+    await dedup.recompute_dedup(session, primary.client_id)
+    imgs = await _capture_images(session, primary.id)
+    creators = await _creator_names(session, [primary])
+    return {**_serialize(primary, imgs, creators.get(primary.created_by)), "merged": merged}
 
 
 @router.delete("/{receipt_id}")
