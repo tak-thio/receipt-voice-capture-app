@@ -74,8 +74,9 @@ export interface ReceiptRow {
   approval_status: string
   journalized_at: string | null
   note_ids: string[]
-  image_file_id?: string | null
+  image_file_id?: string | null // 代表画像(images の先頭)
   image_mime?: string | null
+  images?: { file_id: string; mime: string | null }[] // capture画像(複数=マージで束ねた明細+鏡)
   page?: number | null // PDFの何ページ目由来か(プレビューを ?page=N で出す)
   created_by_name?: string | null
   parse_failed?: boolean // AIが請求書として認識できなかった(店舗名も金額も取れず)
@@ -365,6 +366,12 @@ export const api = {
   editReceiptContent: (id: string, patch: ReceiptContentPatch) =>
     req<ReceiptRow>(`/receipts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteReceipt: (id: string) => req(`/receipts/${id}`, { method: 'DELETE' }),
+  // 明細+鏡など「1支払いに画像複数」を1件に束ねる。primary にデータを残し、他の画像を付替→他は削除。
+  mergeReceipts: (primaryId: string, mergeIds: string[]) =>
+    req<ReceiptRow>('/receipts/merge', {
+      method: 'POST',
+      body: JSON.stringify({ primary_id: primaryId, merge_ids: mergeIds }),
+    }),
   // メール取込の元メール本文(件名/差出人/本文)。
   receiptEmail: (id: string) => req<ReceiptEmail>(`/receipts/${id}/email`),
   // 監査ログ(訂正削除・承認・仕訳の履歴)。電子帳簿保存法の訂正削除履歴。

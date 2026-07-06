@@ -63,6 +63,11 @@ export function ReceiptsView({
   const [uploading, setUploading] = useState(false)
   const [polling, setPolling] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  // マージ(明細+鏡→1支払い): 複数選択 + 主(データを残す方)を選んで束ねる。
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [merging, setMerging] = useState<ReceiptRow[] | null>(null)
+  const [mergePrimary, setMergePrimary] = useState<string | null>(null)
+  const [mergeBusy, setMergeBusy] = useState(false)
 
   async function uploadFiles(fileList: FileList | File[]) {
     const files = Array.from(fileList).filter(
@@ -112,6 +117,7 @@ export function ReceiptsView({
       return
     }
     setLoading(true)
+    setSelected(new Set()) // 再読込で選択はクリア(古いIDが残らないように)
     try {
       setRows(await api.receipts(clientId, q || undefined, { dateFrom, dateTo, amountMin, amountMax, lane }))
     } finally {
@@ -141,6 +147,27 @@ export function ReceiptsView({
   // 「これは重複ではない」= グループから外す(突き合わせと同じ /reconcile/not-duplicate)。
   async function handleNotDuplicate(r: ReceiptRow) {
     if (await toast.run(() => api.notDuplicate(r.id), '重複ではないとして外しました')) void load()
+  }
+
+  function toggleSelect(id: string, on: boolean) {
+    setSelected((s) => { const n = new Set(s); if (on) n.add(id); else n.delete(id); return n })
+  }
+  // マージダイアログを開く。既定の主 = 金額が大きい方(合計を持つ「鏡」であることが多い)。
+  function openMerge(list: ReceiptRow[]) {
+    if (list.length < 2) return
+    setMerging(list)
+    setMergePrimary([...list].sort((a, b) => (b.amount_jpy ?? 0) - (a.amount_jpy ?? 0))[0].id)
+  }
+  async function handleMerge() {
+    if (!merging || !mergePrimary) return
+    const mergeIds = merging.filter((r) => r.id !== mergePrimary).map((r) => r.id)
+    setMergeBusy(true)
+    const ok = await toast.run(
+      () => api.mergeReceipts(mergePrimary, mergeIds),
+      `${mergeIds.length + 1}件を1件にまとめました`,
+    )
+    setMergeBusy(false)
+    if (ok) { setMerging(null); setMergePrimary(null); setSelected(new Set()); void load() }
   }
 
   // 重複の可能性があるもの(同一 match_id)を突き合わせ画面のようにグルーピングして表示する。
@@ -186,6 +213,12 @@ export function ReceiptsView({
     const canEdit = r.approval_status === 'pending' && !r.journalized_at
     return (
       <Tr key={r.id} className={isDup ? 'bg-amber-50/70' : undefined}>
+        <Td className="w-8">
+          {canEdit && (
+            <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={selected.has(r.id)}
+              onChange={(e) => toggleSelect(r.id, e.target.checked)} title="マージ対象に選択" />
+          )}
+        </Td>
         <Td className={cn('text-slate-500', grouped && 'border-l-2 border-amber-300')}>
           {r.captured_at?.slice(0, 10) ?? '—'}
         </Td>
@@ -234,6 +267,11 @@ export function ReceiptsView({
             {r.page != null && (
               <span className="text-[10px] tabular-nums text-slate-400" title="PDFのページ">P.{r.page}</span>
             )}
+            {r.images && r.images.length > 1 && (
+              <span className="rounded bg-brand-50 px-1 text-[10px] font-medium tabular-nums text-brand-600" title="マージ済み(明細+鏡など画像複数)">
+                画像{r.images.length}
+              </span>
+            )}
             {r.source === 'email' && (
               <button onClick={() => setEmailView(r)} title="メール本文を表示" className="inline-flex hover:text-brand-600">
                 <Icon.Mail className="text-lg" />
@@ -254,6 +292,15 @@ export function ReceiptsView({
                 title="このグループから外す(重複ではない)"
               >
                 重複でない
+              </button>
+            )}
+            {variant === 'primary' && dupCount > 0 && (
+              <button
+                onClick={() => openMerge([r, ...rows.filter((x) => x.match_id === r.match_id && x.id !== r.id && x.approval_status === 'pending')])}
+                className="rounded-md px-2 py-1 text-xs font-medium text-brand-700 hover:bg-brand-50"
+                title="明細+鏡として1件にまとめる"
+              >
+                まとめる
               </button>
             )}
             {canEdit && (
@@ -316,6 +363,11 @@ export function ReceiptsView({
         <Button onClick={() => void load()}>検索</Button>
         <Button variant="ghost" onClick={() => void clearFilters()}>クリア</Button>
         <span className="ml-1 text-sm text-slate-500">{rows.length}件</span>
+        {selected.size >= 2 && (
+          <Button variant="secondary" onClick={() => openMerge(rows.filter((r) => selected.has(r.id)))}>
+            選択した{selected.size}件をマージ
+          </Button>
+        )}
         <div className="flex-1" />
         {canPollGmail && (
           <Button variant="secondary" onClick={() => void pollGmail()} disabled={polling}>
@@ -339,6 +391,7 @@ export function ReceiptsView({
         <Table>
           <Thead>
             <tr>
+              <Th className="w-8"></Th>
               <Th className="w-28">日付</Th>
               <Th className="w-24">取込元</Th>
               <Th>支払先</Th>
@@ -362,7 +415,7 @@ export function ReceiptsView({
             )}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={showCreator ? 10 : 9} className="px-4 py-12 text-center text-sm text-slate-400">
+                <td colSpan={showCreator ? 11 : 10} className="px-4 py-12 text-center text-sm text-slate-400">
                   {loading ? '読み込み中…' : '領収書がありません'}
                 </td>
               </tr>
@@ -377,6 +430,42 @@ export function ReceiptsView({
           </div>
         )}
       </div>
+
+      {merging && (
+        <Modal
+          open
+          onClose={() => { setMerging(null); setMergeBusy(false) }}
+          title="領収書をマージ（1つの支払いにまとめる）"
+          description="明細と鏡など「1つの支払いに画像が複数」あるものを1件にまとめます。主（金額・日付・仕訳を残す方）に他の画像を添付し、他の行は削除します（金額の二重計上を防ぎます）。"
+          footer={
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setMerging(null)}>キャンセル</Button>
+              <Button variant="primary" disabled={!mergePrimary || mergeBusy} onClick={() => void handleMerge()}>
+                {mergeBusy ? 'マージ中…' : 'マージする'}
+              </Button>
+            </div>
+          }
+        >
+          <div className="space-y-2">
+            <p className="text-xs text-slate-500">主（データを残す方）を選択：</p>
+            {merging.map((r) => (
+              <label key={r.id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 p-2 hover:bg-slate-50">
+                <input type="radio" name="mergePrimary" checked={mergePrimary === r.id} onChange={() => setMergePrimary(r.id)} />
+                {r.image_file_id && (
+                  <img src={api.previewUrl(r.image_file_id, r.page)} alt="" className="h-12 w-12 shrink-0 rounded border border-slate-200 object-cover" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium text-slate-800">{r.vendor ?? '—'}</div>
+                  <div className="text-xs text-slate-500">
+                    {r.captured_at?.slice(0, 10) ?? '—'} ・ {r.amount_jpy != null ? `¥${r.amount_jpy.toLocaleString()}` : '—'}
+                  </div>
+                </div>
+                {mergePrimary === r.id && <Badge tone="success">主</Badge>}
+              </label>
+            ))}
+          </div>
+        </Modal>
+      )}
 
       <NotePickerModal
         open={!!tagging}
