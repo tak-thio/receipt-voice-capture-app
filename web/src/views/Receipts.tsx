@@ -154,9 +154,14 @@ export function ReceiptsView({
   }
   // マージダイアログを開く。既定の主 = 金額が大きい方(合計を持つ「鏡」であることが多い)。
   function openMerge(list: ReceiptRow[]) {
-    if (list.length < 2) return
+    if (list.length < 2) { toast.error('マージには未仕訳の領収書が2件以上必要です'); return }
     setMerging(list)
     setMergePrimary([...list].sort((a, b) => (b.amount_jpy ?? 0) - (a.amount_jpy ?? 0))[0].id)
+  }
+  // 統合伝票を「ばらす」: 束ねた元の領収書に戻す(統合伝票は削除)。
+  async function handleUnmerge(r: ReceiptRow) {
+    if (!window.confirm('この統合伝票をばらして、元の領収書に戻しますか?')) return
+    if (await toast.run(() => api.unmergeReceipts(r.id), 'ばらしました（元の領収書に戻しました）')) void load()
   }
   async function handleMerge() {
     if (!merging || !mergePrimary) return
@@ -303,6 +308,15 @@ export function ReceiptsView({
                 まとめる
               </button>
             )}
+            {r.images && r.images.length > 1 && (
+              <button
+                onClick={() => void handleUnmerge(r)}
+                className="rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                title="統合伝票をばらして元の領収書に戻す"
+              >
+                ばらす
+              </button>
+            )}
             {canEdit && (
               <IconButton label="修正" className="h-7 w-7 hover:!text-brand-600" onClick={() => setEditing(r)}>
                 <Icon.Pencil />
@@ -436,7 +450,7 @@ export function ReceiptsView({
           open
           onClose={() => { setMerging(null); setMergeBusy(false) }}
           title="領収書をマージ（1つの支払いにまとめる）"
-          description="明細と鏡など「1つの支払いに画像が複数」あるものを1件にまとめます。主（金額・日付・仕訳を残す方）に他の画像を添付し、他の行は削除します（金額の二重計上を防ぎます）。"
+          description="明細と鏡など「1つの支払いに画像が複数」あるものを統合伝票1件にまとめます。基準（金額・T番号などを優先する方）を選んでください。金額は合算しません。元の領収書は残り、後で「ばらす」で戻せます。"
           footer={
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setMerging(null)}>キャンセル</Button>
@@ -447,7 +461,7 @@ export function ReceiptsView({
           }
         >
           <div className="space-y-2">
-            <p className="text-xs text-slate-500">主（データを残す方）を選択：</p>
+            <p className="text-xs text-slate-500">基準（金額・T番号などを優先する方）を選択：</p>
             {merging.map((r) => (
               <label key={r.id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 p-2 hover:bg-slate-50">
                 <input type="radio" name="mergePrimary" checked={mergePrimary === r.id} onChange={() => setMergePrimary(r.id)} />
@@ -460,7 +474,7 @@ export function ReceiptsView({
                     {r.captured_at?.slice(0, 10) ?? '—'} ・ {r.amount_jpy != null ? `¥${r.amount_jpy.toLocaleString()}` : '—'}
                   </div>
                 </div>
-                {mergePrimary === r.id && <Badge tone="success">主</Badge>}
+                {mergePrimary === r.id && <Badge tone="success">基準</Badge>}
               </label>
             ))}
           </div>

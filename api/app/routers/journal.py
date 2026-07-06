@@ -134,6 +134,8 @@ async def queue(
         Receipt.approval_status == "pending",
         Receipt.lane == ReceiptLane.company.value,
         Receipt.doc_type != "card_statement",
+        # マージで束ねた元(統合伝票に紐付いた明細/鏡)は仕訳キューに出さない(二重仕訳防止)。
+        Receipt.merged_into.is_(None),
     ]
     if client_id:
         conds.append(Receipt.client_id == client_id)

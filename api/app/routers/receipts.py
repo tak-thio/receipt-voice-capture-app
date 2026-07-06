@@ -33,8 +33,12 @@ class ReceiptPatch(BaseModel):
 
 
 class MergeBody(BaseModel):
-    primary_id: UUID       # データ(金額/日付/仕訳)を残す「主」
-    merge_ids: list[UUID]  # 主に画像を束ねて削除する領収書(明細+鏡などの重複分)
+    primary_id: UUID       # 合成の基準(金額・T番号などを優先。既定=金額最大の「鏡」)
+    merge_ids: list[UUID]  # 一緒に束ねる領収書(明細など)。基準+これらから統合伝票を作る
+
+
+class UnmergeBody(BaseModel):
+    voucher_id: UUID       # ばらす統合伝票。束ねた元(merged_into=これ)を復元し、統合伝票は削除
 
 
 # 登録者本人(RLS='own', 一般社員/利用者)が触れる「領収書の中身」。AI の読み取り間違いを
@@ -108,11 +112,13 @@ async def _creator_names(session: AsyncSession, rows) -> dict:
 
 
 async def _capture_images(session: AsyncSession, receipt_id) -> list:
-    """その領収書の capture 画像を全部 [(file_id, mime), ...] で返す(マージで複数になりうる)。"""
+    """capture 画像を [(file_id, mime), ...] で返す。統合伝票なら束ねた元(merged_into=self)の画像も含む。"""
+    parent = func.coalesce(Receipt.merged_into, Receipt.id)
     rows = await session.execute(
         select(ReceiptFile.file_id, File.mime)
+        .join(Receipt, Receipt.id == ReceiptFile.receipt_id)
         .join(File, File.id == ReceiptFile.file_id)
-        .where(ReceiptFile.receipt_id == receipt_id, ReceiptFile.kind == "capture")
+        .where(parent == receipt_id, ReceiptFile.kind == "capture")
         .order_by(ReceiptFile.id)
     )
     return [(fid, mime) for fid, mime in rows.all()]
@@ -135,6 +141,8 @@ async def list_receipts(
     stmt = (
         select(Receipt)
         .where(Receipt.approval_status != ApprovalStatus.deleted.value)
+        # マージで束ねた「元」(merged_into 非NULL)は受信箱に出さない(統合伝票だけ表示)。
+        .where(Receipt.merged_into.is_(None))
         # 領収書の日付(captured_at)の新しい順。日付なし(未読取等)は末尾、同日は取込順(created_at)。
         .order_by(nullslast(Receipt.captured_at.desc()), Receipt.created_at.desc())
         .limit(min(limit, 500))
@@ -167,17 +175,17 @@ async def list_receipts(
     # Map each receipt to its captured image file (if any) in one query.
     img_map: dict = {}
     if rows:
+        # 画像はその「実効親」= COALESCE(merged_into, id) に集約(統合伝票は束ねた元の画像を持つ)。
+        parent = func.coalesce(Receipt.merged_into, Receipt.id)
         rf = await session.execute(
-            select(ReceiptFile.receipt_id, ReceiptFile.file_id, File.mime)
+            select(parent, ReceiptFile.file_id, File.mime)
+            .join(Receipt, Receipt.id == ReceiptFile.receipt_id)
             .join(File, File.id == ReceiptFile.file_id)
-            .where(
-                ReceiptFile.receipt_id.in_([r.id for r in rows]),
-                ReceiptFile.kind == "capture",
-            )
+            .where(parent.in_([r.id for r in rows]), ReceiptFile.kind == "capture")
             .order_by(ReceiptFile.id)
         )
-        for rid, fid, mime in rf.all():
-            img_map.setdefault(rid, []).append((fid, mime))
+        for pid, fid, mime in rf.all():
+            img_map.setdefault(pid, []).append((fid, mime))
         creators = await _creator_names(session, rows)
     else:
         creators = {}
@@ -301,46 +309,95 @@ async def merge_receipts(
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
-    """明細+鏡など「1つの支払いに画像が複数」ある領収書を1件に束ねる。主(primary)のデータを
-    残し、従の capture 画像を主へ付け替え、従はソフト削除(金額の二重計上を解消)。未仕訳のみ。
-    RLS で見えない/権限外の行は session.get が None を返すので触れない。"""
-    primary = await session.get(Receipt, body.primary_id)
-    if primary is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "主の領収書が見つかりません")
-    if primary.journalized_at is not None or primary.approval_status != ApprovalStatus.pending.value:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "確定済み/処理済みの領収書はマージできません")
-    merged = 0
+    """明細+鏡など「1つの支払いに画像が複数」を1件の統合伝票にまとめる。
+    元(sources)は変更せず merged_into で統合伝票に紐付けて隠す(全集計の対象外)。統合伝票のデータは
+    基準(primary)を優先し空欄を他から補完、金額は合算しない(同一支払い)。未仕訳のみ。ばらすで復元可。"""
+    base = await session.get(Receipt, body.primary_id)
+    if base is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "基準の領収書が見つかりません")
+    sources = [base]
+    seen = {base.id}
     for mid in body.merge_ids:
-        if mid == primary.id:
+        if mid in seen:
             continue
+        seen.add(mid)
         r = await session.get(Receipt, mid)
         if r is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "マージ対象が見つかりません")
-        if r.client_id != primary.client_id or r.lane != primary.lane:
+        sources.append(r)
+    for s in sources:
+        if s.client_id != base.client_id or s.lane != base.lane:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "顧問先/レーンが異なる領収書はマージできません")
-        if r.journalized_at is not None or r.approval_status != ApprovalStatus.pending.value:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "確定済み/処理済みの領収書はマージできません")
-        # capture 画像を主へ付け替え(= 1支払いに画像複数)。
-        for f in list(await session.scalars(
-            select(ReceiptFile).where(
-                ReceiptFile.receipt_id == r.id, ReceiptFile.kind == "capture"
-            )
-        )):
-            f.receipt_id = primary.id
-        # 従はソフト削除(受信箱から除外)。金額の二重計上を解消。
-        r.approval_status = ApprovalStatus.deleted.value
-        await audit.log_audit(
-            session, firm_id=r.firm_id, client_id=r.client_id, actor_user_id=principal.user.id,
-            action="merged", target_type="receipt", target_id=r.id,
-            summary=f"領収書 {primary.id} に画像を統合(明細+鏡)",
-        )
-        merged += 1
+        if (s.journalized_at is not None or s.approval_status != ApprovalStatus.pending.value
+                or s.merged_into is not None):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "確定済み/処理済み/マージ済みはマージできません")
+    if len(sources) < 2:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "マージには2件以上必要です")
+    # 合成: 基準を優先し、空欄は他ソース(金額の大きい順)から補完。金額は基準優先=合算しない。
+    others = sorted((s for s in sources if s.id != base.id), key=lambda s: -(s.amount_jpy or 0))
+    ordered = [base, *others]
+
+    def pick(field):
+        for s in ordered:
+            v = getattr(s, field)
+            if v is not None and v != "":
+                return v
+        return None
+
+    voucher = Receipt(
+        firm_id=base.firm_id, client_id=base.client_id, lane=base.lane,
+        source=base.source, doc_type="receipt", created_by=principal.user.id,
+        approval_status=ApprovalStatus.pending.value,
+        captured_at=pick("captured_at"), vendor=pick("vendor"), partner_name=pick("partner_name"),
+        amount_jpy=pick("amount_jpy"), subtotal_jpy=pick("subtotal_jpy"), tax_jpy=pick("tax_jpy"),
+        tax_10_jpy=pick("tax_10_jpy"), tax_8_jpy=pick("tax_8_jpy"), tax_mode=pick("tax_mode"),
+        payment_method=pick("payment_method"), t_number=pick("t_number"),
+        description=pick("description"), memo=pick("memo"),
+        capture_meta={"merged_from": [str(s.id) for s in sources]},
+    )
+    session.add(voucher)
+    await session.flush()  # voucher.id を確定
+    for s in sources:
+        s.merged_into = voucher.id  # 元を統合伝票に紐付け(隠す・集計対象外)。画像はそのまま元に残る。
+    await audit.log_audit(
+        session, firm_id=base.firm_id, client_id=base.client_id, actor_user_id=principal.user.id,
+        action="merged", target_type="receipt", target_id=voucher.id,
+        summary=f"{len(sources)}件を統合伝票にまとめた(明細+鏡)",
+    )
     await session.flush()
-    # 従が抜けたので重複(突き合わせ)を再計算。
-    await dedup.recompute_dedup(session, primary.client_id)
-    imgs = await _capture_images(session, primary.id)
-    creators = await _creator_names(session, [primary])
-    return {**_serialize(primary, imgs, creators.get(primary.created_by)), "merged": merged}
+    await dedup.recompute_dedup(session, base.client_id)
+    imgs = await _capture_images(session, voucher.id)
+    creators = await _creator_names(session, [voucher])
+    return {**_serialize(voucher, imgs, creators.get(voucher.created_by)), "merged": len(sources)}
+
+
+@router.post("/unmerge")
+async def unmerge_receipts(
+    body: UnmergeBody,
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """統合伝票を「ばらす」: 束ねた元(merged_into=voucher)を復元して受信箱に戻し、統合伝票は削除。
+    元は一切変更していないので確実に元通り。未仕訳(統合伝票が未確定)のときだけ。"""
+    voucher = await session.get(Receipt, body.voucher_id)
+    if voucher is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "統合伝票が見つかりません")
+    if voucher.journalized_at is not None or voucher.approval_status != ApprovalStatus.pending.value:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "確定済み/処理済みの統合伝票はばらせません")
+    children = list(await session.scalars(select(Receipt).where(Receipt.merged_into == voucher.id)))
+    if not children:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "この領収書はマージされていません")
+    for c in children:
+        c.merged_into = None  # 元を復元(受信箱に戻る)
+    voucher.approval_status = ApprovalStatus.deleted.value  # 統合伝票は削除(消えたように)
+    await audit.log_audit(
+        session, firm_id=voucher.firm_id, client_id=voucher.client_id, actor_user_id=principal.user.id,
+        action="unmerged", target_type="receipt", target_id=voucher.id,
+        summary=f"統合伝票をばらして{len(children)}件を復元",
+    )
+    await session.flush()
+    await dedup.recompute_dedup(session, voucher.client_id)
+    return {"unmerged": len(children)}
 
 
 @router.delete("/{receipt_id}")

@@ -372,6 +372,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ primary_id: primaryId, merge_ids: mergeIds }),
     }),
+  // 統合伝票をばらす: 束ねた元を復元し、統合伝票を削除。
+  unmergeReceipts: (voucherId: string) =>
+    req<{ unmerged: number }>('/receipts/unmerge', {
+      method: 'POST',
+      body: JSON.stringify({ voucher_id: voucherId }),
+    }),
   // メール取込の元メール本文(件名/差出人/本文)。
   receiptEmail: (id: string) => req<ReceiptEmail>(`/receipts/${id}/email`),
   // 監査ログ(訂正削除・承認・仕訳の履歴)。電子帳簿保存法の訂正削除履歴。

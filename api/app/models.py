@@ -313,6 +313,11 @@ class Receipt(Base, TimestampMixin):
     journalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     journal_hold: Mapped[bool] = mapped_column(Boolean, default=False)
     match_id: Mapped[UUID | None] = mapped_column(nullable=True, index=True)
+    # マージ(明細+鏡など)の統合伝票に束ねた「元」領収書は、統合伝票(親)の id を merged_into に持つ。
+    # merged_into が非NULL = 元(受信箱で隠す・全集計の対象外)。統合伝票を消せば SET NULL で元が復元(ばらす)。
+    merged_into: Mapped[UUID | None] = mapped_column(
+        ForeignKey("receipts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     # 付箋 (note) ids attached to this receipt — UUID strings into the notes master.
     note_ids: Mapped[list] = mapped_column(JSONB, default=list)

@@ -36,6 +36,7 @@ async def monthly_usage(session: AsyncSession, firm_id: UUID) -> int:
     n = await session.scalar(
         select(func.count(Receipt.id)).where(
             Receipt.firm_id == firm_id,
+            Receipt.merged_into.is_(None),  # マージで束ねた元は数えない(統合伝票を1件とする)
             Receipt.doc_type == "receipt",
             Receipt.approval_status != ApprovalStatus.deleted.value,
             Receipt.created_at >= _month_start(),
@@ -53,6 +54,7 @@ async def free_daily_usage_global() -> int:
             .join(Firm, Firm.id == Receipt.firm_id)
             .where(
                 Firm.plan == plans.PLAN_FREE,
+                Receipt.merged_into.is_(None),  # マージで束ねた元は数えない(統合伝票を1件とする)
                 Receipt.doc_type == "receipt",
                 Receipt.approval_status != ApprovalStatus.deleted.value,
                 Receipt.created_at >= _today_start_utc(),

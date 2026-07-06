@@ -102,6 +102,8 @@ async def recompute_dedup(session: AsyncSession, client_id: UUID) -> None:
         await session.scalars(
             select(Receipt).where(
                 Receipt.client_id == client_id,
+                # マージで束ねた元(統合伝票に紐付いた明細/鏡)は突き合わせ対象外。
+                Receipt.merged_into.is_(None),
                 # 立替(expense)は対象外。会社経費(company)のみ。
                 Receipt.lane == ReceiptLane.company.value,
                 # クレジット明細は「クレジット明細」画面で領収書と照合するため、突き合わせ(重複検知)の対象外。
