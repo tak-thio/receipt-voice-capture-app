@@ -33,8 +33,8 @@ class ReceiptPatch(BaseModel):
 
 
 class MergeBody(BaseModel):
-    primary_id: UUID       # 合成の基準(金額・T番号などを優先。既定=金額最大の「鏡」)
-    merge_ids: list[UUID]  # 一緒に束ねる領収書(明細など)。基準+これらから統合伝票を作る
+    source_ids: list[UUID]           # 束ねる領収書(2件以上)。これらから統合伝票を作る
+    values: dict[str, object] = {}   # 統合伝票に採用する各項目の値(フロントの選択/編集結果)
 
 
 class UnmergeBody(BaseModel):
@@ -303,28 +303,56 @@ async def patch_receipt(
     return _serialize(r, imgs, creators.get(r.created_by))
 
 
+# 統合伝票にまとめる項目(選択/編集の対象)。values無指定はソースから補完(partner_name/税内訳など)。
+_MERGE_FIELDS = [
+    "captured_at", "vendor", "partner_name", "amount_jpy", "subtotal_jpy",
+    "tax_jpy", "tax_10_jpy", "tax_8_jpy", "tax_mode", "payment_method",
+    "t_number", "description", "memo",
+]
+_MERGE_INT_FIELDS = {"amount_jpy", "subtotal_jpy", "tax_jpy", "tax_10_jpy", "tax_8_jpy"}
+
+
+def _coerce_merge_value(field: str, val):
+    """フロントから来た値をカラム型に合わせる(日付=datetime, 金額=int, 他=str)。空はNone。"""
+    if val is None or val == "":
+        return None
+    if field == "captured_at":
+        if isinstance(val, str):
+            try:
+                return datetime.fromisoformat(val.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        return val
+    if field in _MERGE_INT_FIELDS:
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return None
+    return str(val)
+
+
 @router.post("/merge")
 async def merge_receipts(
     body: MergeBody,
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ):
-    """明細+鏡など「1つの支払いに画像が複数」を1件の統合伝票にまとめる。
-    元(sources)は変更せず merged_into で統合伝票に紐付けて隠す(全集計の対象外)。統合伝票のデータは
-    基準(primary)を優先し空欄を他から補完、金額は合算しない(同一支払い)。未仕訳のみ。ばらすで復元可。"""
-    base = await session.get(Receipt, body.primary_id)
-    if base is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "基準の領収書が見つかりません")
-    sources = [base]
-    seen = {base.id}
-    for mid in body.merge_ids:
-        if mid in seen:
-            continue
-        seen.add(mid)
-        r = await session.get(Receipt, mid)
+    """明細+鏡など「1つの支払いに画像が複数」を1件の統合伝票にまとめる。項目ごとに採用値を選択(values)、
+    無指定は金額の大きい順で補完。金額は合算しない(同一支払い)。元(sources)は無変更で merged_into で
+    紐付けて隠す(集計対象外)。未仕訳/重複候補のみ。既存統合伝票を含む選択はそれに追加(ネストしない)。ばらすで復元可。"""
+    ids: list[UUID] = []
+    for sid in body.source_ids:  # 重複を除いて順序維持
+        if sid not in ids:
+            ids.append(sid)
+    if len(ids) < 2:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "マージには2件以上必要です")
+    sources: list[Receipt] = []
+    for sid in ids:
+        r = await session.get(Receipt, sid)
         if r is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "マージ対象が見つかりません")
         sources.append(r)
+    base = sources[0]
     for s in sources:
         if s.client_id != base.client_id or s.lane != base.lane:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "顧問先/レーンが異なる領収書はマージできません")
@@ -333,44 +361,60 @@ async def merge_receipts(
                 or s.approval_status not in (ApprovalStatus.pending.value, "duplicate")
                 or s.merged_into is not None):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "確定済み/処理済み/マージ済みはマージできません")
-    if len(sources) < 2:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "マージには2件以上必要です")
-    # 合成: 基準を優先し、空欄は他ソース(金額の大きい順)から補完。金額は基準優先=合算しない。
-    others = sorted((s for s in sources if s.id != base.id), key=lambda s: -(s.amount_jpy or 0))
-    ordered = [base, *others]
+    # 既存の統合伝票を含む場合はネストせず「その統合伝票に追加」。2件以上の統合伝票はNG。
+    vouchers = [s for s in sources if (s.capture_meta or {}).get("merged_from")]
+    if len(vouchers) >= 2:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "統合伝票同士はまとめられません。先に『ばらす』してください")
 
-    def pick(field):
-        for s in ordered:
+    def coalesce(field):  # 金額の大きい順で最初の非null(=基準優先の補完)
+        for s in sorted(sources, key=lambda x: -(x.amount_jpy or 0)):
             v = getattr(s, field)
             if v is not None and v != "":
                 return v
         return None
 
-    voucher = Receipt(
-        firm_id=base.firm_id, client_id=base.client_id, lane=base.lane,
-        source=base.source, doc_type="receipt", created_by=principal.user.id,
-        approval_status=ApprovalStatus.pending.value,
-        captured_at=pick("captured_at"), vendor=pick("vendor"), partner_name=pick("partner_name"),
-        amount_jpy=pick("amount_jpy"), subtotal_jpy=pick("subtotal_jpy"), tax_jpy=pick("tax_jpy"),
-        tax_10_jpy=pick("tax_10_jpy"), tax_8_jpy=pick("tax_8_jpy"), tax_mode=pick("tax_mode"),
-        payment_method=pick("payment_method"), t_number=pick("t_number"),
-        description=pick("description"), memo=pick("memo"),
-        capture_meta={"merged_from": [str(s.id) for s in sources]},
-    )
-    session.add(voucher)
-    await session.flush()  # voucher.id を確定
-    for s in sources:
-        s.merged_into = voucher.id  # 元を統合伝票に紐付け(隠す・集計対象外)。画像はそのまま元に残る。
+    def chosen(field):  # values(選択/編集)を優先、無指定はソースから補完
+        if field in body.values:
+            return _coerce_merge_value(field, body.values[field])
+        return coalesce(field)
+
+    if vouchers:
+        # 既存の統合伝票に追加: values 指定の項目のみ更新し、残りは既存値を保持。
+        voucher = vouchers[0]
+        adding = [s for s in sources if s.id != voucher.id]
+        for f in _MERGE_FIELDS:
+            if f in body.values:
+                setattr(voucher, f, _coerce_merge_value(f, body.values[f]))
+        for s in adding:
+            s.merged_into = voucher.id
+        cm = dict(voucher.capture_meta or {})
+        cm["merged_from"] = list(cm.get("merged_from") or []) + [str(s.id) for s in adding]
+        voucher.capture_meta = cm
+        merged_n = len(adding)
+        summary = f"統合伝票に{len(adding)}件を追加"
+    else:
+        voucher = Receipt(
+            firm_id=base.firm_id, client_id=base.client_id, lane=base.lane,
+            source=base.source, doc_type="receipt", created_by=principal.user.id,
+            approval_status=ApprovalStatus.pending.value,
+            **{f: chosen(f) for f in _MERGE_FIELDS},
+            capture_meta={"merged_from": [str(s.id) for s in sources]},
+        )
+        session.add(voucher)
+        await session.flush()  # voucher.id を確定
+        for s in sources:
+            s.merged_into = voucher.id  # 元を統合伝票に紐付け(隠す・集計対象外)。画像はそのまま元に残る。
+        merged_n = len(sources)
+        summary = f"{len(sources)}件を統合伝票にまとめた(明細+鏡)"
     await audit.log_audit(
         session, firm_id=base.firm_id, client_id=base.client_id, actor_user_id=principal.user.id,
-        action="merged", target_type="receipt", target_id=voucher.id,
-        summary=f"{len(sources)}件を統合伝票にまとめた(明細+鏡)",
+        action="merged", target_type="receipt", target_id=voucher.id, summary=summary,
     )
     await session.flush()
     await dedup.recompute_dedup(session, base.client_id)
     imgs = await _capture_images(session, voucher.id)
     creators = await _creator_names(session, [voucher])
-    return {**_serialize(voucher, imgs, creators.get(voucher.created_by)), "merged": len(sources)}
+    return {**_serialize(voucher, imgs, creators.get(voucher.created_by)), "merged": merged_n}
 
 
 @router.post("/unmerge")

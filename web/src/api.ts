@@ -366,11 +366,11 @@ export const api = {
   editReceiptContent: (id: string, patch: ReceiptContentPatch) =>
     req<ReceiptRow>(`/receipts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteReceipt: (id: string) => req(`/receipts/${id}`, { method: 'DELETE' }),
-  // 明細+鏡など「1支払いに画像複数」を1件に束ねる。primary にデータを残し、他の画像を付替→他は削除。
-  mergeReceipts: (primaryId: string, mergeIds: string[]) =>
+  // 明細+鏡など「1支払いに画像複数」を統合伝票1件に束ねる。values=各項目の採用値(選択/編集)。
+  mergeReceipts: (sourceIds: string[], values: Record<string, unknown>) =>
     req<ReceiptRow>('/receipts/merge', {
       method: 'POST',
-      body: JSON.stringify({ primary_id: primaryId, merge_ids: mergeIds }),
+      body: JSON.stringify({ source_ids: sourceIds, values }),
     }),
   // 統合伝票をばらす: 束ねた元を復元し、統合伝票を削除。
   unmergeReceipts: (voucherId: string) =>

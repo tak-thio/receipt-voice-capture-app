@@ -8,6 +8,7 @@ import { NoteChips, NotePickerModal } from '../notes'
 import { useToast } from '../ui/toast'
 import { EmailViewModal } from './EmailViewModal'
 import { ReceiptHistoryModal } from './ReceiptHistoryModal'
+import { MergeReview, initialMergeValues } from './MergeReview'
 
 const APPROVAL_LABEL: Record<string, { label: string; tone: 'danger' | 'neutral' }> = {
   rejected: { label: '否認', tone: 'danger' },
@@ -63,10 +64,10 @@ export function ReceiptsView({
   const [uploading, setUploading] = useState(false)
   const [polling, setPolling] = useState(false)
   const [dragOver, setDragOver] = useState(false)
-  // マージ(明細+鏡→1支払い): 複数選択 + 主(データを残す方)を選んで束ねる。
+  // マージ(明細+鏡→統合伝票): 複数選択 or 重複グループを束ね、項目ごとに採用値を選ぶ。
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [merging, setMerging] = useState<ReceiptRow[] | null>(null)
-  const [mergePrimary, setMergePrimary] = useState<string | null>(null)
+  const [mergeValues, setMergeValues] = useState<Record<string, unknown>>({})
   const [mergeBusy, setMergeBusy] = useState(false)
 
   async function uploadFiles(fileList: FileList | File[]) {
@@ -152,11 +153,11 @@ export function ReceiptsView({
   function toggleSelect(id: string, on: boolean) {
     setSelected((s) => { const n = new Set(s); if (on) n.add(id); else n.delete(id); return n })
   }
-  // マージダイアログを開く。既定の主 = 金額が大きい方(合計を持つ「鏡」であることが多い)。
+  // 統合レビューを開く。初期値=金額の大きい順で最初の非null(基準優先)。項目ごとに後で調整可。
   function openMerge(list: ReceiptRow[]) {
     if (list.length < 2) { toast.error('マージには未仕訳の領収書が2件以上必要です'); return }
+    setMergeValues(initialMergeValues(list))
     setMerging(list)
-    setMergePrimary([...list].sort((a, b) => (b.amount_jpy ?? 0) - (a.amount_jpy ?? 0))[0].id)
   }
   // 統合伝票を「ばらす」: 束ねた元の領収書に戻す(統合伝票は削除)。
   async function handleUnmerge(r: ReceiptRow) {
@@ -164,15 +165,14 @@ export function ReceiptsView({
     if (await toast.run(() => api.unmergeReceipts(r.id), 'ばらしました（元の領収書に戻しました）')) void load()
   }
   async function handleMerge() {
-    if (!merging || !mergePrimary) return
-    const mergeIds = merging.filter((r) => r.id !== mergePrimary).map((r) => r.id)
+    if (!merging) return
     setMergeBusy(true)
     const ok = await toast.run(
-      () => api.mergeReceipts(mergePrimary, mergeIds),
-      `${mergeIds.length + 1}件を1件にまとめました`,
+      () => api.mergeReceipts(merging.map((r) => r.id), mergeValues),
+      `${merging.length}件を統合伝票にまとめました`,
     )
     setMergeBusy(false)
-    if (ok) { setMerging(null); setMergePrimary(null); setSelected(new Set()); void load() }
+    if (ok) { setMerging(null); setSelected(new Set()); void load() }
   }
 
   // 重複の可能性があるもの(同一 match_id)を突き合わせ画面のようにグルーピングして表示する。
@@ -450,36 +450,20 @@ export function ReceiptsView({
       {merging && (
         <Modal
           open
+          size="lg"
           onClose={() => { setMerging(null); setMergeBusy(false) }}
-          title="領収書をマージ（1つの支払いにまとめる）"
-          description="明細と鏡など「1つの支払いに画像が複数」あるものを統合伝票1件にまとめます。基準（金額・T番号などを優先する方）を選んでください。金額は合算しません。元の領収書は残り、後で「ばらす」で戻せます。"
+          title="統合伝票を作成（1つの支払いにまとめる）"
+          description="明細と鏡など「1つの支払いに画像が複数」あるものを統合伝票1件にまとめます。項目ごとに採用する値を選べます（食い違う項目は「要選択」）。金額は合算しません。元の領収書は残り、後で「ばらす」で戻せます。"
           footer={
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setMerging(null)}>キャンセル</Button>
-              <Button variant="primary" disabled={!mergePrimary || mergeBusy} onClick={() => void handleMerge()}>
-                {mergeBusy ? 'マージ中…' : 'マージする'}
+              <Button variant="primary" disabled={mergeBusy} onClick={() => void handleMerge()}>
+                {mergeBusy ? '統合中…' : 'この内容で統合'}
               </Button>
             </div>
           }
         >
-          <div className="space-y-2">
-            <p className="text-xs text-slate-500">基準（金額・T番号などを優先する方）を選択：</p>
-            {merging.map((r) => (
-              <label key={r.id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 p-2 hover:bg-slate-50">
-                <input type="radio" name="mergePrimary" checked={mergePrimary === r.id} onChange={() => setMergePrimary(r.id)} />
-                {r.image_file_id && (
-                  <img src={api.previewUrl(r.image_file_id, r.page)} alt="" className="h-12 w-12 shrink-0 rounded border border-slate-200 object-cover" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-slate-800">{r.vendor ?? '—'}</div>
-                  <div className="text-xs text-slate-500">
-                    {r.captured_at?.slice(0, 10) ?? '—'} ・ {r.amount_jpy != null ? `¥${r.amount_jpy.toLocaleString()}` : '—'}
-                  </div>
-                </div>
-                {mergePrimary === r.id && <Badge tone="success">基準</Badge>}
-              </label>
-            ))}
-          </div>
+          <MergeReview sources={merging} values={mergeValues} onChange={setMergeValues} />
         </Modal>
       )}
 
