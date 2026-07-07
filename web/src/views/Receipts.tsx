@@ -550,17 +550,36 @@ function ReceiptEditModal({
       }
     >
       <div className="space-y-3">
-        {row.image_file_id && (
-          <a
-            href={api.fileUrl(row.image_file_id)}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline"
-          >
-            {(row.image_mime ?? '').includes('pdf') ? <Icon.FileText /> : <Icon.Image />}
-            領収書{(row.image_mime ?? '').includes('pdf') ? 'PDF' : '画像'}を開く
-          </a>
-        )}
+        {(() => {
+          // マージ済み(統合伝票)は明細+鏡など画像複数。全部を並列サムネイル表示(クリックで拡大)。
+          const imgs = row.images?.length
+            ? row.images
+            : row.image_file_id
+              ? [{ file_id: row.image_file_id, mime: row.image_mime ?? null }]
+              : []
+          if (!imgs.length) return null
+          return (
+            <div className="flex flex-wrap gap-2">
+              {imgs.map((im, i) => (
+                <a
+                  key={im.file_id}
+                  href={api.fileUrl(im.file_id, row.page)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="relative shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 hover:border-brand-400"
+                  title={(im.mime ?? '').includes('pdf') ? 'PDFを開く' : '画像を開く'}
+                >
+                  <img src={api.previewUrl(im.file_id, row.page)} alt="" className="h-32 w-auto max-w-[180px] object-contain" />
+                  {imgs.length > 1 && (
+                    <span className="absolute left-1 top-1 rounded bg-slate-900/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                      画像{i + 1}
+                    </span>
+                  )}
+                </a>
+              ))}
+            </div>
+          )
+        })()}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <label className="block space-y-1 sm:col-span-2">
             <span className="text-xs font-medium text-slate-500">支払先(店名)</span>
