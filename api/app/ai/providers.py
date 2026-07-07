@@ -79,7 +79,8 @@ def _to_extracted(data: dict) -> ExtractedReceipt:
         tax_jpy=_int(data.get("tax_jpy")),
         tax_10_jpy=_int(data.get("tax_10_jpy")),
         tax_8_jpy=_int(data.get("tax_8_jpy")),
-        tax_mode=data.get("tax_mode"),
+        # inclusive/exclusive 以外(unknown・空など)は不明(None)に正規化。編集/レビューの選択肢と揃える。
+        tax_mode=data.get("tax_mode") if data.get("tax_mode") in ("inclusive", "exclusive") else None,
         payment_method=data.get("payment_method"),
         t_number=data.get("t_number"),
         date=data.get("date"),
