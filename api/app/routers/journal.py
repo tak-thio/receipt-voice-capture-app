@@ -117,6 +117,26 @@ async def _capture_files_map(session: AsyncSession, receipt_ids) -> dict:
     return out
 
 
+async def _capture_images_map(session: AsyncSession, receipt_ids) -> dict:
+    """receipt_id -> [(file_id, mime), ...] を1クエリで。統合伝票は束ねた元(merged_into=self)の
+    capture画像もこの親IDに集約して返す(仕訳/元帳で明細+鏡の全画像を出すため)。"""
+    ids = [rid for rid in receipt_ids]
+    if not ids:
+        return {}
+    parent = func.coalesce(Receipt.merged_into, Receipt.id)
+    rows = await session.execute(
+        select(parent.label("pid"), ReceiptFile.file_id, File.mime)
+        .join(Receipt, Receipt.id == ReceiptFile.receipt_id)
+        .join(File, File.id == ReceiptFile.file_id)
+        .where(parent.in_(ids), ReceiptFile.kind == "capture")
+        .order_by(ReceiptFile.id)
+    )
+    out: dict = {}
+    for pid, fid, mime in rows.all():
+        out.setdefault(pid, []).append((fid, mime))
+    return out
+
+
 @router.get("/queue")
 async def queue(
     client_id: UUID | None = None,
@@ -163,10 +183,11 @@ async def queue(
         )
         creators = {uid: (name or email) for uid, name, email in crows.all()}
 
+    imgs_map = await _capture_images_map(session, [r.id for r in rows])
     items = []
     for r in rows:
         suggestion = await journaling.suggest(session, r)
-        img, img_mime = await _capture_file(session, r.id)
+        imgs = imgs_map.get(r.id, [])
         items.append(
             {
                 "id": str(r.id),
@@ -185,8 +206,10 @@ async def queue(
                 "t_number": r.t_number,
                 "description": r.description,
                 "memo": r.memo,
-                "image_file_id": str(img) if img else None,
-                "image_mime": img_mime,
+                "image_file_id": str(imgs[0][0]) if imgs else None,
+                "image_mime": imgs[0][1] if imgs else None,
+                # マージ済み(統合伝票)は束ねた元の明細+鏡を全部返す。仕訳画面で切替表示する。
+                "images": [{"file_id": str(fid), "mime": mime} for fid, mime in imgs],
                 "page": (r.capture_meta or {}).get("page"),  # PDFの何ページ目由来か
                 "tax_mode": r.tax_mode,
                 "payment_method": r.payment_method,
@@ -239,11 +262,11 @@ async def ledger(
     if partner_ids:
         prows = await session.execute(select(Partner.id, Partner.name).where(Partner.id.in_(partner_ids)))
         partners = {pid: name for pid, name in prows.all()}
-    images = await _capture_files_map(session, [r.id for r in rows])
+    imgs_map = await _capture_images_map(session, [r.id for r in rows])
 
     result = []
     for r in rows:
-        img, img_mime = images.get(r.id, (None, None))
+        imgs = imgs_map.get(r.id, [])
         result.append(
             {
                 "id": str(r.id),
@@ -271,8 +294,9 @@ async def ledger(
                 "tax_mode": r.tax_mode,
                 "payment_method": r.payment_method,
                 "source": r.source,
-                "image_file_id": str(img) if img else None,
-                "image_mime": img_mime,
+                "image_file_id": str(imgs[0][0]) if imgs else None,
+                "image_mime": imgs[0][1] if imgs else None,
+                "images": [{"file_id": str(fid), "mime": mime} for fid, mime in imgs],
                 "page": (r.capture_meta or {}).get("page"),  # PDFの何ページ目由来か
                 "note_ids": r.note_ids or [],
             }

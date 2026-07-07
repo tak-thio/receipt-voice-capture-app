@@ -141,6 +141,7 @@ export interface QueueItem {
   memo?: string | null // 自由メモ
   image_file_id: string | null
   image_mime: string | null
+  images?: { file_id: string; mime: string | null }[] // 統合伝票=束ねた明細+鏡の全画像
   page?: number | null // PDFの何ページ目由来か
   tax_mode: string | null
   payment_method: string | null
@@ -240,6 +241,7 @@ export interface LedgerRow {
   source: string | null
   image_file_id: string | null
   image_mime: string | null
+  images?: { file_id: string; mime: string | null }[] // 統合伝票=束ねた明細+鏡の全画像
   page?: number | null // PDFの何ページ目由来か
   note_ids: string[]
 }
