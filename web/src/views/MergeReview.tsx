@@ -1,28 +1,55 @@
 import { api, type ReceiptRow } from '../api'
-import { cn, Input } from '../ui'
+import { cn, Input, Select } from '../ui'
+
+type MergeField = {
+  key: keyof ReceiptRow
+  label: string
+  kind: 'date' | 'amount' | 'text' | 'select'
+  options?: { value: string; label: string }[]
+}
 
 // 統合伝票に採用する項目(ReceiptRow が持つもの)。取引先マスタ・税内訳はサーバ側で補完。
-const MERGE_FIELDS: { key: keyof ReceiptRow; label: string; kind: 'date' | 'amount' | 'text' }[] = [
+const MERGE_FIELDS: MergeField[] = [
   { key: 'captured_at', label: '日付', kind: 'date' },
   { key: 'vendor', label: '店名・取引先', kind: 'text' },
   { key: 'amount_jpy', label: '金額（税込）', kind: 'amount' },
   { key: 't_number', label: '登録番号（T）', kind: 'text' },
   { key: 'description', label: '摘要', kind: 'text' },
   { key: 'payment_method', label: '支払方法', kind: 'text' },
-  { key: 'tax_mode', label: '税区分', kind: 'text' },
+  {
+    key: 'tax_mode',
+    label: '税区分',
+    kind: 'select',
+    // ReceiptEditFields と同じ選択肢。内部コード unknown 等は '' (不明) に正規化して扱う。
+    options: [
+      { value: '', label: '不明' },
+      { value: 'inclusive', label: '税込' },
+      { value: 'exclusive', label: '税抜' },
+    ],
+  },
   { key: 'memo', label: 'メモ', kind: 'text' },
 ]
 
 const SRC_LABEL = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
 
-function fmtVal(kind: string, v: unknown): string {
+// select項目は既知の値以外(unknown/null等)を '' (不明)に正規化する。
+function normSelect(f: MergeField, v: unknown): string {
+  const s = v == null ? '' : String(v)
+  return f.options?.some((o) => o.value === s) ? s : ''
+}
+
+function fmtVal(f: MergeField, v: unknown): string {
+  if (f.kind === 'select') {
+    const s = normSelect(f, v)
+    return f.options?.find((o) => o.value === s)?.label ?? '不明'
+  }
   if (v == null || v === '') return '（空欄）'
-  if (kind === 'date') return String(v).slice(0, 10)
-  if (kind === 'amount') return typeof v === 'number' ? `¥${v.toLocaleString()}` : String(v)
+  if (f.kind === 'date') return String(v).slice(0, 10)
+  if (f.kind === 'amount') return typeof v === 'number' ? `¥${v.toLocaleString()}` : String(v)
   return String(v)
 }
 
-// 統合伝票の初期値: 金額の大きい順で最初の非nullを採用(=基準優先)。全項目キーを持たせる。
+// 統合伝票の初期値: 金額の大きい順で最初の「有効な」値を採用(=基準優先)。select は既知値を優先し正規化。
 export function initialMergeValues(sources: ReceiptRow[]): Record<string, unknown> {
   const ordered = [...sources].sort((a, b) => (b.amount_jpy ?? 0) - (a.amount_jpy ?? 0))
   const init: Record<string, unknown> = {}
@@ -30,7 +57,13 @@ export function initialMergeValues(sources: ReceiptRow[]): Record<string, unknow
     let picked: unknown = null
     for (const r of ordered) {
       const v = r[f.key]
-      if (v != null && v !== '') { picked = v; break }
+      if (f.kind === 'select') {
+        const s = normSelect(f, v)
+        if (s !== '') { picked = s; break } // 既知(税込/税抜)を優先。全部不明なら null のまま
+      } else if (v != null && v !== '') {
+        picked = v
+        break
+      }
     }
     init[f.key] = picked
   }
@@ -94,11 +127,11 @@ export function MergeReview({
       {/* 項目ごとに採用値を選択・編集 */}
       <div className="space-y-2.5">
         {MERGE_FIELDS.map((f) => {
-          const distinct = [
-            ...new Set(sources.map((s) => s[f.key]).filter((v) => v != null && v !== '').map((v) => String(v))),
-          ]
+          const eff = (s: ReceiptRow) => (f.kind === 'select' ? normSelect(f, s[f.key]) : s[f.key])
+          const distinct = [...new Set(sources.map(eff).filter((v) => v != null && v !== '').map(String))]
           const conflict = distinct.length > 1
           const cur = values[f.key]
+          const curKey = f.kind === 'select' ? normSelect(f, cur) : String(cur ?? '')
           return (
             <div key={f.key} className="grid grid-cols-[8rem_1fr] items-start gap-2">
               <label className="pt-2 text-sm text-slate-600">
@@ -109,9 +142,9 @@ export function MergeReview({
                 {conflict && (
                   <div className="flex flex-wrap gap-1">
                     {sources.map((s, si) => {
-                      const v = s[f.key]
+                      const v = eff(s)
                       if (v == null || v === '') return null
-                      const active = String(cur) === String(v)
+                      const active = curKey === String(v)
                       return (
                         <button
                           key={si}
@@ -125,7 +158,7 @@ export function MergeReview({
                           )}
                         >
                           <span className="mr-1 opacity-50">{SRC_LABEL[si]}</span>
-                          {fmtVal(f.kind, v)}
+                          {fmtVal(f, v)}
                         </button>
                       )
                     })}
@@ -145,6 +178,16 @@ export function MergeReview({
                     value={cur ? String(cur).slice(0, 10) : ''}
                     onChange={(e) => setField(f.key, e.target.value || null)}
                   />
+                ) : f.kind === 'select' ? (
+                  <Select
+                    className="w-44"
+                    value={normSelect(f, cur)}
+                    onChange={(e) => setField(f.key, e.target.value || null)}
+                  >
+                    {f.options!.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </Select>
                 ) : (
                   <Input
                     className="w-full"
