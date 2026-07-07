@@ -9,6 +9,7 @@ import { useToast } from '../ui/toast'
 import { EmailViewModal } from './EmailViewModal'
 import { ReceiptHistoryModal } from './ReceiptHistoryModal'
 import { MergeReview, initialMergeValues } from './MergeReview'
+import { ZoomableImage } from './ZoomableImage'
 
 const APPROVAL_LABEL: Record<string, { label: string; tone: 'danger' | 'neutral' }> = {
   rejected: { label: '否認', tone: 'danger' },
@@ -537,6 +538,7 @@ function ReceiptEditModal({
   return (
     <Modal
       open
+      size="lg"
       onClose={onClose}
       title="領収書の修正"
       description="AIが読み取った内容を修正できます。"
@@ -549,80 +551,89 @@ function ReceiptEditModal({
         </>
       }
     >
-      <div className="space-y-3">
-        {(() => {
-          // マージ済み(統合伝票)は明細+鏡など画像複数。全部を並列サムネイル表示(クリックで拡大)。
-          const imgs = row.images?.length
-            ? row.images
-            : row.image_file_id
-              ? [{ file_id: row.image_file_id, mime: row.image_mime ?? null }]
-              : []
-          if (!imgs.length) return null
-          return (
-            <div className="flex flex-wrap gap-2">
-              {imgs.map((im, i) => (
-                <a
-                  key={im.file_id}
-                  href={api.fileUrl(im.file_id, row.page)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="relative shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 hover:border-brand-400"
-                  title={(im.mime ?? '').includes('pdf') ? 'PDFを開く' : '画像を開く'}
-                >
-                  <img src={api.previewUrl(im.file_id, row.page)} alt="" className="h-32 w-auto max-w-[180px] object-contain" />
-                  {imgs.length > 1 && (
-                    <span className="absolute left-1 top-1 rounded bg-slate-900/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                      画像{i + 1}
-                    </span>
-                  )}
-                </a>
-              ))}
-            </div>
-          )
-        })()}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <label className="block space-y-1 sm:col-span-2">
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* 左: 画像を大きく並列表示(統合伝票は明細+鏡を縦に並べる)。ズーム可。 */}
+        <div>
+          {(() => {
+            const imgs = row.images?.length
+              ? row.images
+              : row.image_file_id
+                ? [{ file_id: row.image_file_id, mime: row.image_mime ?? null }]
+                : []
+            if (!imgs.length) {
+              return (
+                <div className="flex h-[20rem] items-center justify-center rounded-xl border border-slate-200 bg-slate-50">
+                  <span className="text-sm text-slate-400">画像なし</span>
+                </div>
+              )
+            }
+            return (
+              <div className="space-y-2">
+                {imgs.map((im, i) => (
+                  <div key={im.file_id} className="relative">
+                    <ZoomableImage
+                      src={api.previewUrl(im.file_id, row.page)}
+                      alt="領収書"
+                      className="h-[22rem] rounded-xl border border-slate-200 lg:h-[26rem]"
+                    />
+                    {imgs.length > 1 && (
+                      <span className="absolute left-2 top-2 rounded bg-slate-900/60 px-2 py-0.5 text-[11px] font-medium text-white">
+                        画像{i + 1}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
+        </div>
+
+        {/* 右: AI読み取り項目の修正 */}
+        <div className="space-y-3">
+          <label className="block space-y-1">
             <span className="text-xs font-medium text-slate-500">支払先(店名)</span>
             <Input value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder="支払先" />
           </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-slate-500">日付</span>
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-slate-500">金額(税込)</span>
+              <Input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)}
+                className="text-right tabular-nums" />
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-slate-500">税区分</span>
+              <Select value={taxMode} onChange={(e) => setTaxMode(e.target.value)}>
+                <option value="">不明</option>
+                <option value="inclusive">税込</option>
+                <option value="exclusive">税抜</option>
+              </Select>
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-slate-500">支払方法</span>
+              <Input value={payment} onChange={(e) => setPayment(e.target.value)} placeholder="現金 / クレジット 等" />
+            </label>
+          </div>
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-slate-500">日付</span>
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <span className="text-xs font-medium text-slate-500">インボイス番号(T番号)</span>
+            <Input value={tnumber} onChange={(e) => setTnumber(e.target.value)} placeholder="T1234567890123" />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-slate-500">摘要</span>
+            <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)}
+              placeholder="用途・メモ" />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-slate-500">メモ</span>
+            <Textarea rows={3} value={memo} onChange={(e) => setMemo(e.target.value)}
+              placeholder="ファイル名・ページ・音声などの控え（自由に編集できます）" />
           </label>
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <label className="block space-y-1">
-            <span className="text-xs font-medium text-slate-500">金額(税込)</span>
-            <Input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)}
-              className="text-right tabular-nums" />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-xs font-medium text-slate-500">税区分</span>
-            <Select value={taxMode} onChange={(e) => setTaxMode(e.target.value)}>
-              <option value="">不明</option>
-              <option value="inclusive">税込</option>
-              <option value="exclusive">税抜</option>
-            </Select>
-          </label>
-          <label className="block space-y-1">
-            <span className="text-xs font-medium text-slate-500">支払方法</span>
-            <Input value={payment} onChange={(e) => setPayment(e.target.value)} placeholder="現金 / クレジット 等" />
-          </label>
-        </div>
-        <label className="block space-y-1">
-          <span className="text-xs font-medium text-slate-500">インボイス番号(T番号)</span>
-          <Input value={tnumber} onChange={(e) => setTnumber(e.target.value)} placeholder="T1234567890123" />
-        </label>
-        <label className="block space-y-1">
-          <span className="text-xs font-medium text-slate-500">摘要</span>
-          <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)}
-            placeholder="用途・メモ" />
-        </label>
-        <label className="block space-y-1">
-          <span className="text-xs font-medium text-slate-500">メモ</span>
-          <Textarea rows={3} value={memo} onChange={(e) => setMemo(e.target.value)}
-            placeholder="ファイル名・ページ・音声などの控え（自由に編集できます）" />
-        </label>
       </div>
     </Modal>
   )
