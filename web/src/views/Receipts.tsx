@@ -61,6 +61,7 @@ export function ReceiptsView({
   const [emailView, setEmailView] = useState<ReceiptRow | null>(null)
   const [editing, setEditing] = useState<ReceiptRow | null>(null)
   const [historyId, setHistoryId] = useState<string | null>(null)
+  const [imageView, setImageView] = useState<ReceiptRow | null>(null) // 画像だけを大きく並列で見るビューア
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [polling, setPolling] = useState(false)
@@ -262,15 +263,13 @@ export function ReceiptsView({
         <Td>
           <div className="flex items-center gap-2 text-slate-500">
             {r.image_file_id && (
-              <a
-                href={api.fileUrl(r.image_file_id, r.page)}
-                target="_blank"
-                rel="noreferrer"
-                title={r.page != null ? `このページ(P.${r.page})を開く` : (r.image_mime ?? '').includes('pdf') ? 'PDFを開く' : '画像を開く'}
+              <button
+                onClick={() => setImageView(r)}
+                title={r.images && r.images.length > 1 ? `画像${r.images.length}枚を表示` : '画像を表示'}
                 className="inline-flex hover:text-brand-600"
               >
                 {(r.image_mime ?? '').includes('pdf') ? <Icon.FileText className="text-lg" /> : <Icon.Image className="text-lg" />}
-              </a>
+              </button>
             )}
             {r.page != null && (
               <span className="text-[10px] tabular-nums text-slate-400" title="PDFのページ">P.{r.page}</span>
@@ -477,6 +476,7 @@ export function ReceiptsView({
       />
       {emailView && <EmailViewModal receiptId={emailView.id} onClose={() => setEmailView(null)} />}
       {historyId && <ReceiptHistoryModal receiptId={historyId} onClose={() => setHistoryId(null)} />}
+      {imageView && <ReceiptImagesModal row={imageView} onClose={() => setImageView(null)} />}
       {editing && (
         <ReceiptEditModal
           row={editing}
@@ -493,6 +493,51 @@ export function ReceiptsView({
 
 // AIの読み取り内容を直す簡易エディタ（受信箱から呼ぶ）。科目・仕訳には触れず、領収書の
 // 見たままの項目だけを修正する。承認(仕分け)前の領収書でのみ表示される。
+// 受信箱で画像だけを大きく見るビューア。統合伝票は明細+鏡を全部・縦に並べてズーム可、元画像リンク付き。
+function ReceiptImagesModal({ row, onClose }: { row: ReceiptRow; onClose: () => void }) {
+  const imgs = row.images?.length
+    ? row.images
+    : row.image_file_id
+      ? [{ file_id: row.image_file_id, mime: row.image_mime ?? null }]
+      : []
+  return (
+    <Modal
+      open
+      size="lg"
+      onClose={onClose}
+      title="領収書の画像"
+      description={imgs.length > 1 ? `${imgs.length}枚（明細＋鏡など）・ズームできます` : 'ズームできます'}
+      footer={<Button variant="ghost" onClick={onClose}>閉じる</Button>}
+    >
+      <div className="space-y-3">
+        {imgs.length === 0 && <p className="text-sm text-slate-400">画像がありません</p>}
+        {imgs.map((im, i) => (
+          <div key={im.file_id} className="relative">
+            <ZoomableImage
+              src={api.previewUrl(im.file_id, row.page)}
+              alt="領収書"
+              className="h-[26rem] rounded-xl border border-slate-200 lg:h-[34rem]"
+            />
+            {imgs.length > 1 && (
+              <span className="absolute left-2 top-2 rounded bg-slate-900/60 px-2 py-0.5 text-[11px] font-medium text-white">
+                画像{i + 1}
+              </span>
+            )}
+            <a
+              href={api.fileUrl(im.file_id, row.page)}
+              target="_blank"
+              rel="noreferrer"
+              className="absolute right-2 top-2 rounded bg-white/90 px-2 py-0.5 text-[11px] font-medium text-brand-600 shadow-sm hover:underline"
+            >
+              元画像を開く
+            </a>
+          </div>
+        ))}
+      </div>
+    </Modal>
+  )
+}
+
 function ReceiptEditModal({
   row, onClose, onSaved,
 }: {
