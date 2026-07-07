@@ -216,10 +216,12 @@ export function ReceiptsView({
     const isDup = variant === 'dup'
     const grouped = variant !== 'normal'
     const canEdit = r.approval_status === 'pending' && !r.journalized_at
+    // マージ対象に選べるのは未仕訳(pending)＋重複候補(duplicate)。仕訳済/削除等は不可。
+    const canMerge = (r.approval_status === 'pending' || r.approval_status === 'duplicate') && !r.journalized_at
     return (
       <Tr key={r.id} className={isDup ? 'bg-amber-50/70' : undefined}>
         <Td className="w-8">
-          {canEdit && (
+          {canMerge && (
             <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={selected.has(r.id)}
               onChange={(e) => toggleSelect(r.id, e.target.checked)} title="マージ対象に選択" />
           )}
@@ -301,7 +303,7 @@ export function ReceiptsView({
             )}
             {variant === 'primary' && dupCount > 0 && (
               <button
-                onClick={() => openMerge([r, ...rows.filter((x) => x.match_id === r.match_id && x.id !== r.id && x.approval_status === 'pending')])}
+                onClick={() => openMerge([r, ...rows.filter((x) => x.match_id === r.match_id && x.id !== r.id && (x.approval_status === 'pending' || x.approval_status === 'duplicate'))])}
                 className="rounded-md px-2 py-1 text-xs font-medium text-brand-700 hover:bg-brand-50"
                 title="明細+鏡として1件にまとめる"
               >

@@ -328,7 +328,9 @@ async def merge_receipts(
     for s in sources:
         if s.client_id != base.client_id or s.lane != base.lane:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "顧問先/レーンが異なる領収書はマージできません")
-        if (s.journalized_at is not None or s.approval_status != ApprovalStatus.pending.value
+        # 未仕訳(pending)に加え、重複候補(duplicate=dedupが自動で付ける)もマージ対象にする。
+        if (s.journalized_at is not None
+                or s.approval_status not in (ApprovalStatus.pending.value, "duplicate")
                 or s.merged_into is not None):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "確定済み/処理済み/マージ済みはマージできません")
     if len(sources) < 2:

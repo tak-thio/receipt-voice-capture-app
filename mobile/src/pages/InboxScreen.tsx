@@ -179,7 +179,7 @@ export function InboxScreen() {
           const s = statusOf(r)
           const hasImage = !!r.image_file_id
           const imgCount = r.images?.length ?? (hasImage ? 1 : 0)
-          const canPick = selecting && isEditable(r)
+          const canPick = selecting && (r.approval_status === 'pending' || r.approval_status === 'duplicate') && !r.journalized_at
           return (
             <li
               key={r.id}
