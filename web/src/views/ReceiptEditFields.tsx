@@ -59,7 +59,6 @@ export function ReceiptEditFields({
   const [tagging, setTagging] = useState(false)
   const [showEmail, setShowEmail] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
-  const [imgIdx, setImgIdx] = useState(0) // 複数画像(マージ済み=明細+鏡)の表示中インデックス
   const [titleId, setTitleId] = useState('') // 借方科目
   const [creditTitleId, setCreditTitleId] = useState('') // 貸方科目
   const [subTitleId, setSubTitleId] = useState('') // 補助科目(借方科目に紐づく)
@@ -104,7 +103,6 @@ export function ReceiptEditFields({
     setMemoInput(item.memo ?? '')
     setShowAllDebit(false)
     setShowAllCredit(false)
-    setImgIdx(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.id])
 
@@ -216,44 +214,37 @@ export function ReceiptEditFields({
       {/* 左: 領収書イメージ（縦長対応で大きく） */}
       <div className="space-y-1">
         {(() => {
-          // マージ済み(明細+鏡)は画像が複数。images があればそれを、無ければ従来の1枚を使う。
+          // マージ済み(明細+鏡)は画像が複数。images があれば全部を並列(縦積み)で表示。無ければ1枚。
           const imgs = item.images?.length
             ? item.images
             : item.image_file_id
               ? [{ file_id: item.image_file_id, mime: item.image_mime }]
               : []
-          const idx = Math.min(imgIdx, Math.max(0, imgs.length - 1))
-          const cur = imgs[idx]
-          if (!cur) {
+          if (!imgs.length) {
             return (
-              <div className="flex h-[22rem] items-center justify-center rounded-xl border border-slate-200 bg-slate-50 lg:h-full lg:min-h-[24rem] lg:max-h-[42rem]">
+              <div className="flex h-[24rem] items-center justify-center rounded-xl border border-slate-200 bg-slate-50 lg:h-[32rem]">
                 <span className="text-sm text-slate-400">画像なし</span>
               </div>
             )
           }
           return (
-            <>
-              {/* PDFはサーバーで1ページ目を画像化して返すので、常に <img>。ズーム/パン対応。 */}
-              <ZoomableImage
-                key={cur.file_id}
-                src={api.previewUrl(cur.file_id, item.page)}
-                alt="領収書"
-                className="h-[22rem] rounded-xl border border-slate-200 lg:h-full lg:min-h-[24rem] lg:max-h-[42rem]"
-              />
-              {imgs.length > 1 && (
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {imgs.map((im, i) => (
-                    <button
-                      key={im.file_id}
-                      onClick={() => setImgIdx(i)}
-                      className={`rounded border px-2 py-1 text-xs ${i === idx ? 'border-brand-500 bg-brand-50 font-medium text-brand-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}
-                    >
+            <div className="space-y-2">
+              {imgs.map((im, i) => (
+                <div key={im.file_id} className="relative">
+                  {/* PDFはサーバーで1ページ目を画像化して返すので、常に <img>。ズーム/パン対応。 */}
+                  <ZoomableImage
+                    src={api.previewUrl(im.file_id, item.page)}
+                    alt="領収書"
+                    className="h-[24rem] rounded-xl border border-slate-200 lg:h-[32rem]"
+                  />
+                  {imgs.length > 1 && (
+                    <span className="absolute left-2 top-2 rounded bg-slate-900/60 px-2 py-0.5 text-[11px] font-medium text-white">
                       画像{i + 1}
-                    </button>
-                  ))}
+                    </span>
+                  )}
                 </div>
-              )}
-            </>
+              ))}
+            </div>
           )
         })()}
         <div className="flex flex-wrap items-center gap-3">
