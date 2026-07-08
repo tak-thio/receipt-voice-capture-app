@@ -60,7 +60,7 @@ export function SettingsScreen() {
   // 購入 → サーバ検証 → pro 付与。成功すれば接続情報の plan を更新(メーターも 500 枚に)。
   async function upgrade() {
     if (!connection.email) {
-      showToast('サブスクのご利用には、先にメールアドレスの登録（無料）が必要です。')
+      showToast('サブスクのご登録情報を保持するため、先にメールアドレスの登録（無料）をお願いします🙏 機種変更・再インストールでも引き継げます。')
       return
     }
     setBusy(true)

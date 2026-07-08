@@ -49,7 +49,7 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
   // 上限到達時のアップグレード: 購入→検証→pro 付与。成功すればメーター(500枚)と plan を即更新。
   async function upgrade() {
     if (!connection.email) {
-      showToast('サブスクのご利用には、設定からメールアドレスの登録（無料）が必要です。')
+      showToast('サブスクのご登録情報を保持するため、先に設定からメールアドレスの登録（無料）をお願いします🙏 機種変更・再インストールでも引き継げます。')
       return
     }
     setUpgrading(true)

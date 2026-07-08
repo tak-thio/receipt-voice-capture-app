@@ -45,7 +45,8 @@ export default function App() {
   // トーストは数秒で自動的に消す。
   useEffect(() => {
     if (!toast) return
-    const t = window.setTimeout(hideToast, 3500)
+    // 文字数に応じて表示時間を伸ばす(長文でも読み切れるように)。3.5〜7秒。
+    const t = window.setTimeout(hideToast, Math.min(7000, Math.max(3500, toast.length * 130)))
     return () => window.clearTimeout(t)
   }, [toast, hideToast])
 
