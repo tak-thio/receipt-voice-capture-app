@@ -124,6 +124,63 @@ async def _capture_images(session: AsyncSession, receipt_id) -> list:
     return [(fid, mime) for fid, mime in rows.all()]
 
 
+async def _card_batch_rows(session: AsyncSession, client_id) -> list:
+    """クレジット明細の取込バッチ(card_batch_id 単位)を受信箱の「塊」1行に要約して返す。
+    明細の各行は展開しない。仕訳・金額集計には入れない(表示のみ)。"""
+    bstmt = (
+        select(
+            Receipt.card_batch_id,
+            func.count(Receipt.id).label("cnt"),
+            func.min(Receipt.created_at).label("imported_at"),
+        )
+        .where(
+            Receipt.doc_type == "card_statement",
+            Receipt.card_batch_id.isnot(None),
+            Receipt.approval_status != ApprovalStatus.deleted.value,
+            Receipt.merged_into.is_(None),
+        )
+        .group_by(Receipt.card_batch_id)
+        .order_by(func.min(Receipt.created_at).desc())
+        .limit(200)
+    )
+    if client_id:
+        bstmt = bstmt.where(Receipt.client_id == client_id)
+    batches = (await session.execute(bstmt)).all()
+    if not batches:
+        return []
+    bids = [b.card_batch_id for b in batches]
+    # 各バッチの明細ファイル(全行が共有)を1つ取得(受信箱で画像を出す)。
+    bf = await session.execute(
+        select(Receipt.card_batch_id, ReceiptFile.file_id, File.mime)
+        .join(ReceiptFile, ReceiptFile.receipt_id == Receipt.id)
+        .join(File, File.id == ReceiptFile.file_id)
+        .where(Receipt.card_batch_id.in_(bids), ReceiptFile.kind == "capture")
+        .order_by(ReceiptFile.id)
+    )
+    file_of: dict = {}
+    for bid, fid, mime in bf.all():
+        file_of.setdefault(bid, (fid, mime))
+    out = []
+    for b in batches:
+        fid, mime = file_of.get(b.card_batch_id, (None, None))
+        out.append({
+            "id": str(b.card_batch_id),
+            "client_id": str(client_id) if client_id else None,
+            "source": "card", "lane": "company", "doc_type": "card_statement",
+            "card_batch": {"count": b.cnt, "short_id": str(b.card_batch_id)[:6]},
+            "captured_at": b.imported_at.isoformat() if b.imported_at else None,
+            "vendor": None, "partner_name": None, "amount_jpy": None,
+            "tax_mode": None, "payment_method": None, "t_number": None,
+            "description": None, "memo": None, "account_title_id": None,
+            "approval_status": "pending", "journalized_at": None, "note_ids": [],
+            "image_file_id": str(fid) if fid else None, "image_mime": mime,
+            "images": [{"file_id": str(fid), "mime": mime}] if fid else [],
+            "page": None, "match_id": None, "merged_into": None,
+            "created_by_name": None, "parse_failed": False,
+        })
+    return out
+
+
 @router.get("")
 async def list_receipts(
     client_id: UUID | None = None,
@@ -192,6 +249,10 @@ async def list_receipts(
     out = []
     for r in rows:
         out.append(_serialize(r, img_map.get(r.id, []), creators.get(r.created_by)))
+    # クレジット明細の取込バッチ(塊)を受信箱に1行で追加(会社経費の受信箱のみ)。取込日時の新しい順に並べ直す。
+    if lane in ("company", "all"):
+        out.extend(await _card_batch_rows(session, client_id))
+        out.sort(key=lambda x: (x.get("captured_at") or ""), reverse=True)
     return out
 
 

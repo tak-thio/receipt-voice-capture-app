@@ -166,6 +166,11 @@ export function ReceiptsView({
     if (!window.confirm('この統合伝票をばらして、元の領収書に戻しますか?')) return
     if (await toast.run(() => api.unmergeReceipts(r.id), 'ばらしました（元の領収書に戻しました）')) void load()
   }
+  // クレジット明細の取込バッチ(塊)を一括削除(重複アップの片方を1クリックで消す)。
+  async function handleDeleteBatch(r: ReceiptRow) {
+    if (!window.confirm(`このクレジット明細の取込（${r.card_batch?.count ?? ''}件）をまとめて削除しますか？`)) return
+    if (await toast.run(() => api.deleteCardBatch(r.id), 'クレジット明細の取込を削除しました')) void load()
+  }
   async function handleMerge() {
     if (!merging) return
     setMergeBusy(true)
@@ -215,6 +220,41 @@ export function ReceiptsView({
 
   // 1行の描画。variant: normal=通常 / primary=重複グループの本体 / dup=重複の可能性(インデント表示)。
   function renderRow(r: ReceiptRow, variant: 'normal' | 'primary' | 'dup', dupCount = 0) {
+    if (r.card_batch) {
+      // クレジット明細の取込バッチ(塊)。明細行は展開せず、画像アクセス＋一括削除だけを出す。
+      return (
+        <Tr key={r.id} className="bg-sky-50/60">
+          <Td className="w-8"></Td>
+          <Td className="text-slate-500">
+            {r.captured_at?.slice(0, 10) ?? '—'}
+            <span className="block text-[10px] text-slate-400">取込</span>
+          </Td>
+          <Td><span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">明細</span></Td>
+          <Td colSpan={showCreator ? 6 : 5}>
+            <span className="font-medium text-slate-800">クレジット明細</span>
+            <span className="ml-2 rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-700">{r.card_batch.count}件</span>
+            <span className="ml-2 text-xs text-slate-400">#{r.card_batch.short_id}</span>
+            <span className="ml-3 text-xs text-slate-500">照合・修正は「クレジット明細」画面で</span>
+          </Td>
+          <Td>
+            {r.image_file_id && (
+              <button onClick={() => setImageView(r)} title="明細画像を表示" className="inline-flex text-slate-500 hover:text-brand-600">
+                <Icon.Image className="text-lg" />
+              </button>
+            )}
+          </Td>
+          <Td className="text-right">
+            <button
+              onClick={() => void handleDeleteBatch(r)}
+              className="rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+              title="この取込をまとめて削除"
+            >
+              削除
+            </button>
+          </Td>
+        </Tr>
+      )
+    }
     const isDup = variant === 'dup'
     const grouped = variant !== 'normal'
     const canEdit = r.approval_status === 'pending' && !r.journalized_at

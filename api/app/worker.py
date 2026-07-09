@@ -11,7 +11,7 @@ import asyncio
 import io
 import logging
 from datetime import date, datetime, time, timedelta, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import fitz  # PyMuPDF: PDFをページ単位の1ページPDFに分割(再ラスタライズせずページをコピー)
 from PIL import Image
@@ -217,7 +217,7 @@ def _seed_memo(file: File, page, audio_transcript) -> str | None:
 
 async def _create_receipt_from_item(
     session, *, firm_id, client_id, source, created_by, capture_meta, file: File, item, page=None,
-    lane="company", force_doc_type=None,
+    lane="company", force_doc_type=None, card_batch_id=None,
 ) -> Receipt:
     """1件分の Receipt を起こしてファイルを紐付け、抽出項目(あれば)を反映する。page があれば
     capture_meta.page に記録。memo に「ファイル名/ページ/音声」を初期値で入れる。item が None は未解析。
@@ -235,6 +235,7 @@ async def _create_receipt_from_item(
         capture_meta=meta,
         memo=_seed_memo(file, page, item.audio_transcript if item is not None else None),
         created_by=created_by,
+        card_batch_id=card_batch_id,
     )
     session.add(receipt)
     await session.flush()
@@ -391,6 +392,9 @@ async def _process(session, job: Job) -> None:
             # 共有する追加 receipt に起こす(複数領収書・カード明細・複数ページPDF 対応)。
             first, _f, first_page = grouped[0]
             receipt.doc_type = force_doc or first.doc_type
+            # クレジット明細は「取込バッチ(塊)」として受信箱に出す/一括削除する。全行に同じ card_batch_id を付与。
+            if receipt.doc_type == "card_statement" and receipt.card_batch_id is None:
+                receipt.card_batch_id = uuid4()
             if first_page is not None:
                 receipt.capture_meta = {**(receipt.capture_meta or {}), "page": first_page}
             receipt.memo = _seed_memo(file, first_page, first.audio_transcript)
@@ -413,6 +417,7 @@ async def _process(session, job: Job) -> None:
                     page=page,
                     lane=receipt.lane,  # プレースホルダのレーンを引き継ぐ(一般社員=expense等)
                     force_doc_type=force_doc,
+                    card_batch_id=receipt.card_batch_id,
                 )
         else:
             _mark_parse_outcome(receipt)

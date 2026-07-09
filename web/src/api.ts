@@ -80,6 +80,7 @@ export interface ReceiptRow {
   page?: number | null // PDFの何ページ目由来か(プレビューを ?page=N で出す)
   created_by_name?: string | null
   parse_failed?: boolean // AIが請求書として認識できなかった(店舗名も金額も取れず)
+  card_batch?: { count: number; short_id: string } | null // クレジット明細の取込バッチ(塊)。あれば行はバッチ要約
 }
 
 // 登録者向け: AI が読み取った「領収書の中身」だけを修正する（科目・仕訳には触れない）。
@@ -419,6 +420,9 @@ export const api = {
   // --- クレジット明細(専用取込＋領収書の網羅チェック) ---
   cardStatements: (clientId: string) =>
     req<CardStatementList>(`/card-statements?client_id=${clientId}`),
+  // クレジット明細の取込バッチ(塊)を一括削除。
+  deleteCardBatch: (batchId: string) =>
+    req<{ deleted: number }>(`/card-statements/batch/${batchId}`, { method: 'DELETE' }),
   importCardStatement: async (clientId: string, file: File) => {
     const fd = new FormData()
     fd.append('client_id', clientId)

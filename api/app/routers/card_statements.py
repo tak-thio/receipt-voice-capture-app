@@ -173,3 +173,25 @@ async def list_statements(
         "missing": sum(1 for x in out if not x["has_receipt"]),
         "dup_total": sum(1 for x in out if x["is_dup"]),  # 重複候補の件数
     }
+
+
+@router.delete("/batch/{batch_id}")
+async def delete_batch(
+    batch_id: UUID,
+    _: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """取込バッチ(塊)を一括削除。その card_batch_id の全明細行をソフト削除する。
+    重複アップロードを行ごとに消す手間を無くすため。RLS でアクセス範囲を担保。"""
+    rows = list(await session.scalars(
+        select(Receipt).where(
+            Receipt.card_batch_id == batch_id,
+            Receipt.doc_type == "card_statement",
+            Receipt.approval_status != ApprovalStatus.deleted.value,
+        )
+    ))
+    if not rows:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "取込バッチが見つかりません")
+    for r in rows:
+        r.approval_status = ApprovalStatus.deleted.value
+    return {"deleted": len(rows)}

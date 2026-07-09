@@ -318,6 +318,8 @@ class Receipt(Base, TimestampMixin):
     merged_into: Mapped[UUID | None] = mapped_column(
         ForeignKey("receipts.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # クレジット明細の取込バッチID(UUID)。同じ取込の全明細行が共有。受信箱に「塊」で出す/一括削除する単位。
+    card_batch_id: Mapped[UUID | None] = mapped_column(nullable=True, index=True)
     created_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     # 付箋 (note) ids attached to this receipt — UUID strings into the notes master.
     note_ids: Mapped[list] = mapped_column(JSONB, default=list)
