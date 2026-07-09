@@ -166,6 +166,8 @@ async def list_statements(
             "image_mime": mime,
             "dup_key": dup_key.get(c.id),   # 同一なら重複グループ(本体のid)。null=単独
             "is_dup": dup_flag.get(c.id, False),  # True=重複候補
+            "card_batch_id": str(c.card_batch_id) if c.card_batch_id else None,  # 取込バッチ(塊)
+            "imported_at": c.created_at.isoformat() if c.created_at else None,  # 取込日時
         })
     return {
         "items": out,

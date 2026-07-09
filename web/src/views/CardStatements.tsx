@@ -1,19 +1,22 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { api, type CardStatementLine } from '../api'
 import {
-  Badge, Button, Card, cn, EmptyState, Icon, IconButton, Input, Modal,
+  Badge, Button, Card, EmptyState, Icon, IconButton, Input, Modal,
   PageHeader, Table, Tbody, Td, Th, Thead, Tr,
 } from '../ui'
 import { useToast } from '../ui/toast'
 
 const yen = (n: number | null) => (n == null ? '—' : `¥${n.toLocaleString()}`)
 
-type Block =
-  | { kind: 'single'; row: CardStatementLine }
-  | { kind: 'group'; primary: CardStatementLine; dups: CardStatementLine[] }
+type Batch = {
+  batchId: string | null
+  short: string
+  importedAt: string | null
+  lines: CardStatementLine[]
+}
 
-// クレジット明細: 専用取込＋各行に「領収書があるか」のチェック。
-// 重複アップロードは受信箱と同じくグルーピング表示し、重複候補を削除できる。AI読取の修正も可能。
+// クレジット明細: 専用取込＋各行に「領収書があるか」のチェック。取込は「バッチ(塊)」単位でまとめて表示・一括削除。
+// 重複アップロードは行ごとに重複候補として色づけしつつ、バッチ丸ごと削除でまとめて掃除できる。
 export function CardStatementsView({ clientId }: { clientId: string }) {
   const toast = useToast()
   const [rows, setRows] = useState<CardStatementLine[]>([])
@@ -46,29 +49,22 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId])
 
-  // 同一 dup_key を本体(primary)＋重複候補(dup)としてまとめる(受信箱と同じ考え方)。
-  const blocks = useMemo<Block[]>(() => {
-    const byKey = new Map<string, CardStatementLine[]>()
+  // 取込バッチ(card_batch_id)ごとにまとめる。取込日時の新しい順。
+  const batches = useMemo<Batch[]>(() => {
+    const byBatch = new Map<string, CardStatementLine[]>()
     for (const r of rows) {
-      if (!r.dup_key) continue
-      const a = byKey.get(r.dup_key) ?? []
+      const k = r.card_batch_id ?? '_none'
+      const a = byBatch.get(k) ?? []
       a.push(r)
-      byKey.set(r.dup_key, a)
+      byBatch.set(k, a)
     }
-    const out: Block[] = []
-    const done = new Set<string>()
-    for (const r of rows) {
-      if (done.has(r.id)) continue
-      const grp = r.dup_key ? byKey.get(r.dup_key) : undefined
-      if (grp && grp.length >= 2) {
-        grp.forEach((g) => done.add(g.id))
-        const primary = grp.find((g) => !g.is_dup) ?? grp[0]
-        out.push({ kind: 'group', primary, dups: grp.filter((g) => g.id !== primary.id) })
-      } else {
-        done.add(r.id)
-        out.push({ kind: 'single', row: r })
-      }
-    }
+    const out: Batch[] = [...byBatch.entries()].map(([k, lines]) => ({
+      batchId: k === '_none' ? null : k,
+      short: k === '_none' ? '—' : k.slice(0, 6),
+      importedAt: lines.map((l) => l.imported_at).filter(Boolean).sort()[0] ?? null,
+      lines,
+    }))
+    out.sort((a, b) => (b.importedAt ?? '').localeCompare(a.importedAt ?? ''))
     return out
   }, [rows])
 
@@ -97,6 +93,11 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
     if (!window.confirm('この明細行を削除しますか?')) return
     if (await toast.run(() => api.setApproval(r.id, 'deleted'), '削除しました')) void load()
   }
+  // 取込バッチ(塊)を一括削除(重複アップロードを丸ごと消す)。
+  async function handleDeleteBatch(batchId: string, count: number) {
+    if (!window.confirm(`この取込（${count}件）をまとめて削除しますか？`)) return
+    if (await toast.run(() => api.deleteCardBatch(batchId), '取込をまとめて削除しました')) void load()
+  }
 
   if (!clientId) {
     return (
@@ -107,14 +108,11 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
     )
   }
 
-  function renderRow(r: CardStatementLine, variant: 'normal' | 'primary' | 'dup') {
-    const isDup = variant === 'dup'
-    const grouped = variant !== 'normal'
+  function renderRow(r: CardStatementLine) {
+    const isDup = r.is_dup
     return (
       <Tr key={r.id} className={isDup ? 'bg-amber-50/70' : undefined}>
-        <Td className={cn('whitespace-nowrap text-sm text-slate-600', grouped && 'border-l-2 border-amber-300')}>
-          {r.date ?? '—'}
-        </Td>
+        <Td className="whitespace-nowrap text-sm text-slate-600">{r.date ?? '—'}</Td>
         <Td className="text-sm text-slate-800">
           {isDup && <span className="mr-1 text-amber-600">↳</span>}
           {r.vendor || '(未解析)'}
@@ -151,7 +149,7 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
     <>
       <PageHeader
         title="クレジット明細"
-        description="明細を取り込み、各行に紐づく領収書があるかを確認します（明細は仕訳には入りません）。"
+        description="明細を取り込み、各行に紐づく領収書があるかを確認します（明細は仕訳には入りません）。取込は「バッチ」単位でまとめて削除できます。"
         actions={
           <>
             <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple hidden onChange={(e) => void onPick(e)} />
@@ -164,7 +162,7 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
       />
 
       <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
-        <span className="text-slate-500">全 {rows.length} 件</span>
+        <span className="text-slate-500">全 {rows.length} 件 / {batches.filter((b) => b.batchId).length} 取込</span>
         {missing > 0 && <Badge tone="danger">領収書なし {missing} 件</Badge>}
         {dupTotal > 0 && <Badge tone="warning">重複の可能性 {dupTotal} 件</Badge>}
         {missing === 0 && dupTotal === 0 && rows.length > 0 && <Badge tone="success">領収書あり・重複なし</Badge>}
@@ -183,11 +181,30 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
             </tr>
           </Thead>
           <Tbody>
-            {blocks.map((b) =>
-              b.kind === 'single'
-                ? renderRow(b.row, 'normal')
-                : [renderRow(b.primary, 'primary'), ...b.dups.map((d) => renderRow(d, 'dup'))],
-            )}
+            {batches.map((b) => (
+              <Fragment key={b.batchId ?? '_none'}>
+                {b.batchId && (
+                  <Tr className="bg-sky-50/60">
+                    <Td colSpan={5} className="text-sm">
+                      <span className="font-medium text-slate-700">取込 #{b.short}</span>
+                      <span className="ml-2 text-xs text-slate-500">
+                        {b.lines.length}件{b.importedAt ? ` ・ ${b.importedAt.slice(0, 10)} 取込` : ''}
+                      </span>
+                    </Td>
+                    <Td className="text-right">
+                      <button
+                        onClick={() => void handleDeleteBatch(b.batchId!, b.lines.length)}
+                        className="rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                        title="この取込をまとめて削除"
+                      >
+                        取込を削除
+                      </button>
+                    </Td>
+                  </Tr>
+                )}
+                {b.lines.map((r) => renderRow(r))}
+              </Fragment>
+            ))}
             {rows.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">
