@@ -20,6 +20,7 @@ function statusBadge(r: ReceiptRow) {
   if (r.journalized_at) return <Badge tone="success">仕分済</Badge>
   const a = APPROVAL_LABEL[r.approval_status]
   if (a) return <Badge tone={a.tone}>{a.label}</Badge>
+  if (r.processing) return <Badge tone="neutral">解析中…</Badge>
   if (r.parse_failed) return <Badge tone="danger">解析失敗</Badge>
   return <Badge tone="warning">未仕分</Badge>
 }
@@ -142,6 +143,22 @@ export function ReceiptsView({
     if (clientId) api.notes(clientId).then(setNotes).catch(() => setNotes([]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId])
+
+  // 解析中(未処理)の受信物があるときは自動ポーリングで進捗を反映(ローディング表示なしの静かな更新)。
+  const pollCountRef = useRef(0)
+  async function refreshRows() {
+    if (!clientId) return
+    try {
+      setRows(await api.receipts(clientId, q || undefined, { dateFrom, dateTo, amountMin, amountMax, lane }))
+    } catch { /* ポーリングの失敗は無視 */ }
+  }
+  useEffect(() => {
+    if (!rows.some((r) => r.processing)) { pollCountRef.current = 0; return }
+    if (pollCountRef.current >= 60) return // ~5分(5s×60)で打ち切り(スタック対策)
+    const t = setTimeout(() => { pollCountRef.current += 1; void refreshRows() }, 5000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows])
 
   async function handleDelete(r: ReceiptRow) {
     if (!window.confirm('この領収書を削除しますか?')) return
@@ -422,6 +439,12 @@ export function ReceiptsView({
         <Button onClick={() => void load()}>検索</Button>
         <Button variant="ghost" onClick={() => void clearFilters()}>クリア</Button>
         <span className="ml-1 text-sm text-slate-500">{rows.length}件</span>
+        {rows.some((r) => r.processing) && (
+          <span className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-brand-500" />
+            解析中 {rows.filter((r) => r.processing).length}件…
+          </span>
+        )}
         {selected.size >= 2 && (
           <Button variant="secondary" onClick={() => openMerge(rows.filter((r) => selected.has(r.id)))}>
             選択した{selected.size}件をマージ

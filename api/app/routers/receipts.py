@@ -85,6 +85,10 @@ def _serialize(r: Receipt, images=None, created_by_name=None) -> dict:
         # 店舗名を入れたら解消するよう、印があっても vendor が実値なら false。
         "parse_failed": bool((r.capture_meta or {}).get("parse_failed"))
         and (r.vendor is None or r.vendor == UNPARSED_VENDOR),
+        # AI解析がまだ完了していない(未解析=vendorがplaceholderのまま かつ 解析失敗印なし)。
+        # 受信箱で「解析中…」表示＋自動ポーリングに使う。
+        "processing": (r.vendor is None or r.vendor == UNPARSED_VENDOR)
+        and not bool((r.capture_meta or {}).get("parse_failed")),
         "account_title_id": str(r.account_title_id) if r.account_title_id else None,
         "approval_status": r.approval_status,
         "journalized_at": r.journalized_at.isoformat() if r.journalized_at else None,

@@ -81,6 +81,7 @@ export interface ReceiptRow {
   created_by_name?: string | null
   parse_failed?: boolean // AIが請求書として認識できなかった(店舗名も金額も取れず)
   card_batch?: { count: number; short_id: string; label: string } | null // クレジット明細の取込バッチ(塊)。あれば行はバッチ要約
+  processing?: boolean // AI解析がまだ完了していない(受信箱で「解析中…」＋自動ポーリング)
 }
 
 // 登録者向け: AI が読み取った「領収書の中身」だけを修正する（科目・仕訳には触れない）。
