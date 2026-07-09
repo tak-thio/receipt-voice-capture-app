@@ -29,13 +29,13 @@ type Batch = {
 
 // クレジット明細: 「取込(アップロード)単位の一覧 → その明細」の2段構成。
 // 一覧で取込ごとに状況(領収書なし/重複)を把握し、行クリックでその取込の明細に入る。
-export function CardStatementsView({ clientId }: { clientId: string }) {
+export function CardStatementsView({ clientId, initialBatch, onBatchOpened }: { clientId: string; initialBatch?: string | null; onBatchOpened?: () => void }) {
   const toast = useToast()
   const [rows, setRows] = useState<CardStatementLine[]>([])
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [editing, setEditing] = useState<CardStatementLine | null>(null)
-  const [selectedBatch, setSelectedBatch] = useState<string | null>(null) // null=一覧 / id=明細
+  const [selectedBatch, setSelectedBatch] = useState<string | null>(initialBatch ?? null) // null=一覧 / id=明細
   const [renaming, setRenaming] = useState<Batch | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -59,6 +59,15 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId])
+
+  // 受信箱などから特定バッチを指定して来たら、そのバッチの明細を開く。
+  useEffect(() => {
+    if (initialBatch) {
+      setSelectedBatch(initialBatch)
+      onBatchOpened?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialBatch])
 
   // 取込バッチ(card_batch_id)ごとにまとめる。取込日時の新しい順。
   const batches = useMemo<Batch[]>(() => {
@@ -166,15 +175,26 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
     )
   }
 
+  if (selectedBatch && !detail && loading) {
+    return (
+      <>
+        <PageHeader title="読み込み中…" />
+        <Card><EmptyState icon={<Icon.Receipt />} title="読み込み中…" /></Card>
+      </>
+    )
+  }
   if (detail) {
     return (
       <>
-        <button onClick={() => setSelectedBatch(null)} className="mb-2 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-brand-600">
-          ← 取込一覧へ戻る
-        </button>
         <PageHeader
-          title={detail.label}
-          description={`クレジット明細 ${detail.lines.length}件${detail.importedAt ? ` ・ ${detail.importedAt.slice(0, 10)} 取込` : ''}（明細は仕訳には入りません）`}
+          title={
+            <span className="inline-flex items-center gap-1.5">
+              <button onClick={() => setSelectedBatch(null)} className="text-slate-400 hover:text-brand-600 hover:underline">クレジット明細</button>
+              <span className="text-slate-300">›</span>
+              <span>{detail.label}</span>
+            </span>
+          }
+          description={`${detail.lines.length}件${detail.importedAt ? ` ・ ${detail.importedAt.slice(0, 10)} 取込` : ''}（明細は仕訳には入りません）`}
           actions={
             detail.batchId && (
               <Button variant="secondary" onClick={() => void handleDeleteBatch(detail.batchId!, detail.lines.length)}>

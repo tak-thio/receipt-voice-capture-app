@@ -42,12 +42,14 @@ export function ReceiptsView({
   canPollGmail,
   lockDate,
   lane = 'company',
+  onOpenCardBatch,
 }: {
   clientId: string
   showCreator?: boolean
   canPollGmail?: boolean
   lockDate?: string | null // 締め日(YYYY-MM-DD)。取引日がこれ以前なら「期間外」警告
   lane?: string // company=会社の受信箱 / expense=一般社員の未申請トレイ
+  onOpenCardBatch?: (batchId: string) => void // クレジット明細バッチ→クレジット明細画面(該当明細)へ遷移
 }) {
   const toast = useToast()
   const [rows, setRows] = useState<ReceiptRow[]>([])
@@ -249,12 +251,19 @@ export function ReceiptsView({
           </Td>
           <Td><span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">明細</span></Td>
           <Td colSpan={showCreator ? 6 : 5}>
-            <span className="font-medium text-slate-800">{r.card_batch.label}</span>
+            <button
+              onClick={() => onOpenCardBatch?.(r.id)}
+              className="font-medium text-slate-800 hover:text-brand-600 hover:underline"
+              title="この取込の明細を見る"
+            >
+              {r.card_batch.label}
+            </button>
             <button onClick={() => setRenamingBatch(r)} title="名前を変更" className="ml-1 align-middle text-slate-400 hover:text-brand-600">
               <Icon.Pencil className="inline text-sm" />
             </button>
             <span className="ml-2 rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-700">クレジット明細 {r.card_batch.count}件</span>
             <span className="ml-2 text-xs text-slate-400">#{r.card_batch.short_id}</span>
+            <button onClick={() => onOpenCardBatch?.(r.id)} className="ml-2 text-xs font-medium text-brand-600 hover:underline">明細を見る →</button>
           </Td>
           <Td>
             {r.image_file_id && (

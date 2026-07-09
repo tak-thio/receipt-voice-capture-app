@@ -156,6 +156,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [clients, setClients] = useState<ClientRow[]>([])
   const [clientId, setClientId] = useState<string>('')
   const [tab, setTab] = useState<Tab>('receipts')
+  const [cardBatchTarget, setCardBatchTarget] = useState<string | null>(null) // 受信箱→クレジット明細への遷移先バッチ
   const [navOpen, setNavOpen] = useState(false)
   const [pairOpen, setPairOpen] = useState(false)
   const [gmailOpen, setGmailOpen] = useState(false)
@@ -258,6 +259,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
               lockDate={lockDate}
               // 一般社員の受信箱は「未申請トレイ」(立替=expense)。それ以外は会社の受信箱(company)。
               lane={clientRole === 'client_user' ? 'expense' : 'company'}
+              onOpenCardBatch={(id) => { setCardBatchTarget(id); setTab('cards') }}
             />
           )}
           {tab === 'journal' && <JournalView clientId={clientId} showCreator={canSeeOthers} lockDate={lockDate} />}
@@ -269,7 +271,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
             />
           )}
           {tab === 'reconcile' && <ReconcileView clientId={clientId} />}
-          {tab === 'cards' && <CardStatementsView clientId={clientId} />}
+          {tab === 'cards' && <CardStatementsView clientId={clientId} initialBatch={cardBatchTarget} onBatchOpened={() => setCardBatchTarget(null)} />}
           {tab === 'ledger' && <LedgerView clientId={clientId} showCreator={canSeeOthers} />}
           {tab === 'export' && <ExportView clientId={clientId} />}
           {tab === 'masters' && <MastersView clientId={clientId} firmId={firmId} />}
