@@ -169,6 +169,7 @@ async def list_statements(
             "is_dup": dup_flag.get(c.id, False),  # True=重複候補
             "card_batch_id": str(c.card_batch_id) if c.card_batch_id else None,  # 取込バッチ(塊)
             "imported_at": c.created_at.isoformat() if c.created_at else None,  # 取込日時
+            "card_batch_label": (c.capture_meta or {}).get("card_batch_label"),  # バッチ名(未設定なら既定=取込日)
         })
     return {
         "items": out,

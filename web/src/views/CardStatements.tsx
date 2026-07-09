@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { api, type CardStatementLine } from '../api'
 import {
   Badge, Button, Card, EmptyState, Icon, IconButton, Input, Modal,
@@ -8,23 +8,35 @@ import { useToast } from '../ui/toast'
 
 const yen = (n: number | null) => (n == null ? '—' : `¥${n.toLocaleString()}`)
 
-type Batch = {
-  batchId: string | null
-  short: string
-  importedAt: string | null
-  lines: CardStatementLine[]
+// 受信箱と同じ既定ラベル: 「YYYY年MM月DD日アップロード」(JST)。
+function defaultBatchLabel(importedAt?: string | null): string {
+  if (!importedAt) return 'クレジット明細'
+  const parts = new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date(importedAt))
+  const g = (t: string) => parts.find((p) => p.type === t)?.value ?? ''
+  return `${g('year')}年${g('month')}月${g('day')}日アップロード`
 }
 
-// クレジット明細: 専用取込＋各行に「領収書があるか」のチェック。取込は「バッチ(塊)」単位でまとめて表示・一括削除。
-// 重複アップロードは行ごとに重複候補として色づけしつつ、バッチ丸ごと削除でまとめて掃除できる。
+type Batch = {
+  batchId: string | null
+  label: string
+  importedAt: string | null
+  lines: CardStatementLine[]
+  missing: number
+  dup: number
+}
+
+// クレジット明細: 「取込(アップロード)単位の一覧 → その明細」の2段構成。
+// 一覧で取込ごとに状況(領収書なし/重複)を把握し、行クリックでその取込の明細に入る。
 export function CardStatementsView({ clientId }: { clientId: string }) {
   const toast = useToast()
   const [rows, setRows] = useState<CardStatementLine[]>([])
-  const [missing, setMissing] = useState(0)
-  const [dupTotal, setDupTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [editing, setEditing] = useState<CardStatementLine | null>(null)
+  const [selectedBatch, setSelectedBatch] = useState<string | null>(null) // null=一覧 / id=明細
+  const [renaming, setRenaming] = useState<Batch | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   async function load() {
@@ -36,8 +48,6 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
     try {
       const r = await api.cardStatements(clientId)
       setRows(r.items)
-      setMissing(r.missing)
-      setDupTotal(r.dup_total)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e))
     } finally {
@@ -45,6 +55,7 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
     }
   }
   useEffect(() => {
+    setSelectedBatch(null)
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId])
@@ -58,15 +69,22 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
       a.push(r)
       byBatch.set(k, a)
     }
-    const out: Batch[] = [...byBatch.entries()].map(([k, lines]) => ({
-      batchId: k === '_none' ? null : k,
-      short: k === '_none' ? '—' : k.slice(0, 6),
-      importedAt: lines.map((l) => l.imported_at).filter(Boolean).sort()[0] ?? null,
-      lines,
-    }))
+    const out: Batch[] = [...byBatch.entries()].map(([k, lines]) => {
+      const importedAt = lines.map((l) => l.imported_at).filter(Boolean).sort()[0] ?? null
+      return {
+        batchId: k === '_none' ? null : k,
+        label: lines[0]?.card_batch_label || defaultBatchLabel(importedAt),
+        importedAt,
+        lines,
+        missing: lines.filter((l) => !l.has_receipt).length,
+        dup: lines.filter((l) => l.is_dup).length,
+      }
+    })
     out.sort((a, b) => (b.importedAt ?? '').localeCompare(a.importedAt ?? ''))
     return out
   }, [rows])
+
+  const detail = selectedBatch ? batches.find((b) => b.batchId === selectedBatch) ?? null : null
 
   async function onPick(e: ChangeEvent<HTMLInputElement>) {
     const files = e.target.files
@@ -84,7 +102,7 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
     }
     setUploading(false)
     if (ok) {
-      toast.success(`${ok}件を取り込みました。解析後に明細が表示されます。`)
+      toast.success(`${ok}件を取り込みました。解析後に一覧へ表示されます。`)
       window.setTimeout(() => void load(), 2500)
     }
   }
@@ -93,10 +111,12 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
     if (!window.confirm('この明細行を削除しますか?')) return
     if (await toast.run(() => api.setApproval(r.id, 'deleted'), '削除しました')) void load()
   }
-  // 取込バッチ(塊)を一括削除(重複アップロードを丸ごと消す)。
   async function handleDeleteBatch(batchId: string, count: number) {
     if (!window.confirm(`この取込（${count}件）をまとめて削除しますか？`)) return
-    if (await toast.run(() => api.deleteCardBatch(batchId), '取込をまとめて削除しました')) void load()
+    if (await toast.run(() => api.deleteCardBatch(batchId), '取込をまとめて削除しました')) {
+      setSelectedBatch(null)
+      void load()
+    }
   }
 
   if (!clientId) {
@@ -108,7 +128,8 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
     )
   }
 
-  function renderRow(r: CardStatementLine) {
+  // ---- 明細ビュー(1取込の中身) ----
+  function renderLineRow(r: CardStatementLine) {
     const isDup = r.is_dup
     return (
       <Tr key={r.id} className={isDup ? 'bg-amber-50/70' : undefined}>
@@ -145,11 +166,55 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
     )
   }
 
+  if (detail) {
+    return (
+      <>
+        <button onClick={() => setSelectedBatch(null)} className="mb-2 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-brand-600">
+          ← 取込一覧へ戻る
+        </button>
+        <PageHeader
+          title={detail.label}
+          description={`クレジット明細 ${detail.lines.length}件${detail.importedAt ? ` ・ ${detail.importedAt.slice(0, 10)} 取込` : ''}（明細は仕訳には入りません）`}
+          actions={
+            detail.batchId && (
+              <Button variant="secondary" onClick={() => void handleDeleteBatch(detail.batchId!, detail.lines.length)}>
+                <Icon.Trash /> この取込を削除
+              </Button>
+            )
+          }
+        />
+        <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
+          {detail.missing > 0 ? <Badge tone="danger">領収書なし {detail.missing} 件</Badge> : <Badge tone="success">領収書あり</Badge>}
+          {detail.dup > 0 && <Badge tone="warning">重複の可能性 {detail.dup} 件</Badge>}
+        </div>
+        <Card>
+          <Table>
+            <Thead>
+              <tr>
+                <Th className="w-28">取引日</Th>
+                <Th>利用先</Th>
+                <Th className="w-28 text-right">金額</Th>
+                <Th className="w-32">領収書</Th>
+                <Th className="w-28">重複</Th>
+                <Th className="w-28"></Th>
+              </tr>
+            </Thead>
+            <Tbody>{detail.lines.map((r) => renderLineRow(r))}</Tbody>
+          </Table>
+        </Card>
+        {editing && (
+          <EditCardLineModal line={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load() }} />
+        )}
+      </>
+    )
+  }
+
+  // ---- 取込一覧ビュー(アップロード単位) ----
   return (
     <>
       <PageHeader
         title="クレジット明細"
-        description="明細を取り込み、各行に紐づく領収書があるかを確認します（明細は仕訳には入りません）。取込は「バッチ」単位でまとめて削除できます。"
+        description="取込(アップロード)ごとに一覧表示します。行を開くとその明細と領収書の照合が確認できます。明細は仕訳には入りません。"
         actions={
           <>
             <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple hidden onChange={(e) => void onPick(e)} />
@@ -160,55 +225,68 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
           </>
         }
       />
-
-      <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
-        <span className="text-slate-500">全 {rows.length} 件 / {batches.filter((b) => b.batchId).length} 取込</span>
-        {missing > 0 && <Badge tone="danger">領収書なし {missing} 件</Badge>}
-        {dupTotal > 0 && <Badge tone="warning">重複の可能性 {dupTotal} 件</Badge>}
-        {missing === 0 && dupTotal === 0 && rows.length > 0 && <Badge tone="success">領収書あり・重複なし</Badge>}
-      </div>
-
+      <div className="mb-3 text-sm text-slate-500">{batches.length} 取込 / 全 {rows.length} 件</div>
       <Card>
         <Table>
           <Thead>
             <tr>
-              <Th className="w-28">取引日</Th>
-              <Th>利用先</Th>
-              <Th className="w-28 text-right">金額</Th>
+              <Th className="w-28">取込日</Th>
+              <Th>名前</Th>
+              <Th className="w-20 text-right">件数</Th>
               <Th className="w-32">領収書</Th>
-              <Th className="w-28">重複</Th>
-              <Th className="w-28"></Th>
+              <Th className="w-24">重複</Th>
+              <Th className="w-40"></Th>
             </tr>
           </Thead>
           <Tbody>
             {batches.map((b) => (
-              <Fragment key={b.batchId ?? '_none'}>
-                {b.batchId && (
-                  <Tr className="bg-sky-50/60">
-                    <Td colSpan={5} className="text-sm">
-                      <span className="font-medium text-slate-700">取込 #{b.short}</span>
-                      <span className="ml-2 text-xs text-slate-500">
-                        {b.lines.length}件{b.importedAt ? ` ・ ${b.importedAt.slice(0, 10)} 取込` : ''}
-                      </span>
-                    </Td>
-                    <Td className="text-right">
+              <Tr
+                key={b.batchId ?? '_none'}
+                className="cursor-pointer hover:bg-slate-50"
+                onClick={() => b.batchId && setSelectedBatch(b.batchId)}
+              >
+                <Td className="whitespace-nowrap text-sm text-slate-600">{b.importedAt?.slice(0, 10) ?? '—'}</Td>
+                <Td className="font-medium text-slate-800">
+                  {b.label}
+                  {b.batchId && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setRenaming(b) }}
+                      title="名前を変更"
+                      className="ml-1 align-middle text-slate-400 hover:text-brand-600"
+                    >
+                      <Icon.Pencil className="inline text-sm" />
+                    </button>
+                  )}
+                </Td>
+                <Td className="text-right tabular-nums text-sm text-slate-700">{b.lines.length}件</Td>
+                <Td>
+                  {b.missing > 0 ? <Badge tone="danger">なし {b.missing}</Badge> : <Badge tone="success">揃</Badge>}
+                </Td>
+                <Td>{b.dup > 0 ? <Badge tone="warning">重複 {b.dup}</Badge> : null}</Td>
+                <Td className="text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); if (b.batchId) setSelectedBatch(b.batchId) }}
+                      className="rounded-md px-2 py-1 text-xs font-medium text-brand-700 hover:bg-brand-50"
+                    >
+                      明細を見る
+                    </button>
+                    {b.batchId && (
                       <button
-                        onClick={() => void handleDeleteBatch(b.batchId!, b.lines.length)}
+                        onClick={(e) => { e.stopPropagation(); void handleDeleteBatch(b.batchId!, b.lines.length) }}
                         className="rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
-                        title="この取込をまとめて削除"
                       >
-                        取込を削除
+                        削除
                       </button>
-                    </Td>
-                  </Tr>
-                )}
-                {b.lines.map((r) => renderRow(r))}
-              </Fragment>
+                    )}
+                  </div>
+                </Td>
+              </Tr>
             ))}
             {rows.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">
-                  {loading ? '読み込み中…' : '明細はありません。「明細を取り込む」から取り込んでください。'}
+                  {loading ? '読み込み中…' : '取込はありません。「明細を取り込む」から取り込んでください。'}
                 </td>
               </tr>
             )}
@@ -216,10 +294,48 @@ export function CardStatementsView({ clientId }: { clientId: string }) {
         </Table>
       </Card>
 
-      {editing && (
-        <EditCardLineModal line={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load() }} />
+      {renaming && (
+        <BatchRenameModal
+          batch={renaming}
+          onClose={() => setRenaming(null)}
+          onSaved={() => { setRenaming(null); void load() }}
+        />
       )}
     </>
+  )
+}
+
+// 取込バッチの名前を変更(空=既定の取込日に戻る)。
+function BatchRenameModal({
+  batch, onClose, onSaved,
+}: { batch: Batch; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast()
+  const [label, setLabel] = useState(batch.lines[0]?.card_batch_label ?? '')
+  const [busy, setBusy] = useState(false)
+  async function save() {
+    if (!batch.batchId) return
+    setBusy(true)
+    try {
+      await api.renameCardBatch(batch.batchId, label.trim())
+      toast.success('名前を変更しました')
+      onSaved()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Modal
+      open size="sm" onClose={onClose} title="取込の名前を変更"
+      description="一覧・受信箱に表示する名前です。空にすると既定（アップロード日）に戻ります。"
+      footer={<>
+        <Button variant="ghost" onClick={onClose} disabled={busy}>キャンセル</Button>
+        <Button variant="primary" onClick={() => void save()} disabled={busy}>{busy ? '保存中…' : '保存'}</Button>
+      </>}
+    >
+      <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="例: 2026年6月分 楽天カード" />
+    </Modal>
   )
 }
 

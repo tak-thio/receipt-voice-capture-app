@@ -208,6 +208,7 @@ export interface CardStatementLine {
   is_dup?: boolean // true=重複候補(削除してよい)
   card_batch_id?: string | null // 取込バッチ(塊)。同じ取込の全行が共有
   imported_at?: string | null // 取込日時
+  card_batch_label?: string | null // バッチ名(未設定なら既定=取込日)
 }
 export interface CardStatementList {
   items: CardStatementLine[]
