@@ -1,6 +1,6 @@
 """Receipt list / detail / edit. Rows are RLS-scoped to the principal's tenants."""
 
-from datetime import date as _date, datetime, time, timezone
+from datetime import date as _date, datetime, time, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -124,14 +124,26 @@ async def _capture_images(session: AsyncSession, receipt_id) -> list:
     return [(fid, mime) for fid, mime in rows.all()]
 
 
+_JST = timezone(timedelta(hours=9))
+
+
+def _default_batch_label(imported_at) -> str:
+    """受信箱に出すクレジット明細バッチの既定ラベル: 「YYYY年MM月DD日アップロード」(JST)。"""
+    if not imported_at:
+        return "クレジット明細"
+    d = imported_at.astimezone(_JST)
+    return f"{d.year}年{d.month:02d}月{d.day:02d}日アップロード"
+
+
 async def _card_batch_rows(session: AsyncSession, client_id) -> list:
     """クレジット明細の取込バッチ(card_batch_id 単位)を受信箱の「塊」1行に要約して返す。
-    明細の各行は展開しない。仕訳・金額集計には入れない(表示のみ)。"""
+    明細の各行は展開しない。仕訳・金額集計には入れない(表示のみ)。ラベルは既定=取込日、変更可。"""
     bstmt = (
         select(
             Receipt.card_batch_id,
             func.count(Receipt.id).label("cnt"),
             func.min(Receipt.created_at).label("imported_at"),
+            func.max(Receipt.capture_meta["card_batch_label"].astext).label("label"),
         )
         .where(
             Receipt.doc_type == "card_statement",
@@ -163,11 +175,12 @@ async def _card_batch_rows(session: AsyncSession, client_id) -> list:
     out = []
     for b in batches:
         fid, mime = file_of.get(b.card_batch_id, (None, None))
+        label = b.label or _default_batch_label(b.imported_at)
         out.append({
             "id": str(b.card_batch_id),
             "client_id": str(client_id) if client_id else None,
             "source": "card", "lane": "company", "doc_type": "card_statement",
-            "card_batch": {"count": b.cnt, "short_id": str(b.card_batch_id)[:6]},
+            "card_batch": {"count": b.cnt, "short_id": str(b.card_batch_id)[:6], "label": label},
             "captured_at": b.imported_at.isoformat() if b.imported_at else None,
             "vendor": None, "partner_name": None, "amount_jpy": None,
             "tax_mode": None, "payment_method": None, "t_number": None,

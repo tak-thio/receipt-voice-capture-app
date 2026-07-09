@@ -62,6 +62,7 @@ export function ReceiptsView({
   const [editing, setEditing] = useState<ReceiptRow | null>(null)
   const [historyId, setHistoryId] = useState<string | null>(null)
   const [imageView, setImageView] = useState<ReceiptRow | null>(null) // 画像だけを大きく並列で見るビューア
+  const [renamingBatch, setRenamingBatch] = useState<ReceiptRow | null>(null) // クレジット明細バッチの名前変更
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [polling, setPolling] = useState(false)
@@ -231,10 +232,12 @@ export function ReceiptsView({
           </Td>
           <Td><span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">明細</span></Td>
           <Td colSpan={showCreator ? 6 : 5}>
-            <span className="font-medium text-slate-800">クレジット明細</span>
-            <span className="ml-2 rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-700">{r.card_batch.count}件</span>
+            <span className="font-medium text-slate-800">{r.card_batch.label}</span>
+            <button onClick={() => setRenamingBatch(r)} title="名前を変更" className="ml-1 align-middle text-slate-400 hover:text-brand-600">
+              <Icon.Pencil className="inline text-sm" />
+            </button>
+            <span className="ml-2 rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-700">クレジット明細 {r.card_batch.count}件</span>
             <span className="ml-2 text-xs text-slate-400">#{r.card_batch.short_id}</span>
-            <span className="ml-3 text-xs text-slate-500">照合・修正は「クレジット明細」画面で</span>
           </Td>
           <Td>
             {r.image_file_id && (
@@ -517,6 +520,7 @@ export function ReceiptsView({
       {emailView && <EmailViewModal receiptId={emailView.id} onClose={() => setEmailView(null)} />}
       {historyId && <ReceiptHistoryModal receiptId={historyId} onClose={() => setHistoryId(null)} />}
       {imageView && <ReceiptImagesModal row={imageView} onClose={() => setImageView(null)} />}
+      {renamingBatch && <BatchRenameModal row={renamingBatch} onClose={() => setRenamingBatch(null)} onSaved={() => { setRenamingBatch(null); void load() }} />}
       {editing && (
         <ReceiptEditModal
           row={editing}
@@ -533,6 +537,39 @@ export function ReceiptsView({
 
 // AIの読み取り内容を直す簡易エディタ（受信箱から呼ぶ）。科目・仕訳には触れず、領収書の
 // 見たままの項目だけを修正する。承認(仕分け)前の領収書でのみ表示される。
+// クレジット明細バッチ(塊)の受信箱ラベルを変更する。空で既定(アップロード日)に戻る。
+function BatchRenameModal({
+  row, onClose, onSaved,
+}: { row: ReceiptRow; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast()
+  const [label, setLabel] = useState(row.card_batch?.label ?? '')
+  const [busy, setBusy] = useState(false)
+  async function save() {
+    setBusy(true)
+    try {
+      await api.renameCardBatch(row.id, label.trim())
+      toast.success('名前を変更しました')
+      onSaved()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Modal
+      open size="sm" onClose={onClose} title="クレジット明細の名前を変更"
+      description="受信箱に表示する名前です。空にすると既定（アップロード日）に戻ります。"
+      footer={<>
+        <Button variant="ghost" onClick={onClose} disabled={busy}>キャンセル</Button>
+        <Button variant="primary" onClick={() => void save()} disabled={busy}>{busy ? '保存中…' : '保存'}</Button>
+      </>}
+    >
+      <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="例: 2026年6月分 楽天カード" />
+    </Modal>
+  )
+}
+
 // 受信箱で画像だけを大きく見るビューア。統合伝票は明細+鏡を全部・縦に並べてズーム可、元画像リンク付き。
 function ReceiptImagesModal({ row, onClose }: { row: ReceiptRow; onClose: () => void }) {
   const imgs = row.images?.length

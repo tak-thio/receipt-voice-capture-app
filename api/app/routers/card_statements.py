@@ -13,6 +13,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
 from fastapi import File as FormFile
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
@@ -197,3 +198,36 @@ async def delete_batch(
     for r in rows:
         r.approval_status = ApprovalStatus.deleted.value
     return {"deleted": len(rows)}
+
+
+class LabelBody(BaseModel):
+    label: str = ""
+
+
+@router.post("/batch/{batch_id}/label")
+async def rename_batch(
+    batch_id: UUID,
+    body: LabelBody,
+    _: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """取込バッチ(塊)の表示ラベルを変更する。空にすると既定(取込日)に戻る。
+    ラベルは全明細行の capture_meta.card_batch_label に保持(全行が共有)。"""
+    rows = list(await session.scalars(
+        select(Receipt).where(
+            Receipt.card_batch_id == batch_id,
+            Receipt.doc_type == "card_statement",
+            Receipt.approval_status != ApprovalStatus.deleted.value,
+        )
+    ))
+    if not rows:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "取込バッチが見つかりません")
+    label = (body.label or "").strip()
+    for r in rows:
+        cm = dict(r.capture_meta or {})
+        if label:
+            cm["card_batch_label"] = label
+        else:
+            cm.pop("card_batch_label", None)  # 空=既定(取込日)に戻す
+        r.capture_meta = cm
+    return {"label": label}
