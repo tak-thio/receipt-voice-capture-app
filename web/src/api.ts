@@ -210,12 +210,14 @@ export interface CardStatementLine {
   card_batch_id?: string | null // 取込バッチ(塊)。同じ取込の全行が共有
   imported_at?: string | null // 取込日時
   card_batch_label?: string | null // バッチ名(未設定なら既定=取込日)
+  link_manual?: boolean // true=人が紐付け/領収書なしを設定 / false=システム自動
 }
 export interface CardStatementList {
   items: CardStatementLine[]
   total: number
   missing: number // 領収書が見つからない明細の件数
   dup_total: number // 重複候補の件数
+  unresolved?: number // 要対応(領収書なし かつ 手動確定でない)
 }
 
 // 元帳 (ledger) = 仕分け済みの仕訳一覧。借方/貸方/取引先は解決済みの表示文字列。
@@ -431,6 +433,11 @@ export const api = {
   renameCardBatch: (batchId: string, label: string) =>
     req<{ label: string }>(`/card-statements/batch/${batchId}/label`, {
       method: 'POST', body: JSON.stringify({ label }),
+    }),
+  // 明細行の領収書紐付けを手動設定。mode: receipt=指定領収書 / none=領収書なし確定 / auto=自動に戻す。
+  setCardLineLink: (lineId: string, mode: 'receipt' | 'none' | 'auto', receiptId?: string) =>
+    req<{ ok: boolean }>(`/card-statements/${lineId}/link`, {
+      method: 'POST', body: JSON.stringify({ mode, receipt_id: receiptId ?? null }),
     }),
   importCardStatement: async (clientId: string, file: File) => {
     const fd = new FormData()

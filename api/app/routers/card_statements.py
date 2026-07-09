@@ -141,20 +141,53 @@ async def list_statements(
             dup_flag[c.id] = c.id != primary.id  # True=重複候補(削除してよい)
 
     imgs = await _images(session, [c.id for c in cards])
+    receipt_by_id = {r.id: r for r in receipts}
+    # ① 手動の紐付け/「領収書なし」確定を先に反映(capture_meta.link_manual)。使った領収書は予約。
+    manual_match: dict = {}   # card.id -> Receipt(手動リンク)
+    manual_none: set = set()  # card.id (手動で「領収書なし」確定)
+    reserved: set = set()     # 手動で使われた領収書id(自動割当から除外)
+    for c in cards:
+        cm = c.capture_meta or {}
+        if not cm.get("link_manual"):
+            continue
+        rid = cm.get("linked_receipt_id")
+        r = None
+        if rid:
+            try:
+                r = receipt_by_id.get(UUID(rid))
+            except (ValueError, TypeError):
+                r = None
+        if r is not None:
+            manual_match[c.id] = r
+            reserved.add(r.id)
+        else:
+            manual_none.add(c.id)  # 手動指定だが領収書なし(or 紐付け先が消えた)
+    # ② 自動: 手動でない行に、予約外の領収書を「1枚=1明細・近い日付優先」で割当(消費)。
+    used: set = set(reserved)
+    auto_match: dict = {}
+    for c in cards:
+        if c.id in manual_match or c.id in manual_none or c.amount_jpy is None or c.captured_at is None:
+            continue
+        cd = c.captured_at.date()
+        best = None
+        for r in by_amount.get(c.amount_jpy, []):
+            if r.id in used or r.captured_at is None:
+                continue
+            dd = abs((r.captured_at.date() - cd).days)
+            if dd <= _MATCH_DAYS and (best is None or dd < best[0]):
+                best = (dd, r)
+        if best:
+            auto_match[c.id] = best[1]
+            used.add(best[1].id)
+
     out = []
     for c in cards:
-        match = None
-        if c.amount_jpy is not None and c.captured_at is not None:
-            cd = c.captured_at.date()
-            best = None
-            for r in by_amount.get(c.amount_jpy, []):
-                if r.captured_at is None:
-                    continue
-                dd = abs((r.captured_at.date() - cd).days)
-                if dd <= _MATCH_DAYS and (best is None or dd < best[0]):
-                    best = (dd, r)
-            if best:
-                match = best[1]
+        if c.id in manual_match:
+            match, manual = manual_match[c.id], True
+        elif c.id in manual_none:
+            match, manual = None, True
+        else:
+            match, manual = auto_match.get(c.id), False
         fid, mime = imgs.get(c.id, (None, None))
         out.append({
             "id": str(c.id),
@@ -163,6 +196,7 @@ async def list_statements(
             "amount_jpy": c.amount_jpy,
             "has_receipt": match is not None,
             "receipt_id": str(match.id) if match else None,
+            "link_manual": manual,  # True=人が設定(紐付け/領収書なし確定) / False=システム自動
             "image_file_id": str(fid) if fid else None,
             "image_mime": mime,
             "dup_key": dup_key.get(c.id),   # 同一なら重複グループ(本体のid)。null=単独
@@ -176,6 +210,8 @@ async def list_statements(
         "total": len(out),
         "missing": sum(1 for x in out if not x["has_receipt"]),
         "dup_total": sum(1 for x in out if x["is_dup"]),  # 重複候補の件数
+        # 要対応 = 領収書なし かつ 手動確定でない(未確定)。ここが無限に溜まる分。
+        "unresolved": sum(1 for x in out if not x["has_receipt"] and not x["link_manual"]),
     }
 
 
@@ -232,3 +268,34 @@ async def rename_batch(
             cm.pop("card_batch_label", None)  # 空=既定(取込日)に戻す
         r.capture_meta = cm
     return {"label": label}
+
+
+class LinkBody(BaseModel):
+    mode: str = "auto"            # 'receipt' | 'none' | 'auto'
+    receipt_id: str | None = None
+
+
+@router.post("/{line_id}/link")
+async def set_line_link(
+    line_id: UUID,
+    body: LinkBody,
+    _: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """明細行の領収書紐付けを手動設定。mode: receipt=指定領収書に紐付け / none=「領収書なし」確定 /
+    auto=自動照合に戻す。手動設定は capture_meta(link_manual, linked_receipt_id)に保存し、自動より優先。"""
+    c = await session.get(Receipt, line_id)
+    if c is None or c.doc_type != "card_statement":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "明細行が見つかりません")
+    cm = dict(c.capture_meta or {})
+    if body.mode == "receipt" and body.receipt_id:
+        cm["link_manual"] = True
+        cm["linked_receipt_id"] = body.receipt_id
+    elif body.mode == "none":
+        cm["link_manual"] = True
+        cm.pop("linked_receipt_id", None)
+    else:  # auto
+        cm.pop("link_manual", None)
+        cm.pop("linked_receipt_id", None)
+    c.capture_meta = cm
+    return {"ok": True, "mode": body.mode}
