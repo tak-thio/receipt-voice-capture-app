@@ -409,6 +409,16 @@ def _coerce_merge_value(field: str, val):
     return str(val)
 
 
+def _merge_note_ids(*lists) -> list:
+    """複数の note_ids(付箋)を順序保持で和集合。まとめ=元→統合伝票, ばらす=統合伝票→元 の引き継ぎに使う。"""
+    out: list = []
+    for lst in lists:
+        for nid in (lst or []):
+            if nid not in out:
+                out.append(nid)
+    return out
+
+
 @router.post("/merge")
 async def merge_receipts(
     body: MergeBody,
@@ -468,6 +478,8 @@ async def merge_receipts(
         cm = dict(voucher.capture_meta or {})
         cm["merged_from"] = list(cm.get("merged_from") or []) + [str(s.id) for s in adding]
         voucher.capture_meta = cm
+        # 追加した元の付箋も統合伝票に引き継ぐ(既存の付箋は保持)。
+        voucher.note_ids = _merge_note_ids(voucher.note_ids, *[s.note_ids for s in adding])
         merged_n = len(adding)
         summary = f"統合伝票に{len(adding)}件を追加"
     else:
@@ -476,6 +488,7 @@ async def merge_receipts(
             source=base.source, doc_type="receipt", created_by=principal.user.id,
             approval_status=ApprovalStatus.pending.value,
             **{f: chosen(f) for f in _MERGE_FIELDS},
+            note_ids=_merge_note_ids(*[s.note_ids for s in sources]),  # 元の付箋を統合伝票に引き継ぐ
             capture_meta={"merged_from": [str(s.id) for s in sources]},
         )
         session.add(voucher)
@@ -512,6 +525,8 @@ async def unmerge_receipts(
     if not children:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "この領収書はマージされていません")
     for c in children:
+        # ばらすとき: 統合伝票の付箋を復元する各元にも引き継ぐ(まとめ後に付けた付箋も戻す。既存は保持)。
+        c.note_ids = _merge_note_ids(c.note_ids, voucher.note_ids)
         c.merged_into = None  # 元を復元(受信箱に戻る)
     voucher.approval_status = ApprovalStatus.deleted.value  # 統合伝票は削除(消えたように)
     await audit.log_audit(
