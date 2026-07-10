@@ -1,9 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { clearMocks, mockIPC } from '@tauri-apps/api/mocks'
 
-import { getBillingSubscription } from '../src/api/server-api'
+import {
+  getBillingSubscription,
+  verifyStorePurchase,
+} from '../src/api/server-api'
+import {
+  accountDeletionConfirmation,
+  currentBillingPlatform,
+  restoreProSubscription,
+  upgradeToPro,
+} from '../src/services/billing/native-billing'
 
 describe('billing subscription API', () => {
   afterEach(() => {
+    clearMocks()
     vi.unstubAllGlobals()
   })
 
@@ -33,6 +44,180 @@ describe('billing subscription API', () => {
           'content-type': 'application/json',
         },
       },
+    )
+  })
+
+  it('verifies an Android purchase through the Google endpoint', async () => {
+    const result = { active: true, plan: 'pro', used: 3, cap: 500 }
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(result), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(verifyStorePurchase('https://api.example.test/', 'device-token', {
+      platform: 'google',
+      productId: 'pro_monthly',
+      purchaseToken: 'play-token',
+    })).resolves.toEqual(result)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.test/billing/google/verify',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer device-token',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ purchase_token: 'play-token', product_id: 'pro_monthly' }),
+      },
+    )
+  })
+
+  it('verifies an iOS purchase through the Apple endpoint', async () => {
+    const result = { active: true, plan: 'pro', used: 3, cap: 500 }
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(result), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(verifyStorePurchase('https://api.example.test/', 'device-token', {
+      platform: 'apple',
+      productId: 'pro_monthly',
+      transactionId: 'transaction-id',
+      originalTransactionId: 'original-transaction-id',
+      signedTransactionInfo: 'signed-transaction',
+    })).resolves.toEqual(result)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.test/billing/apple/verify',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer device-token',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          signed_transaction_info: 'signed-transaction',
+          transaction_id: 'transaction-id',
+          original_transaction_id: 'original-transaction-id',
+          product_id: 'pro_monthly',
+        }),
+      },
+    )
+  })
+
+  it('rejects a Google purchase without a purchase token before fetching', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(verifyStorePurchase('https://api.example.test', 'device-token', {
+      platform: 'google',
+      productId: 'pro_monthly',
+    })).rejects.toThrow('Google Play の購入トークンが必要です')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects an Apple purchase without signed transaction data or a transaction ID before fetching', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(verifyStorePurchase('https://api.example.test', 'device-token', {
+      platform: 'apple',
+      productId: 'pro_monthly',
+    })).rejects.toThrow('App Store の取引情報が必要です')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('detects App Store billing only in the iOS Tauri runtime', () => {
+    vi.stubGlobal('isTauri', true)
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' })
+
+    expect(currentBillingPlatform()).toBe('apple')
+  })
+
+  it('uses the Apple verification path after an iOS native purchase', async () => {
+    vi.stubGlobal('isTauri', true)
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' })
+    mockIPC((command) => {
+      expect(command).toBe('native_subscribe')
+      return {
+        platform: 'apple',
+        productId: 'pro_monthly',
+        transactionId: 'transaction-id',
+        originalTransactionId: 'original-transaction-id',
+        signedTransactionInfo: 'signed-transaction',
+      }
+    })
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ active: true, plan: 'pro', used: 3, cap: 500 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await upgradeToPro('https://api.example.test', 'device-token')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.test/billing/apple/verify',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('rejects a native purchase whose platform does not match the current store', async () => {
+    vi.stubGlobal('isTauri', true)
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' })
+    mockIPC(() => ({
+      platform: 'google',
+      productId: 'pro_monthly',
+      purchaseToken: 'play-token',
+    }))
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      upgradeToPro('https://api.example.test', 'device-token'),
+    ).rejects.toThrow('購入情報のストアが実行中の端末と一致しません')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('restores an iOS subscription and verifies the restored transaction', async () => {
+    vi.stubGlobal('isTauri', true)
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)' })
+    mockIPC((command) => {
+      expect(command).toBe('native_restore_subscription')
+      return {
+        platform: 'apple',
+        productId: 'pro_monthly',
+        transactionId: 'restored-transaction-id',
+      }
+    })
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ active: true, plan: 'pro', used: 3, cap: 500 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await restoreProSubscription('https://api.example.test', 'device-token')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.test/billing/apple/verify',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('warns that Apple subscriptions remain managed by the Apple account after deletion', () => {
+    expect(accountDeletionConfirmation('apple')).toContain(
+      'App Store のサブスクリプションは退会後も Apple アカウント側で管理されます。',
+    )
+    expect(accountDeletionConfirmation('apple')).toContain(
+      '請求を停止するには、退会前に「サブスクリプションを管理」から解約してください。',
     )
   })
 })

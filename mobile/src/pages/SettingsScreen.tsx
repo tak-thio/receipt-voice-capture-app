@@ -1,11 +1,19 @@
 import { useEffect, useState } from 'react'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import {
-  ApiError, deleteIndividualAccount, driveConnectUrl, driveExport, driveStatus, individualClaim,
+  ApiError, deleteIndividualAccount, driveConnectUrl, driveExport, driveStatus, getBillingSubscription, individualClaim,
   updateIndividualName,
+  type BillingSubscription,
 } from '../api/server-api'
 import { toUserMessage } from '../lib/errors'
-import { isBillingAvailable, upgradeToPro } from '../services/billing/native-billing'
+import {
+  accountDeletionConfirmation,
+  currentBillingPlatform,
+  currentStoreLabel,
+  isBillingAvailable,
+  manageAppleSubscription,
+  upgradeToPro,
+} from '../services/billing/native-billing'
 import { useAppStore } from '../store/app-store'
 
 const PLAN_LABEL: Record<string, string> = {
@@ -29,6 +37,9 @@ export function SettingsScreen() {
   const [driveConnected, setDriveConnected] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState('')
+  const [billingSubscription, setBillingSubscription] = useState<BillingSubscription | null>(null)
+  const billingPlatform = currentBillingPlatform()
+  const storeLabel = currentStoreLabel()
 
   // 連携済みか確認(個人のみ。Drive エクスポートの出し分け用)。
   useEffect(() => {
@@ -36,8 +47,10 @@ export function SettingsScreen() {
     driveStatus(connection.serverUrl, connection.deviceToken)
       .then((s) => setDriveConnected(s.connected))
       .catch((e) => console.error('[drive.status]', e)) // 非致命: 未連携扱いで続行(ログだけ残す)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    getBillingSubscription(connection.serverUrl, connection.deviceToken)
+      .then(setBillingSubscription)
+      .catch((e) => console.error('[billing.subscription]', e))
+  }, [connection.deviceToken, connection.serverUrl, individual])
 
   // 匿名アカウントにメール/パスワードを登録(遅延サインアップ)。device token はそのまま使い続ける。
   async function register() {
@@ -68,6 +81,9 @@ export function SettingsScreen() {
       const r = await upgradeToPro(connection.serverUrl, connection.deviceToken)
       if (r.active) {
         setConnection({ ...connection, plan: r.plan })
+        getBillingSubscription(connection.serverUrl, connection.deviceToken)
+          .then(setBillingSubscription)
+          .catch((e) => console.error('[billing.subscription]', e))
         showToast('サブスクを開始しました。今月から月500枚まで解析できます。')
       } else {
         showToast('購入を確認しています。反映まで少しお待ちください。')
@@ -97,7 +113,7 @@ export function SettingsScreen() {
   }
 
   async function remove() {
-    if (!window.confirm('退会すると、取り込んだ領収書データはすべて削除され、Pro サブスクをご契約中の場合は自動的に解約されます。元に戻せません。退会しますか？')) return
+    if (!window.confirm(accountDeletionConfirmation(billingSubscription?.platform ?? null))) return
     setBusy(true)
     try {
       await deleteIndividualAccount(connection.serverUrl, connection.deviceToken)
@@ -106,6 +122,14 @@ export function SettingsScreen() {
     } catch (e) {
       showToast(toUserMessage(e, '退会に失敗しました', 'account.delete'))
       setBusy(false)
+    }
+  }
+
+  async function manageSubscription() {
+    try {
+      await manageAppleSubscription()
+    } catch (e) {
+      showToast(toUserMessage(e, 'サブスクリプション管理画面を開けませんでした', 'billing.manage'))
     }
   }
 
@@ -205,8 +229,17 @@ export function SettingsScreen() {
 
       {individual && plan === 'free' && isBillingAvailable() && (
         <p className="muted small">
-          無料プランは月30枚まで。上の「プラン」からアップグレードすると月500枚まで解析できます（¥3,000/月・税込）。お支払い・解約は Google Play で管理されます。
+          無料プランは月30枚まで。上の「プラン」からアップグレードすると月500枚まで解析できます（¥3,000/月・税込）。お支払い・解約は {storeLabel} で管理されます。
         </p>
+      )}
+
+      {individual && billingSubscription?.platform === 'apple' && billingPlatform === 'apple' && (
+        <>
+          <button className="ghost-button" disabled={busy} onClick={() => void manageSubscription()}>
+            サブスクリプションを管理
+          </button>
+          <p className="muted small">App Store のサブスクリプションは Apple アカウント側で管理されます。</p>
+        </>
       )}
 
       {individual && (
