@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
@@ -25,6 +25,25 @@ settings = get_settings()
 class VerifyBody(BaseModel):
     purchase_token: str
     product_id: str | None = None
+
+
+class AppleVerifyBody(BaseModel):
+    signed_transaction_info: str | None = None
+    transaction_id: str | None = None
+    original_transaction_id: str | None = None
+    product_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_transaction_source(self):
+        if not (self.signed_transaction_info or self.transaction_id):
+            raise ValueError("署名済み取引情報または取引IDが必要です")
+        if self.product_id and self.product_id != settings.apple_pro_product_id:
+            raise ValueError("対象外の商品です")
+        return self
+
+
+class AppleNotificationBody(BaseModel):
+    signedPayload: str
 
 
 @router.post("/google/verify")
@@ -66,6 +85,151 @@ async def google_verify(
         "active": result["active"],
         "used": await metering.monthly_usage(session, firm_id),
         "cap": plans.monthly_cap(plan),
+    }
+
+
+@router.post("/apple/verify")
+async def apple_verify(
+    body: AppleVerifyBody,
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """App Store の取引を検証し、有効なら pro を付与する。"""
+    firm_id = principal.memberships[0].firm_id if principal.memberships else None
+    if not firm_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "アカウントがありません")
+
+    product_id = settings.apple_pro_product_id
+    result = await run_in_threadpool(
+        billing.verify_apple_subscription,
+        signed_transaction_info=body.signed_transaction_info,
+        transaction_id=body.transaction_id,
+        product_id=product_id,
+    )
+    if result is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "課金が未設定、または検証に失敗しました")
+
+    new_status = "active" if result["active"] else result["state"]
+    sub = await session.scalar(
+        select(Subscription).where(
+            Subscription.firm_id == firm_id,
+            Subscription.platform == "apple",
+            Subscription.purchase_token == result["purchase_token"],
+        )
+    )
+    if sub:
+        sub.product_id = result["product_id"]
+        sub.status = new_status
+        sub.current_period_end = result["expiry"]
+    else:
+        session.add(
+            Subscription(
+                firm_id=firm_id,
+                platform="apple",
+                product_id=result["product_id"],
+                purchase_token=result["purchase_token"],
+                status=new_status,
+                current_period_end=result["expiry"],
+            )
+        )
+
+    firm = await session.get(Firm, firm_id)
+    if firm and result["active"] and firm.plan != plans.PLAN_BUSINESS:
+        firm.plan = plans.PLAN_PRO
+    await session.flush()
+    plan = firm.plan if firm else None
+    return {
+        "plan": plan,
+        "active": result["active"],
+        "used": await metering.monthly_usage(session, firm_id),
+        "cap": plans.monthly_cap(plan),
+    }
+
+
+@router.post("/apple/notifications")
+async def apple_notifications(body: AppleNotificationBody):
+    """App Store Server Notifications V2 を検証して購読状態を更新する。"""
+    result = await run_in_threadpool(
+        billing.verify_apple_notification,
+        signed_payload=body.signedPayload,
+        product_id=settings.apple_pro_product_id,
+    )
+    if result is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "verify unavailable")
+    if result["test"]:
+        return {"ok": True, "test": True}
+
+    async with OwnerSessionLocal() as session:
+        async with session.begin():
+            sub = await session.scalar(
+                select(Subscription).where(
+                    Subscription.platform == "apple",
+                    Subscription.purchase_token == result["purchase_token"],
+                )
+            )
+            if not sub:
+                return {"ok": True}
+
+            if (
+                sub.current_period_end
+                and result["expiry"]
+                and result["expiry"] < sub.current_period_end
+            ):
+                return {"ok": True}
+
+            sub.status = result["state"]
+            sub.current_period_end = result["expiry"]
+            firm = await session.get(Firm, sub.firm_id)
+            if firm:
+                if result["active"]:
+                    if firm.plan != plans.PLAN_BUSINESS:
+                        firm.plan = plans.PLAN_PRO
+                elif firm.plan == plans.PLAN_PRO:
+                    firm.plan = plans.PLAN_FREE
+    return {"ok": True}
+
+
+def _subscription_is_active(sub: Subscription) -> bool:
+    state = (sub.status or "").upper()
+    if any(keyword in state for keyword in (*_REVOKED_KEYWORDS, "REFUND", "VOIDED", "BILLING_RETRY")):
+        return False
+    period_end = sub.current_period_end
+    return bool(period_end and period_end > datetime.now(timezone.utc))
+
+
+@router.get("/subscription")
+async def billing_subscription(
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """現在の firm に紐づく最新のストア購読状態を返す。"""
+    firm_id = principal.memberships[0].firm_id if principal.memberships else None
+    if not firm_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "アカウントがありません")
+
+    sub = await session.scalar(
+        select(Subscription)
+        .where(Subscription.firm_id == firm_id)
+        .order_by(
+            Subscription.current_period_end.desc().nullslast(),
+            Subscription.created_at.desc(),
+        )
+        .limit(1)
+    )
+    if not sub:
+        return {
+            "active": False,
+            "platform": None,
+            "productId": None,
+            "currentPeriodEnd": None,
+        }
+    return {
+        "active": _subscription_is_active(sub),
+        "platform": sub.platform,
+        "productId": sub.product_id,
+        "currentPeriodEnd": (
+            sub.current_period_end.isoformat() if sub.current_period_end else None
+        ),
     }
 
 

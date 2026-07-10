@@ -398,6 +398,20 @@ export interface VerifyPurchaseResult extends UsageInfo {
   active: boolean // 購読が有効(active/猶予期間)なら true。false なら pro 付与されない。
 }
 
+export interface BillingSubscription {
+  active: boolean
+  platform: 'google' | 'apple' | null
+  productId: string | null
+  currentPeriodEnd: string | null
+}
+
+/** 現在のストア購読状態。管理先(Google Play / App Store)の表示判定に使う。 */
+export function getBillingSubscription(
+  serverUrl: string, deviceToken: string,
+): Promise<BillingSubscription> {
+  return expenseReq<BillingSubscription>(serverUrl, deviceToken, '/billing/subscription')
+}
+
 /** アプリ内課金(IAP / ⑤): Play の購入トークンをサーバで検証し、有効なら pro を付与する。
  * 端末が Play Billing で購入した直後に呼ぶ。戻り値は最新の plan/used/cap と有効フラグ。 */
 export function verifyPurchase(
