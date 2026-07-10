@@ -23,6 +23,9 @@
     }
   },
   "bundle": {
+    "android": {
+      "versionCode": 1000004
+    },
     "iOS": {
       "developmentTeam": "UHPB9Y4TX2"
     }
