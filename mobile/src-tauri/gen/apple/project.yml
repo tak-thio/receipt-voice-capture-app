@@ -2,7 +2,7 @@ name: receipt_voice_capture
 options:
   bundleIdPrefix: com.itsherpa.ffreceipt
   deploymentTarget:
-    iOS: 14.0
+    iOS: 15.0
 fileGroups: [../../src]
 configs:
   debug: debug
@@ -82,6 +82,7 @@ targets:
       - sdk: MetalKit.framework
       - sdk: QuartzCore.framework
       - sdk: Security.framework
+      - sdk: StoreKit.framework
       - sdk: UIKit.framework
       - sdk: WebKit.framework
     preBuildScripts:

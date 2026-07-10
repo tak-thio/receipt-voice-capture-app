@@ -27,7 +27,8 @@
       "versionCode": 1000004
     },
     "iOS": {
-      "developmentTeam": "UHPB9Y4TX2"
+      "developmentTeam": "UHPB9Y4TX2",
+      "minimumSystemVersion": "15.0"
     }
   }
 }

@@ -30,11 +30,11 @@ export function isBillingAvailable(): boolean {
   return currentBillingPlatform() !== null
 }
 
-export function currentStoreLabel(): string | null {
+export function currentStoreLabel(): 'Google Play' | 'App Store' | 'ストア' {
   const platform = currentBillingPlatform()
   if (platform === 'apple') return 'App Store'
   if (platform === 'google') return 'Google Play'
-  return null
+  return 'ストア'
 }
 
 /** 退会前に表示するストア別の確認文言。 */

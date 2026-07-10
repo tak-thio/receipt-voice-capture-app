@@ -13,6 +13,7 @@
 		6FC373AD542862FC3B1532A0 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = BD555CF8021239F58CE89850 /* main.mm */; };
 		7EB0FC567D81A8906B6FA3E2 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9BCFBA091278BDF1F2A52D50 /* MetalKit.framework */; };
 		939E50FA60CC6D5E5D5CD3AB /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 731E452671AEAB7EA39CEEF8 /* Metal.framework */; };
+		950AA911506586846D6D241E /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 33CB7AF970688DDA842D9CD0 /* StoreKit.framework */; };
 		9E7CB9E46E3A11A6ECDF3BA6 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FBA24927D15FA40570E78DC0 /* Security.framework */; };
 		9EEEB131114207C45E22135C /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 52A89828E50B25739D0FA050 /* libapp.a */; };
 		B544A74FFCFB8E3BD507E7FC /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 432B577A4A2F34AE750C80E3 /* QuartzCore.framework */; };
@@ -28,6 +29,7 @@
 		1AF30EA6638D224F49D2F503 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
 		2E0E3145452352D9B601E073 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		311CB2E1BB4A7A5762D54BC7 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		33CB7AF970688DDA842D9CD0 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 		37B639C2F300D52F91ED664E /* api_keys.rs */ = {isa = PBXFileReference; path = api_keys.rs; sourceTree = "<group>"; };
 		42A7EC250F22A164AC8CDBB7 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
 		432B577A4A2F34AE750C80E3 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
@@ -71,6 +73,7 @@
 				7EB0FC567D81A8906B6FA3E2 /* MetalKit.framework in Frameworks */,
 				B544A74FFCFB8E3BD507E7FC /* QuartzCore.framework in Frameworks */,
 				9E7CB9E46E3A11A6ECDF3BA6 /* Security.framework in Frameworks */,
+				950AA911506586846D6D241E /* StoreKit.framework in Frameworks */,
 				CA3D82E18996B442E8E9A559 /* UIKit.framework in Frameworks */,
 				D006FFE613587FEEE25D48A6 /* WebKit.framework in Frameworks */,
 			);
@@ -88,6 +91,7 @@
 				9BCFBA091278BDF1F2A52D50 /* MetalKit.framework */,
 				432B577A4A2F34AE750C80E3 /* QuartzCore.framework */,
 				FBA24927D15FA40570E78DC0 /* Security.framework */,
+				33CB7AF970688DDA842D9CD0 /* StoreKit.framework */,
 				159F1E48F9E179A96D59C46E /* UIKit.framework */,
 				5827886C0829EDD6F7C93062 /* WebKit.framework */,
 			);
@@ -365,7 +369,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -427,7 +431,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

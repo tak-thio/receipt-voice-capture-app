@@ -12,6 +12,7 @@ import {
   currentStoreLabel,
   isBillingAvailable,
   manageAppleSubscription,
+  restoreProSubscription,
   upgradeToPro,
 } from '../services/billing/native-billing'
 import { useAppStore } from '../store/app-store'
@@ -133,6 +134,30 @@ export function SettingsScreen() {
     }
   }
 
+  async function restoreSubscription() {
+    if (!connection.email) {
+      showToast('購入を復元するには、先にメールアドレスを登録するか、以前のアカウントでログインしてください。')
+      return
+    }
+    setBusy(true)
+    try {
+      const r = await restoreProSubscription(connection.serverUrl, connection.deviceToken)
+      if (r.active) {
+        setConnection({ ...connection, plan: r.plan })
+        getBillingSubscription(connection.serverUrl, connection.deviceToken)
+          .then(setBillingSubscription)
+          .catch((e) => console.error('[billing.subscription]', e))
+        showToast('購入を復元しました。今月から月500枚まで解析できます。')
+      } else {
+        showToast('購入情報を確認できませんでした。時間をおいて再度お試しください。')
+      }
+    } catch (e) {
+      showToast(toUserMessage(e, '購入の復元に失敗しました', 'billing.restore'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   // Drive 連携(ブラウザで同意 → サーバがトークン保存)。
   async function connectDrive() {
     try {
@@ -240,6 +265,12 @@ export function SettingsScreen() {
           </button>
           <p className="muted small">App Store のサブスクリプションは Apple アカウント側で管理されます。</p>
         </>
+      )}
+
+      {individual && billingPlatform === 'apple' && (
+        <button className="ghost-button" disabled={busy} onClick={() => void restoreSubscription()}>
+          購入を復元
+        </button>
       )}
 
       {individual && (

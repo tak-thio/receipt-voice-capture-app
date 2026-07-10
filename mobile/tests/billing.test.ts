@@ -8,6 +8,8 @@ import {
 import {
   accountDeletionConfirmation,
   currentBillingPlatform,
+  currentStoreLabel,
+  isBillingAvailable,
   restoreProSubscription,
   upgradeToPro,
 } from '../src/services/billing/native-billing'
@@ -137,6 +139,26 @@ describe('billing subscription API', () => {
     vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' })
 
     expect(currentBillingPlatform()).toBe('apple')
+    expect(currentStoreLabel()).toBe('App Store')
+    expect(isBillingAvailable()).toBe(true)
+  })
+
+  it('detects Google Play billing in the Android Tauri runtime', () => {
+    vi.stubGlobal('isTauri', true)
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Linux; Android 15)' })
+
+    expect(currentBillingPlatform()).toBe('google')
+    expect(currentStoreLabel()).toBe('Google Play')
+    expect(isBillingAvailable()).toBe(true)
+  })
+
+  it('does not expose native billing in a desktop browser', () => {
+    vi.stubGlobal('isTauri', false)
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X)' })
+
+    expect(currentBillingPlatform()).toBeNull()
+    expect(currentStoreLabel()).toBe('ストア')
+    expect(isBillingAvailable()).toBe(false)
   })
 
   it('uses the Apple verification path after an iOS native purchase', async () => {
