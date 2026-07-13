@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 from datetime import datetime, timezone
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
@@ -16,7 +19,12 @@ from .. import billing, metering, plans
 from ..config import get_settings
 from ..db import OwnerSessionLocal, get_session
 from ..deps import Principal, get_principal
-from ..models import Firm, Subscription
+from ..models import Firm, StoreNotificationEvent, Subscription
+from ..subscription_entitlements import (
+    choose_effective_subscription,
+    is_subscription_entitled,
+    recompute_firm_plan,
+)
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 settings = get_settings()
@@ -25,6 +33,46 @@ settings = get_settings()
 class VerifyBody(BaseModel):
     purchase_token: str
     product_id: str | None = None
+
+
+class AppleVerifyBody(BaseModel):
+    signed_transaction_info: str | None = None
+    transaction_id: str | None = None
+    original_transaction_id: str | None = None
+    product_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_transaction_source(self):
+        if not (self.signed_transaction_info or self.transaction_id):
+            raise ValueError("署名済み取引情報または取引IDが必要です")
+        if self.product_id and self.product_id != settings.apple_pro_product_id:
+            raise ValueError("対象外の商品です")
+        return self
+
+
+class AppleNotificationBody(BaseModel):
+    signedPayload: str
+
+
+@router.get("/apple/purchase-context")
+async def apple_purchase_context(
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """現在の firm 専用の StoreKit appAccountToken を返す。"""
+    firm_id = principal.memberships[0].firm_id if principal.memberships else None
+    if not firm_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "アカウントがありません")
+    # 同一 firm から同時要求されても異なる token を返さないよう行ロックする。
+    firm = await session.scalar(
+        select(Firm).where(Firm.id == firm_id).with_for_update()
+    )
+    if not firm:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "アカウントが見つかりません")
+    if not firm.billing_account_token:
+        firm.billing_account_token = uuid4()
+        await session.flush()
+    return {"appAccountToken": str(firm.billing_account_token)}
 
 
 @router.post("/google/verify")
@@ -69,20 +117,262 @@ async def google_verify(
     }
 
 
-# 解約済み(CANCELED)でも期限内なら維持。返金/失効/ホールド/一時停止は失効扱い。
-_REVOKED_KEYWORDS = ("REVOKED", "EXPIRED", "ON_HOLD", "PAUSED")
+@router.post("/apple/verify")
+async def apple_verify(
+    body: AppleVerifyBody,
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """App Store の取引を検証し、有効なら pro を付与する。"""
+    firm_id = principal.memberships[0].firm_id if principal.memberships else None
+    if not firm_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "アカウントがありません")
+
+    product_id = settings.apple_pro_product_id
+    result = await run_in_threadpool(
+        billing.verify_apple_subscription,
+        signed_transaction_info=body.signed_transaction_info,
+        transaction_id=body.transaction_id,
+        product_id=product_id,
+    )
+    if result is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "課金が未設定、または検証に失敗しました")
+
+    firm = await session.get(Firm, firm_id)
+    signed_account_token = result.get("app_account_token")
+    if signed_account_token:
+        try:
+            signed_account_uuid = UUID(str(signed_account_token))
+        except ValueError as exc:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "購入情報のアカウント識別子が不正です"
+            ) from exc
+        if not firm or firm.billing_account_token != signed_account_uuid:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "この購入は現在のアカウントに紐づいていません",
+            )
+
+    new_status = "active" if result["active"] else result["state"]
+    sub = await session.scalar(
+        select(Subscription).where(
+            Subscription.firm_id == firm_id,
+            Subscription.platform == "apple",
+            Subscription.purchase_token == result["purchase_token"],
+        )
+    )
+    if sub:
+        sub.product_id = result["product_id"]
+        sub.status = new_status
+        sub.current_period_end = result["expiry"]
+        sub.latest_transaction_id = result.get("transaction_id")
+        sub.store_environment = result.get("environment")
+        if signed_account_token:
+            sub.app_account_token = UUID(str(signed_account_token))
+        sub.auto_renew_enabled = result.get("auto_renew_enabled")
+        sub.latest_store_signed_at = result.get("signed_at")
+        sub.last_verified_at = datetime.now(timezone.utc)
+        sub.revoked_at = result.get("revoked_at")
+    else:
+        session.add(
+            Subscription(
+                firm_id=firm_id,
+                platform="apple",
+                product_id=result["product_id"],
+                purchase_token=result["purchase_token"],
+                status=new_status,
+                current_period_end=result["expiry"],
+                latest_transaction_id=result.get("transaction_id"),
+                store_environment=result.get("environment"),
+                app_account_token=(
+                    UUID(str(signed_account_token)) if signed_account_token else None
+                ),
+                auto_renew_enabled=result.get("auto_renew_enabled"),
+                latest_store_signed_at=result.get("signed_at"),
+                last_verified_at=datetime.now(timezone.utc),
+                revoked_at=result.get("revoked_at"),
+            )
+        )
+
+    if firm and result["active"] and firm.plan != plans.PLAN_BUSINESS:
+        firm.plan = plans.PLAN_PRO
+    try:
+        await session.flush()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "この購入は別のアカウントに紐づいています",
+        ) from exc
+    plan = firm.plan if firm else None
+    return {
+        "plan": plan,
+        "active": result["active"],
+        "used": await metering.monthly_usage(session, firm_id),
+        "cap": plans.monthly_cap(plan),
+    }
 
 
-def _entitled(result: dict) -> bool:
-    """pro を維持すべきか。active(ACTIVE/猶予)なら維持。CANCELED でも期限内なら維持。
-    返金/失効/ホールド/一時停止は失効。"""
-    if result.get("active"):
-        return True
-    state = result.get("state") or ""
-    if any(k in state for k in _REVOKED_KEYWORDS):
-        return False
-    exp = result.get("expiry")
-    return bool(exp and exp > datetime.now(timezone.utc))
+async def _process_apple_notification(
+    body: AppleNotificationBody,
+    expected_environment: str | None,
+):
+    result = await run_in_threadpool(
+        billing.verify_apple_notification,
+        signed_payload=body.signedPayload,
+        product_id=settings.apple_pro_product_id,
+        expected_environment=expected_environment,
+    )
+    if result is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "verify unavailable")
+    actual_environment = result.get("environment")
+    if (
+        expected_environment
+        and actual_environment
+        and actual_environment != expected_environment
+    ):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "通知の App Store 環境が URL と一致しません",
+        )
+    if result["test"]:
+        return {"ok": True, "test": True}
+
+    async with OwnerSessionLocal() as session:
+        async with session.begin():
+            notification_uuid = result.get("notification_uuid") or hashlib.sha256(
+                body.signedPayload.encode()
+            ).hexdigest()
+            existing_event = await session.scalar(
+                select(StoreNotificationEvent).where(
+                    StoreNotificationEvent.notification_uuid == notification_uuid
+                )
+            )
+            if existing_event:
+                existing_event.attempts = (existing_event.attempts or 0) + 1
+                return {"ok": True, "duplicate": True}
+
+            event = StoreNotificationEvent(
+                platform="apple",
+                environment=actual_environment or expected_environment,
+                notification_uuid=notification_uuid,
+                purchase_token=result.get("purchase_token"),
+                signed_payload=body.signedPayload,
+                signed_at=result.get("signed_at"),
+                status="received",
+                attempts=1,
+            )
+            session.add(event)
+            try:
+                await session.flush()
+            except IntegrityError:
+                # 同じ UUID が同時到着した場合も Apple には成功として ack する。
+                await session.rollback()
+                return {"ok": True, "duplicate": True}
+            sub = await session.scalar(
+                select(Subscription).where(
+                    Subscription.platform == "apple",
+                    Subscription.purchase_token == result["purchase_token"],
+                )
+            )
+            if not sub:
+                event.status = "pending"
+                return {"ok": True}
+
+            event.subscription_id = getattr(sub, "id", None)
+            current_signed_at = getattr(sub, "latest_store_signed_at", None)
+            incoming_signed_at = result.get("signed_at")
+            if current_signed_at and incoming_signed_at and incoming_signed_at < current_signed_at:
+                event.status = "ignored_stale"
+                event.processed_at = datetime.now(timezone.utc)
+                return {"ok": True}
+
+            if (
+                sub.current_period_end
+                and result["expiry"]
+                and result["expiry"] < sub.current_period_end
+            ):
+                event.status = "ignored_stale"
+                event.processed_at = datetime.now(timezone.utc)
+                return {"ok": True}
+
+            sub.status = result["state"]
+            sub.current_period_end = result["expiry"]
+            sub.latest_transaction_id = result.get("transaction_id")
+            sub.store_environment = actual_environment
+            account_token = result.get("app_account_token")
+            sub.app_account_token = UUID(str(account_token)) if account_token else getattr(
+                sub, "app_account_token", None
+            )
+            sub.auto_renew_enabled = result.get("auto_renew_enabled")
+            sub.latest_store_signed_at = incoming_signed_at
+            sub.last_verified_at = datetime.now(timezone.utc)
+            sub.revoked_at = result.get("revoked_at")
+            await recompute_firm_plan(session, sub.firm_id)
+            event.status = "processed"
+            event.processed_at = datetime.now(timezone.utc)
+    return {"ok": True}
+
+
+@router.post("/apple/notifications")
+async def apple_notifications(body: AppleNotificationBody):
+    """既存設定向け互換入口。環境は payload／server 設定から検証する。"""
+    return await _process_apple_notification(body, None)
+
+
+@router.post("/apple/notifications/{environment}")
+async def apple_notifications_for_environment(
+    environment: str,
+    body: AppleNotificationBody,
+):
+    """Sandbox／Production を URL でも分離した ASSN V2 入口。"""
+    normalized = environment.strip().lower()
+    if normalized not in {"sandbox", "production"}:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "未対応の App Store 環境です")
+    return await _process_apple_notification(body, normalized)
+
+
+def _subscription_is_active(sub: Subscription) -> bool:
+    return is_subscription_entitled(sub)
+
+
+@router.get("/subscription")
+async def billing_subscription(
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """現在の firm に紐づく最新のストア購読状態を返す。"""
+    firm_id = principal.memberships[0].firm_id if principal.memberships else None
+    if not firm_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "アカウントがありません")
+
+    subscriptions = list(await session.scalars(
+        select(Subscription)
+        .where(Subscription.firm_id == firm_id)
+        .order_by(
+            Subscription.current_period_end.desc().nullslast(),
+            Subscription.created_at.desc(),
+        )
+    ))
+    # 有効な別 platform があればそれを優先する。全て失効済みなら従来どおり最新行を返す。
+    sub = choose_effective_subscription(subscriptions) or (
+        subscriptions[0] if subscriptions else None
+    )
+    if not sub:
+        return {
+            "active": False,
+            "platform": None,
+            "productId": None,
+            "currentPeriodEnd": None,
+        }
+    return {
+        "active": _subscription_is_active(sub),
+        "platform": sub.platform,
+        "productId": sub.product_id,
+        "currentPeriodEnd": (
+            sub.current_period_end.isoformat() if sub.current_period_end else None
+        ),
+    }
 
 
 @router.post("/google/rtdn")
@@ -128,18 +418,11 @@ async def google_rtdn(request: Request, token: str = ""):
             )
             if not sub:
                 return {"ok": True}  # 未知トークン(初回検証前など)。何もしない。
-            firm = await session.get(Firm, sub.firm_id)
             if voided:
                 sub.status = "voided"
-                if firm and firm.plan == plans.PLAN_PRO:
-                    firm.plan = plans.PLAN_FREE  # 返金/チャージバックは即失効
+                await recompute_firm_plan(session, sub.firm_id)
                 return {"ok": True}
             sub.status = "active" if result["active"] else result["state"]
             sub.current_period_end = result["expiry"]
-            if firm:
-                if _entitled(result):
-                    if firm.plan != plans.PLAN_BUSINESS:
-                        firm.plan = plans.PLAN_PRO
-                elif firm.plan == plans.PLAN_PRO:
-                    firm.plan = plans.PLAN_FREE
+            await recompute_firm_plan(session, sub.firm_id)
     return {"ok": True}
