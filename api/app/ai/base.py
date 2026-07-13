@@ -16,12 +16,15 @@ class ExtractedReceipt:
     """Structured fields parsed from a receipt (the `format` step output)."""
 
     vendor: str | None = None
-    amount_jpy: int | None = None  # 合計金額(税込)
-    subtotal_jpy: int | None = None  # 税抜金額
+    amount_jpy: int | None = None  # 合計金額(税込・日本円が印字されている場合のみ)
+    subtotal_jpy: int | None = None  # 税抜金額(同上)
     tax_jpy: int | None = None  # 消費税合計
-    tax_10_jpy: int | None = None  # 消費税(10%対象分)
-    tax_8_jpy: int | None = None  # 消費税(8%対象分)
+    # 消費税内訳 [{"label":"10%","tax_jpy":3184,"base_jpy":31840}]。label=書面の表記そのまま。
+    tax_lines: list | None = None
     tax_mode: str | None = None
+    currency: str | None = None  # 支払通貨("USD"等)。円建ては None
+    foreign_amount: float | None = None  # 現地(外貨)支払総額 例 220.00
+    exchange_rate: float | None = None  # 換算レート(カード明細行) 例 165.49
     payment_method: str | None = None
     t_number: str | None = None
     date: str | None = None

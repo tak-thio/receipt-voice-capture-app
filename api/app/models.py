@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import enum
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -18,6 +19,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -92,6 +94,10 @@ class Firm(Base, TimestampMixin):
     ai_config: Mapped[dict] = mapped_column(JSONB, default=dict)
     plan: Mapped[str] = mapped_column(String(50), default="free")
     status: Mapped[str] = mapped_column(String(50), default="active")
+    # StoreKit appAccountToken。既存 firm は purchase-context 初回取得時に遅延生成する。
+    billing_account_token: Mapped[UUID | None] = mapped_column(
+        unique=True, nullable=True
+    )
 
 
 class User(Base, TimestampMixin):
@@ -286,9 +292,20 @@ class Receipt(Base, TimestampMixin):
     amount_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 合計金額(税込)
     subtotal_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 税抜金額
     tax_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 消費税合計
-    tax_10_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 消費税(10%対象分)
-    tax_8_jpy: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 消費税(8%対象分)
+    # 消費税内訳(行リスト) [{"label":"10%","tax_jpy":3184,"base_jpy":31840}, ...]。
+    # label は書面の表記そのまま(10%/8%/その他/非課税/対象外/将来の新税率)。税率マスタは
+    # 持たず計算もしない=請求書通りに保存(丸め方が発行者ごとに違い、計算しても一致しない)。
+    # 円と整合しない外貨建てのJCT等は「その他」。旧 tax_10_jpy/tax_8_jpy 列はDBに残置
+    # (0037 で tax_lines へ変換済み・モデルからは撤去)。
+    tax_lines: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     tax_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # 外貨取引(書面の印字値そのまま。円建ては全て NULL)。照合キーは (currency, foreign_amount)
+    # =例 $220↔$220。円は発行者/カード会社で換算レートが違い一致しないため照合に使わない。
+    # 外貨領収書の amount_jpy は「実際に引き落とされた円」が確定するまで空のまま
+    # (確定してない金額はセットしない — AIが換算・逆算で作るのは禁止)。
+    currency: Mapped[str | None] = mapped_column(String(8), nullable=True)  # "USD" 等(明細のJPY明記行は"JPY")
+    foreign_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)  # 現地ご利用額 220.00
+    exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(12, 6), nullable=True)  # 換算レート 165.49(カード明細行)
     payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
     t_number: Mapped[str | None] = mapped_column(String(20), nullable=True)  # インボイス番号
     description: Mapped[str | None] = mapped_column(Text, nullable=True)  # 摘要 (仕訳の説明。AI生成 + 手修正可)
@@ -422,6 +439,41 @@ class Subscription(Base, TimestampMixin):
     purchase_token: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(40), default="active")  # active | canceled | expired ...
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    latest_transaction_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    store_environment: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    app_account_token: Mapped[UUID | None] = mapped_column(nullable=True, index=True)
+    auto_renew_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    latest_store_signed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class StoreNotificationEvent(Base, TimestampMixin):
+    """ストア通知の durable inbox。webhook は先に保存し、冪等かつ順序付きで反映する。"""
+
+    __tablename__ = "store_notification_events"
+    __table_args__ = (
+        UniqueConstraint("notification_uuid", name="uq_store_notification_uuid"),
+    )
+
+    id: Mapped[UUID] = _uuid_pk()
+    platform: Mapped[str] = mapped_column(String(20), default="apple")
+    environment: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    notification_uuid: Mapped[str] = mapped_column(String(100))
+    purchase_token: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    signed_payload: Mapped[str] = mapped_column(Text)
+    signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="received", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    subscription_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("subscriptions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class DriveConnection(Base, TimestampMixin):

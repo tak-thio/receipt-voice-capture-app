@@ -70,9 +70,12 @@ def _apply_fields(receipt: Receipt, fields) -> None:
     receipt.amount_jpy = receipt.amount_jpy or fields.amount_jpy
     receipt.subtotal_jpy = receipt.subtotal_jpy or fields.subtotal_jpy
     receipt.tax_jpy = receipt.tax_jpy or fields.tax_jpy
-    receipt.tax_10_jpy = receipt.tax_10_jpy or fields.tax_10_jpy
-    receipt.tax_8_jpy = receipt.tax_8_jpy or fields.tax_8_jpy
+    receipt.tax_lines = receipt.tax_lines or getattr(fields, "tax_lines", None)
     receipt.tax_mode = receipt.tax_mode or fields.tax_mode
+    # 外貨(書面の印字値そのまま)。円建て取引では全て None。
+    receipt.currency = receipt.currency or getattr(fields, "currency", None)
+    receipt.foreign_amount = receipt.foreign_amount or getattr(fields, "foreign_amount", None)
+    receipt.exchange_rate = receipt.exchange_rate or getattr(fields, "exchange_rate", None)
     receipt.payment_method = receipt.payment_method or fields.payment_method
     receipt.t_number = receipt.t_number or fields.t_number
     receipt.description = receipt.description or getattr(fields, "description", None)

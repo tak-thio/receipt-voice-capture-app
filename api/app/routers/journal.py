@@ -21,6 +21,14 @@ from ..models import UNPARSED_VENDOR, AccountTitle, File, Partner, Receipt, Rece
 router = APIRouter(prefix="/journal", tags=["journal"])
 
 
+class TaxLine(BaseModel):
+    """消費税内訳の1行。請求書に印字された値をそのまま保存(計算しない)。
+    label=書面の表記そのまま("10%"/"8%"/"その他"/"非課税"/"対象外"/将来の新税率)。"""
+    label: str | None = None
+    tax_jpy: int | None = None
+    base_jpy: int | None = None
+
+
 class Journalize(BaseModel):
     account_title_id: UUID | None = None  # 借方科目 (debit)
     credit_account_title_id: UUID | None = None  # 貸方科目 (credit)
@@ -33,9 +41,10 @@ class Journalize(BaseModel):
     amount_jpy: int | None = None
     subtotal_jpy: int | None = None
     tax_jpy: int | None = None
-    tax_10_jpy: int | None = None
-    tax_8_jpy: int | None = None
+    tax_lines: list[TaxLine] | None = None  # 消費税内訳(行リスト・請求書通り)
     tax_mode: str | None = None  # inclusive / exclusive / unknown
+    currency: str | None = None  # 外貨コード("USD"等)。円建ては null
+    foreign_amount: float | None = None  # 現地(外貨)支払総額
     payment_method: str | None = None
     t_number: str | None = None  # インボイス番号
     description: str | None = None  # 摘要
@@ -76,10 +85,12 @@ def _apply_journalize_fields(receipt: Receipt, body: "Journalize") -> None:
         receipt.subtotal_jpy = body.subtotal_jpy
     if body.tax_jpy is not None:
         receipt.tax_jpy = body.tax_jpy
-    if body.tax_10_jpy is not None:
-        receipt.tax_10_jpy = body.tax_10_jpy
-    if body.tax_8_jpy is not None:
-        receipt.tax_8_jpy = body.tax_8_jpy
+    if body.tax_lines is not None:
+        receipt.tax_lines = [line.model_dump() for line in body.tax_lines]
+    if body.currency is not None:
+        receipt.currency = body.currency.strip().upper() or None
+    if body.foreign_amount is not None:
+        receipt.foreign_amount = body.foreign_amount
     if body.t_number is not None:
         receipt.t_number = body.t_number or None
     if body.description is not None:
@@ -199,8 +210,9 @@ async def queue(
                 "amount_jpy": r.amount_jpy,
                 "subtotal_jpy": r.subtotal_jpy,
                 "tax_jpy": r.tax_jpy,
-                "tax_10_jpy": r.tax_10_jpy,
-                "tax_8_jpy": r.tax_8_jpy,
+                "tax_lines": r.tax_lines or [],
+                "currency": r.currency,
+                "foreign_amount": float(r.foreign_amount) if r.foreign_amount is not None else None,
                 "date": r.captured_at.date().isoformat() if r.captured_at else None,
                 "source": r.source,
                 "t_number": r.t_number,
@@ -289,8 +301,9 @@ async def ledger(
                 "sub_account_id": str(r.sub_account_id) if r.sub_account_id else None,
                 "partner_id": str(r.partner_id) if r.partner_id else None,
                 "subtotal_jpy": r.subtotal_jpy,
-                "tax_10_jpy": r.tax_10_jpy,
-                "tax_8_jpy": r.tax_8_jpy,
+                "tax_lines": r.tax_lines or [],
+                "currency": r.currency,
+                "foreign_amount": float(r.foreign_amount) if r.foreign_amount is not None else None,
                 "tax_mode": r.tax_mode,
                 "payment_method": r.payment_method,
                 "source": r.source,

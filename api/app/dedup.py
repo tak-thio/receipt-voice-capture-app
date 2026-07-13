@@ -68,9 +68,16 @@ def _components(rows: list[Receipt]) -> list[list[Receipt]]:
 
     buckets: dict = defaultdict(list)
     for r in rows:
-        if _is_split(r) or r.amount_jpy is None or not _date_key(r):
+        if _is_split(r) or not _date_key(r):
             continue
-        buckets[(r.amount_jpy, _date_key(r))].append(r)
+        if r.amount_jpy is not None:
+            key = (r.amount_jpy, _date_key(r))
+        elif r.currency and r.foreign_amount is not None:
+            # 外貨領収書(円総額なし)は現地額で突き合わせ(同じUSD領収書の二重アップ検知)。
+            key = (("fx", r.currency, str(r.foreign_amount)), _date_key(r))
+        else:
+            continue
+        buckets[key].append(r)
 
     for members in buckets.values():
         if len(members) < 2:

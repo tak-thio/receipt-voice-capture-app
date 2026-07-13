@@ -311,6 +311,12 @@ export function ReceiptsView({
         </Td>
         <Td className="text-right font-medium tabular-nums">
           {r.amount_jpy != null ? `¥${r.amount_jpy.toLocaleString()}` : '—'}
+          {/* 外貨領収書のみ: 現地額(印字値)。円はカード明細と紐付けて確定するまで '—' が正しい状態。 */}
+          {r.currency && r.currency !== 'JPY' && r.foreign_amount != null && (
+            <div className="whitespace-nowrap text-[11px] font-normal text-slate-400">
+              {r.currency} {r.foreign_amount.toFixed(2)}
+            </div>
+          )}
         </Td>
         {showCreator && <Td className="text-slate-500">{r.created_by_name ?? '—'}</Td>}
         <Td className="text-sm text-slate-600">
@@ -757,6 +763,12 @@ function ReceiptEditModal({
               <span className="text-xs font-medium text-slate-500">金額(税込)</span>
               <Input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)}
                 className="text-right tabular-nums" />
+              {/* 外貨領収書: 現地額(読み取り値)を表示。円はカード明細と紐付けて確定する運用。 */}
+              {row.currency && row.currency !== 'JPY' && row.foreign_amount != null && (
+                <span className="block text-[11px] text-slate-400">
+                  外貨建て: {row.currency} {row.foreign_amount.toFixed(2)}（円はクレジット明細との紐付けで確定）
+                </span>
+              )}
             </label>
           </div>
           <div className="grid grid-cols-2 gap-3">

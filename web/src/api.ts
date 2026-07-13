@@ -56,6 +56,14 @@ export interface ClientDetail extends ClientRow {
   ai_config?: FirmInfo['ai_config'] // masked (key_set only); per-client AI provider override
 }
 
+// 消費税内訳の1行。label=請求書の表記そのまま("10%"/"8%"/"その他"/"非課税"/"対象外"/新税率)。
+// 税率マスタは持たず計算もしない=請求書通りに保存(丸め方が発行者ごとに違うため)。
+export interface TaxLine {
+  label: string | null
+  tax_jpy: number | null
+  base_jpy?: number | null // 税抜対象額(任意)
+}
+
 export interface ReceiptRow {
   id: string
   client_id: string
@@ -66,6 +74,11 @@ export interface ReceiptRow {
   vendor: string | null
   amount_jpy: number | null
   tax_mode: string | null
+  tax_lines?: TaxLine[] // 消費税内訳(行リスト)
+  // 外貨取引(書面の印字値そのまま)。円建ては全て null。照合キー=(currency, foreign_amount)。
+  currency?: string | null // "USD" 等
+  foreign_amount?: number | null // 現地支払総額 220.00
+  exchange_rate?: number | null // 換算レート(カード明細行)
   payment_method: string | null
   t_number: string | null
   description: string | null // 摘要
@@ -134,8 +147,9 @@ export interface QueueItem {
   amount_jpy: number | null
   subtotal_jpy: number | null
   tax_jpy: number | null
-  tax_10_jpy: number | null
-  tax_8_jpy: number | null
+  tax_lines?: TaxLine[] // 消費税内訳(行リスト・請求書通り)
+  currency?: string | null // 外貨("USD"等)。円建ては null
+  foreign_amount?: number | null // 現地支払総額
   date: string | null
   source: string
   t_number: string | null
@@ -201,6 +215,10 @@ export interface CardStatementLine {
   date: string | null
   vendor: string | null
   amount_jpy: number | null
+  // 外貨行のみ(明細の印字値: 通貨名・現地ご利用額・換算レート)。照合は現地額で行う。
+  currency?: string | null
+  foreign_amount?: number | null
+  exchange_rate?: number | null
   has_receipt: boolean
   receipt_id: string | null
   image_file_id?: string | null
@@ -241,8 +259,9 @@ export interface LedgerRow {
   sub_account_id: string | null
   partner_id: string | null
   subtotal_jpy: number | null
-  tax_10_jpy: number | null
-  tax_8_jpy: number | null
+  tax_lines?: TaxLine[] // 消費税内訳(行リスト・請求書通り)
+  currency?: string | null
+  foreign_amount?: number | null
   tax_mode: string | null
   payment_method: string | null
   source: string | null
@@ -287,9 +306,10 @@ export interface JournalizeBody {
   amount_jpy?: number | null
   subtotal_jpy?: number | null
   tax_jpy?: number | null
-  tax_10_jpy?: number | null
-  tax_8_jpy?: number | null
+  tax_lines?: TaxLine[] // 消費税内訳(行リスト・請求書通り)
   tax_mode?: string | null
+  currency?: string | null // 外貨コード("USD"等)
+  foreign_amount?: number | null // 現地支払総額
   payment_method?: string | null
   t_number?: string | null
   description?: string | null // 摘要

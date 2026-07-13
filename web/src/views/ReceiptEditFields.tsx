@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { api, type JournalizeBody, type MasterRow, type NoteRow, type SubAccountRow, type Suggestion } from '../api'
+import { api, type JournalizeBody, type MasterRow, type NoteRow, type SubAccountRow, type Suggestion, type TaxLine } from '../api'
 import { Button, cn, Icon, Input, Select, Textarea } from '../ui'
 import { NoteChips, NotePickerModal } from '../notes'
 import { ZoomableImage } from './ZoomableImage'
@@ -15,9 +15,10 @@ export interface EditableReceipt {
   amount_jpy: number | null
   subtotal_jpy: number | null
   tax_jpy: number | null
-  tax_10_jpy: number | null
-  tax_8_jpy: number | null
+  tax_lines?: TaxLine[] // 消費税内訳(行リスト・請求書通り)
   tax_mode: string | null
+  currency?: string | null // 外貨("USD"等)。円建ては null
+  foreign_amount?: number | null // 現地支払総額
   payment_method: string | null
   t_number: string | null
   description: string | null // 摘要
@@ -71,9 +72,12 @@ export function ReceiptEditFields({
   const [amountInput, setAmountInput] = useState('')
   const [subtotalInput, setSubtotalInput] = useState('')
   const [taxTotalInput, setTaxTotalInput] = useState('')
-  const [tax10Input, setTax10Input] = useState('')
-  const [tax8Input, setTax8Input] = useState('')
+  // 消費税内訳(行リスト)。区分ラベルは固定しない(10%/8%/その他/非課税/対象外/将来の新税率)。
+  const [taxLines, setTaxLines] = useState<TaxLine[]>([])
   const [taxModeInput, setTaxModeInput] = useState('') // 税区分
+  const [currencyInput, setCurrencyInput] = useState('') // 外貨コード(USD等)
+  const [foreignInput, setForeignInput] = useState('') // 現地支払総額
+  const [showFx, setShowFx] = useState(false) // 外貨入力欄を出す(国内行にはノイズを出さない)
   const [paymentInput, setPaymentInput] = useState('') // 支払方法
   const [tnumberInput, setTnumberInput] = useState('') // インボイス番号(T番号)
   const [descriptionInput, setDescriptionInput] = useState('') // 摘要
@@ -88,14 +92,13 @@ export function ReceiptEditFields({
     setPartnerNameInput(item.partner_name ?? linkedName ?? item.vendor ?? '')
     setVendorInput(item.vendor ?? '')
     setDateInput(item.date ?? '')
-    const t10 = item.tax_10_jpy
-    const t8 = item.tax_8_jpy
-    const total = item.tax_jpy ?? (t10 != null || t8 != null ? (t10 ?? 0) + (t8 ?? 0) : null)
-    setTax10Input(t10 != null ? String(t10) : '')
-    setTax8Input(t8 != null ? String(t8) : '')
-    setTaxTotalInput(total != null ? String(total) : '')
+    setTaxLines((item.tax_lines ?? []).map((l) => ({ ...l })))
+    setTaxTotalInput(item.tax_jpy != null ? String(item.tax_jpy) : '')
     setAmountInput(item.amount_jpy != null ? String(item.amount_jpy) : '')
     setSubtotalInput(item.subtotal_jpy != null ? String(item.subtotal_jpy) : '')
+    setCurrencyInput(item.currency ?? '')
+    setForeignInput(item.foreign_amount != null ? String(item.foreign_amount) : '')
+    setShowFx(false)
     setTaxModeInput(item.tax_mode ?? '')
     setPaymentInput(item.payment_method ?? '')
     setTnumberInput(item.t_number ?? '')
@@ -158,12 +161,24 @@ export function ReceiptEditFields({
       ? titles
       : titles.filter((t) => t.pinned_credit || t.id === creditTitleId)
 
-  // 10%/8% を編集したら消費税合計を自動更新（合計は手修正も可）。
-  function recalcTaxTotal(t10s: string, t8s: string) {
-    const a = numOrNull(t10s)
-    const b = numOrNull(t8s)
-    if (a == null && b == null) return
-    setTaxTotalInput(String((a ?? 0) + (b ?? 0)))
+  // 税内訳を編集したら消費税合計を自動更新（確定値の集計。合計は手修正も可）。
+  function syncTaxTotal(lines: TaxLine[]) {
+    const vals = lines.map((l) => l.tax_jpy).filter((v): v is number => v != null)
+    if (vals.length === 0) return
+    setTaxTotalInput(String(vals.reduce((a, b) => a + b, 0)))
+  }
+  function updateTaxLine(i: number, patch: Partial<TaxLine>) {
+    const next = taxLines.map((l, j) => (j === i ? { ...l, ...patch } : l))
+    setTaxLines(next)
+    syncTaxTotal(next)
+  }
+  function addTaxLine() {
+    setTaxLines([...taxLines, { label: null, tax_jpy: null }])
+  }
+  function removeTaxLine(i: number) {
+    const next = taxLines.filter((_, j) => j !== i)
+    setTaxLines(next)
+    syncTaxTotal(next)
   }
 
   function getValues(): JournalizeBody {
@@ -178,9 +193,13 @@ export function ReceiptEditFields({
       amount_jpy: numOrNull(amountInput),
       subtotal_jpy: numOrNull(subtotalInput),
       tax_jpy: numOrNull(taxTotalInput),
-      tax_10_jpy: numOrNull(tax10Input),
-      tax_8_jpy: numOrNull(tax8Input),
+      // 空行(区分も金額も無い)は送らない。値は請求書の表記・実額そのまま(計算しない)。
+      tax_lines: taxLines
+        .filter((l) => (l.label && l.label.trim()) || l.tax_jpy != null || l.base_jpy != null)
+        .map((l) => ({ label: l.label?.trim() || null, tax_jpy: l.tax_jpy ?? null, base_jpy: l.base_jpy ?? null })),
       tax_mode: taxModeInput || null,
+      currency: currencyInput.trim() ? currencyInput.trim().toUpperCase() : null,
+      foreign_amount: foreignInput.trim() && !Number.isNaN(parseFloat(foreignInput)) ? parseFloat(foreignInput) : null,
       payment_method: paymentInput.trim() || null,
       t_number: tnumberInput.trim(),
       description: descriptionInput.trim(),
@@ -402,10 +421,10 @@ export function ReceiptEditFields({
         {/* 補助科目: 貸方科目に補助科目がある場合は、その直下に表示 */}
         {!subIsDebit && subAccountField}
 
-        {/* 金額・消費税（すべて編集可能）: 合計金額 / 税抜 / 消費税合計 / 10% / 8% */}
+        {/* 金額・消費税（すべて編集可能・請求書の印字値をそのまま）。税率は固定しない。 */}
         <div className="space-y-1.5 border-t border-slate-100 pt-2.5">
           <span className="text-xs font-medium text-slate-500">金額・消費税</span>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+          <div className="grid grid-cols-3 gap-2">
             <label className="space-y-1">
               <span className="text-xs text-slate-500">合計金額(税込)</span>
               <Input inputMode="numeric" value={amountInput} onChange={(e) => setAmountInput(e.target.value)} className="text-right tabular-nums" />
@@ -418,19 +437,52 @@ export function ReceiptEditFields({
               <span className="text-xs text-slate-500">消費税合計</span>
               <Input inputMode="numeric" value={taxTotalInput} onChange={(e) => setTaxTotalInput(e.target.value)} className="text-right tabular-nums" />
             </label>
-            <label className="space-y-1">
-              <span className="text-xs text-slate-500">消費税(10%)</span>
-              <Input inputMode="numeric" value={tax10Input}
-                onChange={(e) => { setTax10Input(e.target.value); recalcTaxTotal(e.target.value, tax8Input) }}
-                className="text-right tabular-nums" />
-            </label>
-            <label className="space-y-1">
-              <span className="text-xs text-slate-500">消費税(8%)</span>
-              <Input inputMode="numeric" value={tax8Input}
-                onChange={(e) => { setTax8Input(e.target.value); recalcTaxTotal(tax10Input, e.target.value) }}
-                className="text-right tabular-nums" />
-            </label>
           </div>
+          {/* 消費税の内訳: 請求書通りに保存(計算しない)。複数税率の混在は行を足す。
+              区分は自由入力＋サジェスト — 新税率(例: 食料品1%)が来てもここに足すだけ。 */}
+          <div className="space-y-1 rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-slate-500">消費税の内訳（請求書の表記のまま）</span>
+              <button onClick={addTaxLine} className="text-xs font-medium text-brand-700 hover:underline">＋ 行を追加</button>
+            </div>
+            {taxLines.length === 0 && (
+              <p className="text-xs text-slate-400">内訳なし — 「＋ 行を追加」で 10% / 8% / その他 等を入力</p>
+            )}
+            {taxLines.map((l, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input list="tax-label-suggestions" value={l.label ?? ''} placeholder="区分（10% / その他…）"
+                  onChange={(e) => updateTaxLine(i, { label: e.target.value })} className="w-40" />
+                <Input inputMode="numeric" value={l.tax_jpy != null ? String(l.tax_jpy) : ''} placeholder="税額¥"
+                  onChange={(e) => updateTaxLine(i, { tax_jpy: numOrNull(e.target.value) })} className="w-28 text-right tabular-nums" />
+                <Input inputMode="numeric" value={l.base_jpy != null ? String(l.base_jpy) : ''} placeholder="対象額¥(任意)"
+                  onChange={(e) => updateTaxLine(i, { base_jpy: numOrNull(e.target.value) })} className="w-32 text-right tabular-nums" />
+                <button onClick={() => removeTaxLine(i)} className="px-1 text-slate-400 hover:text-red-600" title="行を削除">✕</button>
+              </div>
+            ))}
+            <datalist id="tax-label-suggestions">
+              <option value="10%" />
+              <option value="8%" />
+              <option value="その他" />
+              <option value="非課税" />
+              <option value="対象外" />
+            </datalist>
+          </div>
+          {/* 外貨(書面の印字値)。外貨建てのみ表示 — 円の計上額はカード明細との紐付けで確定するまで空でよい。 */}
+          {currencyInput || foreignInput || showFx ? (
+            <div className="grid grid-cols-3 gap-2">
+              <label className="space-y-1">
+                <span className="text-xs text-slate-500">通貨（外貨のみ）</span>
+                <Input value={currencyInput} onChange={(e) => setCurrencyInput(e.target.value)} placeholder="USD" className="uppercase" />
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs text-slate-500">現地支払額</span>
+                <Input inputMode="decimal" value={foreignInput} onChange={(e) => setForeignInput(e.target.value)} placeholder="220.00" className="text-right tabular-nums" />
+              </label>
+              <span className="self-end pb-2 text-[11px] leading-tight text-slate-400">円の計上額はカード明細と紐付けて確定</span>
+            </div>
+          ) : (
+            <button onClick={() => setShowFx(true)} className="text-xs text-slate-400 hover:text-brand-700 hover:underline">＋ 外貨（USD等）の情報を入力</button>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <label className="space-y-1">
               <span className="text-xs text-slate-500">税区分</span>

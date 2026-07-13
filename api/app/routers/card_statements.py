@@ -119,9 +119,14 @@ async def list_statements(
         )
     ))
     by_amount: dict = {}
+    # 外貨の照合キー=(通貨, 現地額)。円は発行者/カード会社でレートが違い一致しないため、
+    # 外貨行は現地額($220↔$220)で突き合わせる。Numeric(14,2)同士なので str() 表現は揃う。
+    by_fx: dict = {}
     for r in receipts:
         if r.amount_jpy is not None:
             by_amount.setdefault(r.amount_jpy, []).append(r)
+        if r.currency and r.currency != "JPY" and r.foreign_amount is not None:
+            by_fx.setdefault((r.currency, str(r.foreign_amount)), []).append(r)
 
     # 重複アップロード検知: 同じ明細行(取引日＋金額＋利用先)をグループ化。最古を本体、残りを重複候補。
     groups: dict = defaultdict(list)
@@ -163,22 +168,32 @@ async def list_statements(
         else:
             manual_none.add(c.id)  # 手動指定だが領収書なし(or 紐付け先が消えた)
     # ② 自動: 手動でない行に、予約外の領収書を「1枚=1明細・近い日付優先」で割当(消費)。
+    #    外貨行は (通貨, 現地額) 一致を優先し、無ければ従来の円一致にフォールバック。
     used: set = set(reserved)
     auto_match: dict = {}
-    for c in cards:
-        if c.id in manual_match or c.id in manual_none or c.amount_jpy is None or c.captured_at is None:
-            continue
-        cd = c.captured_at.date()
+
+    def _closest(cands, cd, exclude):
         best = None
-        for r in by_amount.get(c.amount_jpy, []):
-            if r.id in used or r.captured_at is None:
+        for r in cands:
+            if r.id in exclude or r.captured_at is None:
                 continue
             dd = abs((r.captured_at.date() - cd).days)
             if dd <= _MATCH_DAYS and (best is None or dd < best[0]):
                 best = (dd, r)
-        if best:
-            auto_match[c.id] = best[1]
-            used.add(best[1].id)
+        return best[1] if best else None
+
+    for c in cards:
+        if c.id in manual_match or c.id in manual_none or c.captured_at is None:
+            continue
+        cd = c.captured_at.date()
+        hit = None
+        if c.currency and c.currency != "JPY" and c.foreign_amount is not None:
+            hit = _closest(by_fx.get((c.currency, str(c.foreign_amount)), []), cd, used)
+        if hit is None and c.amount_jpy is not None:
+            hit = _closest(by_amount.get(c.amount_jpy, []), cd, used)
+        if hit is not None:
+            auto_match[c.id] = hit
+            used.add(hit.id)
 
     out = []
     for c in cards:
@@ -194,6 +209,10 @@ async def list_statements(
             "date": c.captured_at.date().isoformat() if c.captured_at else None,
             "vendor": c.vendor,
             "amount_jpy": c.amount_jpy,
+            # 外貨行のみ値が入る(通貨名・現地ご利用額・換算レート=明細の印字値)。
+            "currency": c.currency,
+            "foreign_amount": float(c.foreign_amount) if c.foreign_amount is not None else None,
+            "exchange_rate": float(c.exchange_rate) if c.exchange_rate is not None else None,
             "has_receipt": match is not None,
             "receipt_id": str(match.id) if match else None,
             "link_manual": manual,  # True=人が設定(紐付け/領収書なし確定) / False=システム自動

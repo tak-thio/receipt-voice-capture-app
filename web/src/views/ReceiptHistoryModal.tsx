@@ -13,6 +13,7 @@ const ACTION_LABEL: Record<string, { label: string; tone: 'neutral' | 'danger' |
 
 const FIELD_LABEL: Record<string, string> = {
   vendor: '店舗名', date: '日付', amount_jpy: '金額', tax_mode: '税区分',
+  tax_lines: '税内訳', currency: '通貨', foreign_amount: '現地金額',
   payment_method: '支払方法', t_number: '登録番号', description: '摘要', memo: 'メモ',
   account_title_id: '借方科目', sub_account_id: '補助科目', credit_account_title_id: '貸方科目',
   partner_id: '取引先', approval_status: '状態', note_ids: '付箋',

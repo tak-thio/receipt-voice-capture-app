@@ -76,6 +76,11 @@ def _serialize(r: Receipt, images=None, created_by_name=None) -> dict:
         "vendor": r.vendor,
         "amount_jpy": r.amount_jpy,
         "tax_mode": r.tax_mode,
+        "tax_lines": r.tax_lines or [],  # 消費税内訳 [{label, tax_jpy, base_jpy}](書面の表記そのまま)
+        # 外貨取引(書面の印字値そのまま)。円建ては全て null。照合キー=(currency, foreign_amount)。
+        "currency": r.currency,
+        "foreign_amount": float(r.foreign_amount) if r.foreign_amount is not None else None,
+        "exchange_rate": float(r.exchange_rate) if r.exchange_rate is not None else None,
         "payment_method": r.payment_method,
         "t_number": r.t_number,
         "description": r.description,
@@ -187,7 +192,9 @@ async def _card_batch_rows(session: AsyncSession, client_id) -> list:
             "card_batch": {"count": b.cnt, "short_id": str(b.card_batch_id)[:6], "label": label},
             "captured_at": b.imported_at.isoformat() if b.imported_at else None,
             "vendor": None, "partner_name": None, "amount_jpy": None,
-            "tax_mode": None, "payment_method": None, "t_number": None,
+            "tax_mode": None, "tax_lines": [], "currency": None,
+            "foreign_amount": None, "exchange_rate": None,
+            "payment_method": None, "t_number": None,
             "description": None, "memo": None, "account_title_id": None,
             "approval_status": "pending", "journalized_at": None, "note_ids": [],
             "image_file_id": str(fid) if fid else None, "image_mime": mime,
@@ -384,16 +391,23 @@ async def patch_receipt(
 # 統合伝票にまとめる項目(選択/編集の対象)。values無指定はソースから補完(partner_name/税内訳など)。
 _MERGE_FIELDS = [
     "captured_at", "vendor", "partner_name", "amount_jpy", "subtotal_jpy",
-    "tax_jpy", "tax_10_jpy", "tax_8_jpy", "tax_mode", "payment_method",
-    "t_number", "description", "memo",
+    "tax_jpy", "tax_lines", "tax_mode", "payment_method",
+    "t_number", "description", "memo", "currency", "foreign_amount",
 ]
-_MERGE_INT_FIELDS = {"amount_jpy", "subtotal_jpy", "tax_jpy", "tax_10_jpy", "tax_8_jpy"}
+_MERGE_INT_FIELDS = {"amount_jpy", "subtotal_jpy", "tax_jpy"}
 
 
 def _coerce_merge_value(field: str, val):
     """フロントから来た値をカラム型に合わせる(日付=datetime, 金額=int, 他=str)。空はNone。"""
     if val is None or val == "":
         return None
+    if field == "tax_lines":
+        return val if isinstance(val, list) else None
+    if field == "foreign_amount":
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return None
     if field == "captured_at":
         if isinstance(val, str):
             try:
@@ -454,10 +468,10 @@ async def merge_receipts(
     if len(vouchers) >= 2:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "統合伝票同士はまとめられません。先に『ばらす』してください")
 
-    def coalesce(field):  # 金額の大きい順で最初の非null(=基準優先の補完)
+    def coalesce(field):  # 金額の大きい順で最初の非null(=基準優先の補完)。空リスト(tax_lines)も空扱い。
         for s in sorted(sources, key=lambda x: -(x.amount_jpy or 0)):
             v = getattr(s, field)
-            if v is not None and v != "":
+            if v not in (None, "", []):
                 return v
         return None
 
