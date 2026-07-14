@@ -9,6 +9,7 @@ from sqlalchemy import func, nullslast, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import audit, dedup
+from .card_statements import _MATCH_DAYS  # 照合の日付許容幅(自動照合と同じ規則を使う)
 from ..db import get_session
 from ..deps import Principal, get_principal
 from ..models import UNPARSED_VENDOR, ApprovalStatus, AuditLog, File, Receipt, ReceiptFile, User
@@ -255,6 +256,54 @@ async def list_receipts(
     if amount_max is not None:
         stmt = stmt.where(Receipt.amount_jpy <= amount_max)
     rows = list(await session.scalars(stmt))
+    # 「仕訳済み × 領収書なし(確定)」の明細行(=明細から起票済み)に一致しうる領収書へ印を付ける。
+    # 後から領収書が出てきたケースで、領収書側も仕訳してしまう二重計上を受信箱の時点で防ぐ。
+    # 照合キーは自動照合と同じ: 同額(外貨は通貨+現地額) ＋ 日付±_MATCH_DAYS。
+    orphan_by_amount: dict = {}
+    orphan_by_fx: dict = {}
+    if client_id and rows:
+        orphans = list(await session.scalars(
+            select(Receipt).where(
+                Receipt.client_id == client_id,
+                Receipt.doc_type == "card_statement",
+                Receipt.journalized_at.is_not(None),
+                Receipt.approval_status != ApprovalStatus.deleted.value,
+                Receipt.capture_meta["link_manual"].astext == "true",
+                Receipt.capture_meta["linked_receipt_id"].astext.is_(None),
+            )
+        ))
+        for line in orphans:
+            if line.amount_jpy is not None:
+                orphan_by_amount.setdefault(line.amount_jpy, []).append(line)
+            if line.currency and line.currency != "JPY" and line.foreign_amount is not None:
+                orphan_by_fx.setdefault((line.currency, str(line.foreign_amount)), []).append(line)
+
+    def _orphan_match(r: Receipt) -> dict | None:
+        """r(未仕訳の領収書)に一致する「明細から仕訳済み」の行(±日数最近接)を返す。"""
+        if r.doc_type != "receipt" or r.journalized_at is not None or r.captured_at is None:
+            return None
+        cands = []
+        if r.currency and r.currency != "JPY" and r.foreign_amount is not None:
+            cands = orphan_by_fx.get((r.currency, str(r.foreign_amount)), [])
+        if not cands and r.amount_jpy is not None:
+            cands = orphan_by_amount.get(r.amount_jpy, [])
+        rd = r.captured_at.date()
+        best = None
+        for line in cands:
+            if line.captured_at is None:
+                continue
+            dd = abs((line.captured_at.date() - rd).days)
+            if dd <= _MATCH_DAYS and (best is None or dd < best[0]):
+                best = (dd, line)
+        if best is None:
+            return None
+        line = best[1]
+        return {
+            "line_id": str(line.id),
+            "date": line.captured_at.date().isoformat() if line.captured_at else None,
+            "vendor": line.vendor,
+            "amount_jpy": line.amount_jpy,
+        }
     # Map each receipt to its captured image file (if any) in one query.
     img_map: dict = {}
     if rows:
@@ -274,7 +323,11 @@ async def list_receipts(
         creators = {}
     out = []
     for r in rows:
-        out.append(_serialize(r, img_map.get(r.id, []), creators.get(r.created_by)))
+        item = _serialize(r, img_map.get(r.id, []), creators.get(r.created_by))
+        m = _orphan_match(r)
+        if m:
+            item["journalized_line_match"] = m  # 仕訳済み明細に紐づく領収書の可能性(受信箱で警告)
+        out.append(item)
     # クレジット明細の取込バッチ(塊)を受信箱に1行で追加(会社経費の受信箱のみ)。取込日時の新しい順に並べ直す。
     if lane in ("company", "all"):
         out.extend(await _card_batch_rows(session, client_id))

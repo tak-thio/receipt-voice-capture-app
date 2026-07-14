@@ -333,6 +333,12 @@ export function ReceiptsView({
             {isDup ? <Badge tone="warning">重複の可能性</Badge> : statusBadge(r)}
             {variant === 'primary' && dupCount > 0 && <Badge tone="warning">重複 {dupCount}件</Badge>}
             {lockDate && r.captured_at && r.captured_at.slice(0, 10) <= lockDate && <Badge tone="danger">期間外</Badge>}
+            {/* 明細から仕訳済み(領収書なし確定)の行と一致 → この領収書はその証憑の可能性。仕訳すると二重計上のおそれ。 */}
+            {r.journalized_line_match && (
+              <span title={`仕訳済みの「領収書なし」明細（${r.journalized_line_match.date ?? '—'}・${r.journalized_line_match.vendor ?? '—'}・¥${(r.journalized_line_match.amount_jpy ?? 0).toLocaleString()}）と同額・近い日付です。この領収書を仕訳すると二重計上のおそれがあります（明細側の仕訳を確認してください）。`}>
+                <Badge tone="warning">仕訳済み明細の領収書?</Badge>
+              </span>
+            )}
           </div>
         </Td>
         <Td>

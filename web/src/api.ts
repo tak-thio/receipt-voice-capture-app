@@ -95,6 +95,9 @@ export interface ReceiptRow {
   parse_failed?: boolean // AIが請求書として認識できなかった(店舗名も金額も取れず)
   card_batch?: { count: number; short_id: string; label: string } | null // クレジット明細の取込バッチ(塊)。あれば行はバッチ要約
   processing?: boolean // AI解析がまだ完了していない(受信箱で「解析中…」＋自動ポーリング)
+  // 「明細から仕訳済み(領収書なし確定)」の行と同額・近い日付 → この領収書はその明細の証憑の可能性。
+  // 仕訳すると二重計上のおそれがあるため受信箱で警告する。
+  journalized_line_match?: { line_id: string; date: string | null; vendor: string | null; amount_jpy: number | null } | null
 }
 
 // 登録者向け: AI が読み取った「領収書の中身」だけを修正する（科目・仕訳には触れない）。
