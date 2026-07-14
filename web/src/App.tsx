@@ -34,12 +34,10 @@ export function App() {
       setLoading(false)
       return
     }
-    if (!isLoginPage) {
-      setLoading(false)
-      return
-    }
+    // どのパスでもセッションを確認する: /cards 等のタブURLをリロード・共有リンクで
+    // 開いたときも、ログイン済みならそのままダッシュボードを表示するため。
     refreshMe().finally(() => setLoading(false))
-  }, [inviteToken, isLoginPage])
+  }, [inviteToken])
 
   return (
     <ToastProvider>
@@ -57,7 +55,9 @@ export function App() {
         </div>
       ) : me ? (
         <Dashboard me={me} onLogout={() => setMe(null)} />
-      ) : !isLoginPage ? (
+      ) : window.location.pathname === '/' && !isLoginPage ? (
+        // 未ログインのトップ = 公開ランディング。/cards 等のアプリURLは直接ログインへ
+        // (共有リンクを開いた人がログイン後そのままその画面に入れる)。
         <HomePage />
       ) : (
         <Login onLogin={setMe} />
