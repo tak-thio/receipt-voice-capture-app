@@ -216,6 +216,8 @@ async def list_statements(
             "has_receipt": match is not None,
             "receipt_id": str(match.id) if match else None,
             "link_manual": manual,  # True=人が設定(紐付け/領収書なし確定) / False=システム自動
+            # 「領収書なし(確定)」で明細から起票→仕訳済みの行(紐付け変更不可・バッジ表示)。
+            "journalized": c.journalized_at is not None,
             "image_file_id": str(fid) if fid else None,
             "image_mime": mime,
             "page": (c.capture_meta or {}).get("page"),  # 明細PDFの該当ページ(プレビュー用)
@@ -307,6 +309,10 @@ async def set_line_link(
     c = await session.get(Receipt, line_id)
     if c is None or c.doc_type != "card_statement":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "明細行が見つかりません")
+    # 「領収書なし(確定)」で明細から仕訳済みの行は紐付けを変えられない(後から領収書側も
+    # 仕訳されると二重計上になるため)。変更したい場合は元帳側を取り消してから。
+    if c.journalized_at is not None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "この明細行は仕訳済みのため紐付けを変更できません")
     cm = dict(c.capture_meta or {})
     if body.mode == "receipt" and body.receipt_id:
         cm["link_manual"] = True

@@ -141,6 +141,7 @@ export interface Suggestion {
 
 export interface QueueItem {
   id: string
+  doc_type?: string // 'card_statement'=「領収書なし確定」のクレジット明細から起票する行
   vendor: string | null
   parse_failed?: boolean // AIが請求書として認識できなかった(店舗名も金額も取れず)
   created_by_name: string | null
@@ -230,6 +231,7 @@ export interface CardStatementLine {
   imported_at?: string | null // 取込日時
   card_batch_label?: string | null // バッチ名(未設定なら既定=取込日)
   link_manual?: boolean // true=人が紐付け/領収書なしを設定 / false=システム自動
+  journalized?: boolean // 「領収書なし(確定)」で明細から起票→仕訳済み(紐付け変更不可)
 }
 export interface CardStatementList {
   items: CardStatementLine[]

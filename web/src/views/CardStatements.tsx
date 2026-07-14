@@ -161,10 +161,12 @@ export function CardStatementsView({ clientId, initialBatch, onBatchOpened }: { 
           )}
         </Td>
         <Td>
-          {r.has_receipt ? (
+          {r.journalized ? (
+            <Badge tone="success"><Icon.Check /> 明細から仕訳済み</Badge>
+          ) : r.has_receipt ? (
             <Badge tone="success"><Icon.Check /> 領収書あり{r.link_manual ? '（手動）' : ''}</Badge>
           ) : r.link_manual ? (
-            <Badge tone="neutral">領収書なし（確定）</Badge>
+            <Badge tone="neutral">領収書なし（確定）→仕訳へ</Badge>
           ) : (
             <Badge tone="danger">領収書なし</Badge>
           )}
@@ -172,7 +174,11 @@ export function CardStatementsView({ clientId, initialBatch, onBatchOpened }: { 
         <Td>{isDup ? <Badge tone="warning">重複の可能性</Badge> : null}</Td>
         <Td className="text-right">
           <div className="flex items-center justify-end gap-1">
-            <button onClick={() => setLinking(r)} className="rounded-md px-2 py-1 text-xs font-medium text-brand-700 hover:bg-brand-50" title="領収書の紐付け">
+            <button
+              onClick={() => setLinking(r)} disabled={r.journalized}
+              className="rounded-md px-2 py-1 text-xs font-medium text-brand-700 hover:bg-brand-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+              title={r.journalized ? '仕訳済みのため紐付けは変更できません' : '領収書の紐付け'}
+            >
               紐付け
             </button>
             {r.image_file_id && (

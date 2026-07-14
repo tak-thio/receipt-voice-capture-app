@@ -10,7 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import audit, journaling
@@ -19,6 +19,20 @@ from ..deps import Principal, get_principal
 from ..models import UNPARSED_VENDOR, AccountTitle, File, Partner, Receipt, ReceiptFile, ReceiptLane, User
 
 router = APIRouter(prefix="/journal", tags=["journal"])
+
+# 仕訳の元になれる行:
+# - 通常の領収書(card_statement 以外)
+# - クレジット明細行のうち「領収書なし(確定)」(link_manual=true かつ 紐付け先なし)のもの。
+#   支払いは事実で、領収書が無い場合は明細が唯一の証憑になるため明細行から起票する。
+#   領収書あり(自動/手動)の行は領収書側を仕訳するのでキューに出さない(二重計上防止)。
+#   税内訳は明細に無いので空のまま(記帳時に必要なら手入力)。
+_JOURNAL_SOURCE = or_(
+    Receipt.doc_type != "card_statement",
+    and_(
+        Receipt.capture_meta["link_manual"].astext == "true",
+        Receipt.capture_meta["linked_receipt_id"].astext.is_(None),
+    ),
+)
 
 
 class TaxLine(BaseModel):
@@ -159,12 +173,13 @@ async def queue(
     # 未処理（pending）のみ。否認/間違い/削除/重複（approval_status）は除外される。
     # 自動重複(突き合わせ)で duplicate にされた行は pending ではないので自動的に外れる
     # = 二重計上しない（本体＝親レコードだけが pending として残る）。
-    # 立替(expense)は経費精算の承認で仕訳。クレジット明細(card_statement)は仕訳の元にしない。
+    # 立替(expense)は経費精算の承認で仕訳。クレジット明細は原則仕訳の元にしないが、
+    # 「領収書なし(確定)」の行だけは例外(_JOURNAL_SOURCE 参照)。
     conds = [
         Receipt.journalized_at.is_(None),
         Receipt.approval_status == "pending",
         Receipt.lane == ReceiptLane.company.value,
-        Receipt.doc_type != "card_statement",
+        _JOURNAL_SOURCE,
         # マージで束ねた元(統合伝票に紐付いた明細/鏡)は仕訳キューに出さない(二重仕訳防止)。
         Receipt.merged_into.is_(None),
     ]
@@ -202,6 +217,7 @@ async def queue(
         items.append(
             {
                 "id": str(r.id),
+                "doc_type": r.doc_type,  # card_statement=「領収書なし確定」の明細から起票する行
                 "vendor": r.vendor,
                 # 受信箱と同じく「請求書として認識できなかった」行を出し分ける印。
                 "parse_failed": bool((r.capture_meta or {}).get("parse_failed"))
@@ -254,8 +270,8 @@ async def ledger(
     stmt = select(Receipt).where(Receipt.journalized_at.is_not(None))
     # 自動重複でまとめられた重複行は二重計上防止のため元帳から除外(本体＝親だけ残す)。
     stmt = stmt.where(Receipt.approval_status != "duplicate")
-    # クレジット明細は照合用で仕訳の元にしないため元帳には出さない。
-    stmt = stmt.where(Receipt.doc_type != "card_statement")
+    # クレジット明細は原則出さないが、「領収書なし(確定)」で明細から起票した行は元帳に出す。
+    stmt = stmt.where(_JOURNAL_SOURCE)
     if client_id:
         stmt = stmt.where(Receipt.client_id == client_id)
     rows = list(await session.scalars(stmt.order_by(Receipt.journalized_at.desc()).limit(500)))
