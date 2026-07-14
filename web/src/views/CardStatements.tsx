@@ -386,6 +386,9 @@ function LinkModal({
   const toast = useToast()
   const [receipts, setReceipts] = useState<ReceiptRow[]>([])
   const [q, setQ] = useState('')
+  // 既定は「同日のみ」(件数が増えても迷わない)。外すと全件から検索できる。
+  const [sameDay, setSameDay] = useState<boolean>(!!line.date)
+  const [listLoading, setListLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   // 紐付け後の「カード請求額を計上額に採用」提案(自動では書かない=人が1クリックで確定)。
   const [adopt, setAdopt] = useState<ReceiptRow | null>(null)
@@ -394,9 +397,21 @@ function LinkModal({
     row: Pick<ReceiptRow, 'images' | 'image_file_id' | 'image_mime' | 'page'>
     title: string
   } | null>(null)
+  // 候補の絞り込み(同日・検索語)はサーバ側で行う(件数が増えてもクライアントに全件持たない)。
+  // 会社経費/立替の両レーンを対象(自動照合のプールと同じ)。入力中の連打はデバウンス。
   useEffect(() => {
-    api.receipts(clientId).then(setReceipts).catch(() => setReceipts([]))
-  }, [clientId])
+    const t = setTimeout(() => {
+      setListLoading(true)
+      api.receipts(clientId, q.trim() || undefined, {
+        lane: 'all',
+        ...(sameDay && line.date ? { dateFrom: line.date, dateTo: line.date } : {}),
+      })
+        .then(setReceipts)
+        .catch(() => setReceipts([]))
+        .finally(() => setListLoading(false))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [clientId, q, sameDay, line.date])
   // 外貨行: 照合キーは (通貨, 現地額)。円は毎回レートが違い一致しない。
   const lineFx = Boolean(line.currency && line.currency !== 'JPY' && line.foreign_amount != null)
   const fxMatch = (r: ReceiptRow) =>
@@ -432,21 +447,13 @@ function LinkModal({
       setBusy(false)
     }
   }
-  const ql = q.trim().toLowerCase()
+  // 絞り込みはサーバ済み。ここでは塊行の除外と並び(外貨一致($220↔$220) > 円の同額 > その他)のみ。
   const list = receipts
     .filter((r) => !r.card_batch) // クレジット明細の「塊」行は除外(本物の領収書だけ)
-    .filter((r) =>
-      !ql ||
-      (r.vendor ?? '').toLowerCase().includes(ql) ||
-      String(r.amount_jpy ?? '').includes(ql) ||
-      (r.captured_at ?? '').includes(ql),
-    )
-    // 外貨一致($220↔$220) > 円の同額 > その他 の順に表示。
     .sort((a, b) =>
       (Number(fxMatch(b)) - Number(fxMatch(a))) ||
       (Number(b.amount_jpy != null && b.amount_jpy === line.amount_jpy) -
         Number(a.amount_jpy != null && a.amount_jpy === line.amount_jpy)))
-    .slice(0, 60)
   // 紐付け済みで開いた場合: 計上額がカード請求額と違えば採用を提案するバナー。
   const linked = line.receipt_id ? receipts.find((r) => r.id === line.receipt_id) : undefined
   const showAdoptBanner =
@@ -516,7 +523,17 @@ function LinkModal({
             </Button>
           </div>
         )}
-        <Input placeholder="領収書を検索（店名・金額・日付）" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="flex items-center gap-3">
+          <Input placeholder="領収書を検索（店名・金額など）" value={q} onChange={(e) => setQ(e.target.value)} className="flex-1" />
+          <label className={`flex shrink-0 items-center gap-1.5 text-sm ${line.date ? 'text-slate-700' : 'text-slate-300'}`}>
+            <input
+              type="checkbox" checked={sameDay} disabled={!line.date}
+              onChange={(e) => setSameDay(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-brand-600"
+            />
+            同日のみ
+          </label>
+        </div>
         <div className="mt-2 max-h-96 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
           {list.map((r) => (
             <div
@@ -563,7 +580,13 @@ function LinkModal({
               )}
             </div>
           ))}
-          {list.length === 0 && <p className="p-4 text-center text-sm text-slate-400">該当する領収書がありません</p>}
+          {list.length === 0 && (
+            <p className="p-4 text-center text-sm text-slate-400">
+              {listLoading ? '検索中…' : sameDay
+                ? '同日の領収書がありません（「同日のみ」を外すと全件から探せます）'
+                : '該当する領収書がありません'}
+            </p>
+          )}
         </div>
       </>)}
       {preview && <ReceiptImagesModal row={preview.row} title={preview.title} onClose={() => setPreview(null)} />}
