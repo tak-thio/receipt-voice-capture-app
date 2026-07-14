@@ -191,7 +191,9 @@ async def _card_batch_rows(session: AsyncSession, client_id) -> list:
             "source": "card", "lane": "company", "doc_type": "card_statement",
             "card_batch": {"count": b.cnt, "short_id": str(b.card_batch_id)[:6], "label": label},
             "captured_at": b.imported_at.isoformat() if b.imported_at else None,
-            "vendor": None, "partner_name": None, "amount_jpy": None,
+            # vendor にも表示名を入れる: card_batch を知らないクライアント(モバイル)が
+            # 「未解析」(vendor空のfallback)と誤表示しないため。web は card_batch で描画し vendor 不使用。
+            "vendor": f"クレジット明細 {b.cnt}件（{label}）", "partner_name": None, "amount_jpy": None,
             "tax_mode": None, "tax_lines": [], "currency": None,
             "foreign_amount": None, "exchange_rate": None,
             "payment_method": None, "t_number": None,
