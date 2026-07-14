@@ -225,6 +225,7 @@ export interface CardStatementLine {
   image_mime?: string | null
   dup_key?: string | null // 同一なら重複グループ(本体のid)。null=単独
   is_dup?: boolean // true=重複候補(削除してよい)
+  page?: number | null // 明細PDFの何ページ目由来か(画像プレビューを該当ページで開く)
   card_batch_id?: string | null // 取込バッチ(塊)。同じ取込の全行が共有
   imported_at?: string | null // 取込日時
   card_batch_label?: string | null // バッチ名(未設定なら既定=取込日)

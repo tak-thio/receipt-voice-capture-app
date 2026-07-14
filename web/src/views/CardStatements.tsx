@@ -5,6 +5,7 @@ import {
   PageHeader, Table, Tbody, Td, Th, Thead, Tr,
 } from '../ui'
 import { useToast } from '../ui/toast'
+import { ReceiptImagesModal } from './Receipts'
 
 const yen = (n: number | null) => (n == null ? '—' : `¥${n.toLocaleString()}`)
 
@@ -388,6 +389,11 @@ function LinkModal({
   const [busy, setBusy] = useState(false)
   // 紐付け後の「カード請求額を計上額に採用」提案(自動では書かない=人が1クリックで確定)。
   const [adopt, setAdopt] = useState<ReceiptRow | null>(null)
+  // 画像プレビュー(モーダル上に重ねる): 候補領収書 or この明細行の画像を選びながら確認できる。
+  const [preview, setPreview] = useState<{
+    row: Pick<ReceiptRow, 'images' | 'image_file_id' | 'image_mime' | 'page'>
+    title: string
+  } | null>(null)
   useEffect(() => {
     api.receipts(clientId).then(setReceipts).catch(() => setReceipts([]))
   }, [clientId])
@@ -483,41 +489,70 @@ function LinkModal({
             </Button>
           </div>
         )}
-        <Input placeholder="領収書を検索（店名・金額・日付）" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="flex items-center gap-2">
+          <Input placeholder="領収書を検索（店名・金額・日付）" value={q} onChange={(e) => setQ(e.target.value)} className="flex-1" />
+          {line.image_file_id && (
+            <Button
+              variant="secondary" size="sm"
+              onClick={() => setPreview({
+                row: { image_file_id: line.image_file_id, image_mime: line.image_mime ?? null, page: line.page ?? null },
+                title: 'クレジット明細の画像',
+              })}
+            >
+              <Icon.Image /> 明細画像
+            </Button>
+          )}
+        </div>
         <div className="mt-2 max-h-96 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
           {list.map((r) => (
-            <button
+            <div
               key={r.id}
-              onClick={() => void set('receipt', r)}
-              disabled={busy}
-              className={`flex w-full items-center justify-between gap-3 p-2.5 text-left hover:bg-brand-50 ${line.receipt_id === r.id ? 'bg-brand-50' : ''}`}
+              className={`flex w-full items-center gap-1 p-2.5 hover:bg-brand-50 ${line.receipt_id === r.id ? 'bg-brand-50' : ''}`}
             >
-              <span className="min-w-0">
-                <span className="text-xs text-slate-500">{r.captured_at?.slice(0, 10) ?? '—'}</span>
-                <span className="ml-2 font-medium text-slate-800">{r.vendor ?? '—'}</span>
-                {fxMatch(r) && (
-                  <span className="ml-2 rounded bg-emerald-100 px-1 text-[10px] font-medium text-emerald-700">
-                    {line.currency} {line.foreign_amount!.toFixed(2)} 一致
-                  </span>
-                )}
-                {r.amount_jpy != null && r.amount_jpy === line.amount_jpy && (
-                  <span className="ml-2 rounded bg-emerald-100 px-1 text-[10px] font-medium text-emerald-700">同額</span>
-                )}
-                {line.receipt_id === r.id && (
-                  <span className="ml-2 rounded bg-brand-100 px-1 text-[10px] font-medium text-brand-700">現在</span>
-                )}
-              </span>
-              <span className="shrink-0 text-right tabular-nums text-slate-800">
-                {yen(r.amount_jpy)}
-                {r.currency && r.currency !== 'JPY' && r.foreign_amount != null && (
-                  <div className="text-[11px] text-slate-400">{r.currency} {r.foreign_amount.toFixed(2)}</div>
-                )}
-              </span>
-            </button>
+              <button
+                onClick={() => void set('receipt', r)}
+                disabled={busy}
+                className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
+              >
+                <span className="min-w-0">
+                  <span className="text-xs text-slate-500">{r.captured_at?.slice(0, 10) ?? '—'}</span>
+                  <span className="ml-2 font-medium text-slate-800">{r.vendor ?? '—'}</span>
+                  {fxMatch(r) && (
+                    <span className="ml-2 rounded bg-emerald-100 px-1 text-[10px] font-medium text-emerald-700">
+                      {line.currency} {line.foreign_amount!.toFixed(2)} 一致
+                    </span>
+                  )}
+                  {r.amount_jpy != null && r.amount_jpy === line.amount_jpy && (
+                    <span className="ml-2 rounded bg-emerald-100 px-1 text-[10px] font-medium text-emerald-700">同額</span>
+                  )}
+                  {line.receipt_id === r.id && (
+                    <span className="ml-2 rounded bg-brand-100 px-1 text-[10px] font-medium text-brand-700">現在</span>
+                  )}
+                </span>
+                <span className="shrink-0 text-right tabular-nums text-slate-800">
+                  {yen(r.amount_jpy)}
+                  {r.currency && r.currency !== 'JPY' && r.foreign_amount != null && (
+                    <div className="text-[11px] text-slate-400">{r.currency} {r.foreign_amount.toFixed(2)}</div>
+                  )}
+                </span>
+              </button>
+              {/* 画像を確認してから選べる(行の選択とは別ボタン) */}
+              {(r.image_file_id || r.images?.length) ? (
+                <IconButton
+                  label="画像を確認" className="h-7 w-7 shrink-0 hover:!text-brand-600"
+                  onClick={() => setPreview({ row: r, title: '領収書の画像' })}
+                >
+                  <Icon.Image />
+                </IconButton>
+              ) : (
+                <span className="w-7 shrink-0" />
+              )}
+            </div>
           ))}
           {list.length === 0 && <p className="p-4 text-center text-sm text-slate-400">該当する領収書がありません</p>}
         </div>
       </>)}
+      {preview && <ReceiptImagesModal row={preview.row} title={preview.title} onClose={() => setPreview(null)} />}
     </Modal>
   )
 }

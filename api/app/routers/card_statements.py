@@ -218,6 +218,7 @@ async def list_statements(
             "link_manual": manual,  # True=人が設定(紐付け/領収書なし確定) / False=システム自動
             "image_file_id": str(fid) if fid else None,
             "image_mime": mime,
+            "page": (c.capture_meta or {}).get("page"),  # 明細PDFの該当ページ(プレビュー用)
             "dup_key": dup_key.get(c.id),   # 同一なら重複グループ(本体のid)。null=単独
             "is_dup": dup_flag.get(c.id, False),  # True=重複候補
             "card_batch_id": str(c.card_batch_id) if c.card_batch_id else None,  # 取込バッチ(塊)

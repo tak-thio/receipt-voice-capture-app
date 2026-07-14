@@ -609,7 +609,12 @@ function BatchRenameModal({
 }
 
 // 受信箱で画像だけを大きく見るビューア。統合伝票は明細+鏡を全部・縦に並べてズーム可、元画像リンク付き。
-function ReceiptImagesModal({ row, onClose }: { row: ReceiptRow; onClose: () => void }) {
+// 画像ビューア(全画像を並列表示・ズーム)。紐付けモーダル(CardStatements)からも再利用するため export。
+export function ReceiptImagesModal({ row, onClose, title = '領収書の画像' }: {
+  row: Pick<ReceiptRow, 'images' | 'image_file_id' | 'image_mime' | 'page'>
+  onClose: () => void
+  title?: string
+}) {
   const imgs = row.images?.length
     ? row.images
     : row.image_file_id
@@ -620,7 +625,7 @@ function ReceiptImagesModal({ row, onClose }: { row: ReceiptRow; onClose: () => 
       open
       size="lg"
       onClose={onClose}
-      title="領収書の画像"
+      title={title}
       description={imgs.length > 1 ? `${imgs.length}枚（明細＋鏡など）・ズームできます` : 'ズームできます'}
       footer={<Button variant="ghost" onClick={onClose}>閉じる</Button>}
     >
