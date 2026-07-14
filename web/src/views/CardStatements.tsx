@@ -454,7 +454,6 @@ function LinkModal({
   return (
     <Modal
       open size="lg" onClose={adopt ? onSaved : onClose} title="領収書の紐付け"
-      description={`${line.date ?? '—'} ・ ${line.vendor ?? '—'} ・ ${yen(line.amount_jpy)}${lineFx ? `（${line.currency} ${line.foreign_amount!.toFixed(2)}）` : ''} に紐付ける領収書を選びます（${lineFx ? '外貨一致' : '同額'}を上に表示）。`}
       footer={adopt ? (
         <Button variant="ghost" onClick={onSaved} disabled={busy}>閉じる</Button>
       ) : (<>
@@ -463,6 +462,34 @@ function LinkModal({
         <Button variant="secondary" onClick={() => void set('none')} disabled={busy}>領収書なしにする</Button>
       </>)}
     >
+      {/* 紐付け対象の明細行を大きく表示(説明文は出さない) */}
+      <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+        <div className="min-w-0">
+          <div className="truncate text-lg font-semibold text-slate-900">{line.vendor ?? '—'}</div>
+          <div className="text-sm text-slate-500">{line.date ?? '—'}</div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <div className="text-right">
+            <div className="text-2xl font-bold tabular-nums text-slate-900">{yen(line.amount_jpy)}</div>
+            {lineFx && (
+              <div className="text-xs text-slate-500">
+                {line.currency} {line.foreign_amount!.toFixed(2)}{line.exchange_rate != null ? ` @${line.exchange_rate}` : ''}
+              </div>
+            )}
+          </div>
+          {line.image_file_id && (
+            <IconButton
+              label="明細画像を確認" className="h-9 w-9 hover:!text-brand-600"
+              onClick={() => setPreview({
+                row: { image_file_id: line.image_file_id, image_mime: line.image_mime ?? null, page: line.page ?? null },
+                title: 'クレジット明細の画像',
+              })}
+            >
+              <Icon.Image className="text-xl" />
+            </IconButton>
+          )}
+        </div>
+      </div>
       {adopt ? (
         // 採用ステップ: 実際に引き落とされた円(カード請求額)を計上額にする(人が確定)。
         <div className="space-y-3 rounded-lg border border-brand-200 bg-brand-50/50 p-4">
@@ -489,20 +516,7 @@ function LinkModal({
             </Button>
           </div>
         )}
-        <div className="flex items-center gap-2">
-          <Input placeholder="領収書を検索（店名・金額・日付）" value={q} onChange={(e) => setQ(e.target.value)} className="flex-1" />
-          {line.image_file_id && (
-            <Button
-              variant="secondary" size="sm"
-              onClick={() => setPreview({
-                row: { image_file_id: line.image_file_id, image_mime: line.image_mime ?? null, page: line.page ?? null },
-                title: 'クレジット明細の画像',
-              })}
-            >
-              <Icon.Image /> 明細画像
-            </Button>
-          )}
-        </div>
+        <Input placeholder="領収書を検索（店名・金額・日付）" value={q} onChange={(e) => setQ(e.target.value)} />
         <div className="mt-2 max-h-96 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
           {list.map((r) => (
             <div
