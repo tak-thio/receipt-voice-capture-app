@@ -44,6 +44,11 @@ export function InboxScreen() {
     return (
       <ReceiptDetailScreen
         receipt={selected}
+        // クレジット明細の塊行は領収書ではない(idが領収書IDでなく保存が404になる)。閲覧のみ。
+        editableOverride={selected.card_batch ? false : undefined}
+        notice={selected.card_batch
+          ? `クレジット明細の取込（${selected.card_batch.count}件）です。行の照合・処理は Web の「クレジット明細」で行います。`
+          : undefined}
         onBack={() => setSelected(null)}
         onSaved={(u) => {
           setRows((rs) => rs.map((x) => (x.id === u.id ? { ...x, ...u } : x)))
@@ -86,8 +91,9 @@ export function InboxScreen() {
                 <span className="src">{SOURCE_LABEL[r.source] ?? r.source}</span>
                 {hasImage && <span className="img-mark">画像</span>}
                 {r.page != null && <span className="img-mark">P.{r.page}</span>}
-                {isEditable(r) && <span className="img-mark">修正可</span>}
-                {(!individual || r.parse_failed) && <span className={`st ${s.cls}`}>{s.text}</span>}
+                {/* 塊行は修正不可・状態バッジも出さない(仕分け対象外の要約行のため) */}
+                {!r.card_batch && isEditable(r) && <span className="img-mark">修正可</span>}
+                {(!individual || r.parse_failed) && !r.card_batch && <span className={`st ${s.cls}`}>{s.text}</span>}
               </div>
             </li>
           )

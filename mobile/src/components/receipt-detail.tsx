@@ -149,7 +149,8 @@ export function ReceiptDetailScreen({
       {receipt.parse_failed && editable && (
         <p className="detail-failed">請求書として認識できませんでした。内容を入力して保存してください。</p>
       )}
-      {!editable && <p className="muted small">確定済み/処理済みのため修正できません。</p>}
+      {/* notice(塊行の案内など)がある場合はそちらを優先し、汎用の編集不可文言は出さない */}
+      {!editable && !notice && <p className="muted small">確定済み/処理済みのため修正できません。</p>}
 
       {purposeMode && (
         <label className="field">

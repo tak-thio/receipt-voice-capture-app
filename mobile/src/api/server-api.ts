@@ -40,6 +40,8 @@ export interface ServerReceipt {
   images?: { file_id: string; mime: string | null }[] // capture画像(複数=マージで束ねた明細+鏡)
   page?: number | null // PDFの何ページ目由来か
   parse_failed?: boolean // AIが請求書として認識できなかった(店舗名も金額も取れず)
+  // クレジット明細の取込バッチ(塊)の要約行。id は領収書IDではないため編集PATCH不可(閲覧のみ)。
+  card_batch?: { count: number; short_id: string; label: string } | null
 }
 
 // 登録者が AI の読み取り内容を直すための項目（科目・仕訳には触れない）。
