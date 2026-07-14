@@ -512,6 +512,10 @@ class AccountTitle(Base, TimestampMixin):
     # 「よく使う」科目: 仕分けで既定表示する。借方/貸方で別々に指定する。
     pinned_debit: Mapped[bool] = mapped_column(Boolean, default=False)
     pinned_credit: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 他会計システムへの変換辞書: {"yayoi": {"name": "交際費"}, "mas": {"code": "8351"}}。
+    # テンプレ行(client_id=NULL)=事務所の標準辞書 / 顧問先行=その会社の手動変更。
+    # エクスポート時の解決順: 顧問先 > テンプレ(override_of先) > 自社の科目名(素通し)。
+    export_map: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # When a client row supersedes/hides a firm-template row.
     override_of: Mapped[UUID | None] = mapped_column(
         ForeignKey("account_titles.id"), nullable=True

@@ -36,6 +36,8 @@ class AccountTitlePatch(BaseModel):
     sort_order: int | None = None
     pinned_debit: bool | None = None   # 「よく使う(借方)」: 仕分けの借方ピッカーで既定表示
     pinned_credit: bool | None = None  # 「よく使う(貸方)」: 仕分けの貸方ピッカーで既定表示
+    # 他会計システムへの変換辞書 {"yayoi": {"name": ..., "code": ...}, ...}。行ごと丸ごと置換。
+    export_map: dict | None = None
 
 
 class PartnerIn(BaseModel):
@@ -107,6 +109,12 @@ async def list_account_titles(
             .group_by(SubAccount.account_title_id)
         )
         counts = {tid: n for tid, n in crows.all()}
+    # 変換辞書の継承表示用: 顧問先行が override している事務所テンプレ行の export_map。
+    tmpl_ids = [r.override_of for r in effective if r.override_of]
+    tmpl_maps: dict = {}
+    if tmpl_ids:
+        trows = await session.scalars(select(AccountTitle).where(AccountTitle.id.in_(tmpl_ids)))
+        tmpl_maps = {t.id: t.export_map for t in trows}
     return [
         {
             "id": str(r.id),
@@ -116,6 +124,10 @@ async def list_account_titles(
             "sub_account_count": counts.get(r.id, 0),
             "pinned_debit": r.pinned_debit,
             "pinned_credit": r.pinned_credit,
+            # 変換辞書: この行(顧問先の手動変更)と、継承元テンプレ(事務所の標準辞書)。
+            "export_map": r.export_map,
+            "override_of": str(r.override_of) if r.override_of else None,
+            "template_export_map": tmpl_maps.get(r.override_of) if r.override_of else None,
         }
         for r in effective
     ]

@@ -45,10 +45,30 @@ async def export_csv(
     # Resolve account-title / partner names referenced by the receipts.
     title_ids = {r.account_title_id for r in receipts if r.account_title_id}
     partner_ids = {r.partner_id for r in receipts if r.partner_id}
-    titles = {
-        t.id: t.name
-        for t in await session.scalars(select(AccountTitle).where(AccountTitle.id.in_(title_ids)))
-    } if title_ids else {}
+    title_rows = list(
+        await session.scalars(select(AccountTitle).where(AccountTitle.id.in_(title_ids)))
+    ) if title_ids else []
+    # 勘定科目の変換辞書(export_map): 出力形式(target)ごとの出力名/コード。
+    # 解決順 = 顧問先行の map > 事務所テンプレ(override_of先)の map > 自社の科目名(素通し)。
+    # コードはマッピングがある時だけ出す(自社の内部コードを他システムへ流さない)。
+    tmpl_ids = {t.override_of for t in title_rows if t.override_of}
+    templates = {
+        t.id: t for t in await session.scalars(select(AccountTitle).where(AccountTitle.id.in_(tmpl_ids)))
+    } if tmpl_ids else {}
+
+    def _resolve(t: AccountTitle) -> tuple[str, str]:
+        layers = [t]
+        if t.override_of and t.override_of in templates:
+            layers.append(templates[t.override_of])
+        name = next((m["name"] for layer in layers
+                     if (m := (layer.export_map or {}).get(target) or {}).get("name")), None)
+        code = next((m["code"] for layer in layers
+                     if (m := (layer.export_map or {}).get(target) or {}).get("code")), None)
+        return (name or code or t.name, code or "")
+
+    resolved = {t.id: _resolve(t) for t in title_rows}
+    titles = {tid: v[0] for tid, v in resolved.items()}
+    codes = {tid: v[1] for tid, v in resolved.items()}
     partners = {
         p.id: p.name
         for p in await session.scalars(select(Partner).where(Partner.id.in_(partner_ids)))
@@ -61,6 +81,7 @@ async def export_csv(
             amount=str(r.amount_jpy) if r.amount_jpy is not None else "",
             tax_mode=r.tax_mode,
             account=titles.get(r.account_title_id, ""),
+            account_code=codes.get(r.account_title_id, ""),
             payment_method=r.payment_method or "",
             t_number=r.t_number or "",
             description=partners.get(r.partner_id) or r.partner_name or r.vendor or "",

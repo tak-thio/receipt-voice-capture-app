@@ -118,6 +118,9 @@ export interface NoteRow {
   color: string
 }
 
+// 他会計システムへの変換辞書のエントリ(形式ごとの出力名/コード)。
+export type ExportMap = Record<string, { name?: string | null; code?: string | null }>
+
 export interface MasterRow {
   id: string
   code: string | null
@@ -128,6 +131,11 @@ export interface MasterRow {
   sub_account_count?: number
   pinned_debit?: boolean
   pinned_credit?: boolean
+  // 勘定科目の変換辞書: この行(顧問先の手動変更)と継承元テンプレ(事務所の標準辞書)。
+  // エクスポート時の解決順: export_map > template_export_map > 自社の科目名(素通し)。
+  export_map?: ExportMap | null
+  override_of?: string | null
+  template_export_map?: ExportMap | null
 }
 
 export interface SubAccountRow {
@@ -532,6 +540,7 @@ export const api = {
       code?: string
       name?: string
       sort_order?: number
+      export_map?: ExportMap // 変換辞書(行ごと丸ごと置換)
       pinned_debit?: boolean
       pinned_credit?: boolean
     },

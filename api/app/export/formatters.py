@@ -32,9 +32,10 @@ class RowView:
     amount: str
     tax_mode: str | None
     account: str
-    payment_method: str
-    t_number: str
-    description: str
+    account_code: str = ""  # 変換辞書で解決した出力先の科目コード(MAS等)。無ければ空
+    payment_method: str = ""
+    t_number: str = ""
+    description: str = ""
 
 
 def _freee(rows: Sequence[RowView]) -> tuple[list[str], list[list[str]]]:
@@ -85,6 +86,7 @@ def _mas(rows: Sequence[RowView]) -> tuple[list[str], list[list[str]]]:
         row = [""] * len(MAS_HEADERS)
         tax = tax_mas(r.tax_mode)
         row[0] = r.date           # 伝票日付
+        row[6] = r.account_code   # (借方)勘定科目コード(変換辞書で解決。未設定は空)
         row[12] = tax             # (借方)税込/税抜区分
         row[23] = tax             # (貸方)税込/税抜区分
         row[28] = r.amount        # 金額(入力金額)
