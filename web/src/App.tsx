@@ -148,14 +148,45 @@ const NAV: NavItem[] = [
   { id: 'settings', label: '設定', icon: Icon.Sliders, needsClient: false, can: (p) => p.canSettings || p.canUsers },
 ]
 
+// URL⇔タブの軽量同期(ルーターは使わない)。/{tab} をURLに反映(受信箱は /)し、
+// リロード・リンク共有・ブックマーク・ブラウザの戻る/進むを効かせる。顧問先は ?client=。
+// ※従来はURLが常に / のままだった(PWAの制約ではなく、stateのみのタブ切替だったため)。
+function tabFromLocation(): Tab {
+  const seg = window.location.pathname.split('/')[1]
+  return NAV.some((t) => t.id === seg) ? (seg as Tab) : 'receipts'
+}
+
 function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const firmId = useMemo(
     () => me.memberships.find((m) => m.client_id === null)?.firm_id ?? me.memberships[0]?.firm_id ?? '',
     [me],
   )
   const [clients, setClients] = useState<ClientRow[]>([])
-  const [clientId, setClientId] = useState<string>('')
-  const [tab, setTab] = useState<Tab>('receipts')
+  const [clientId, setClientIdState] = useState<string>('')
+  const [tab, setTabState] = useState<Tab>(tabFromLocation)
+  // タブ変更はURLへ pushState(履歴に積む=ブラウザの戻るで前のタブに戻れる)。
+  function setTab(id: Tab) {
+    setTabState(id)
+    const path = id === 'receipts' ? '/' : `/${id}`
+    if (window.location.pathname !== path) {
+      window.history.pushState(null, '', path + window.location.search)
+    }
+  }
+  // 顧問先の切替は ?client= へ replaceState(タブ移動と違い履歴は積まない)。
+  function setClientId(id: string) {
+    setClientIdState(id)
+    const p = new URLSearchParams(window.location.search)
+    if (id) p.set('client', id)
+    else p.delete('client')
+    const qs = p.toString()
+    window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''))
+  }
+  // 戻る/進む(popstate)でタブを追従。
+  useEffect(() => {
+    const onPop = () => setTabState(tabFromLocation())
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
   const [cardBatchTarget, setCardBatchTarget] = useState<string | null>(null) // 受信箱→クレジット明細への遷移先バッチ
   const [navOpen, setNavOpen] = useState(false)
   const [pairOpen, setPairOpen] = useState(false)
@@ -189,11 +220,20 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const lockDate = clients.find((c) => c.id === clientId)?.closing_date ?? null
   const nav = NAV.filter((t) => t.can(perms))
   const active = nav.find((t) => t.id === tab) ?? nav[0]
+  // URL直打ちで権限外のタブに来た場合は先頭タブへ寄せる(clients読込後=権限が確定してから。
+  // 例: 経費精算タブは expense_enabled の判定に clients が要る)。
+  useEffect(() => {
+    if (clients.length && !nav.some((t) => t.id === tab)) setTab(nav[0]?.id ?? 'receipts')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, clients.length])
 
   async function reloadClients() {
     const rows = await api.clients()
     setClients(rows)
-    setClientId((prev) => prev || rows[0]?.id || '')
+    // 初期選択: URLの ?client=(共有リンク) > 既存選択 > 先頭。既定選択ではURLを書き換えない。
+    const urlClient = new URLSearchParams(window.location.search).get('client')
+    setClientIdState((prev) =>
+      prev || (urlClient && rows.some((r) => r.id === urlClient) ? urlClient : '') || rows[0]?.id || '')
   }
   useEffect(() => {
     reloadClients().catch(() => setClients([]))
