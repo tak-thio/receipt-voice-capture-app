@@ -162,6 +162,8 @@ export interface QueueItem {
   tax_lines?: TaxLine[] // 消費税内訳(行リスト・請求書通り)
   currency?: string | null // 外貨("USD"等)。円建ては null
   foreign_amount?: number | null // 現地支払総額
+  // 円未確定の領収書に対する「照合済みカード明細のご利用額(円)」採用提案(仕分け画面のボタン)。
+  card_line_suggestion?: { line_id: string; amount_jpy: number | null; vendor: string | null; date: string | null } | null
   date: string | null
   source: string
   t_number: string | null

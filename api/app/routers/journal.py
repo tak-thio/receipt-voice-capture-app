@@ -14,6 +14,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import audit, journaling
+from .card_statements import _MATCH_DAYS  # 照合の日付許容幅(クレジット明細の自動照合と同じ規則)
 from ..db import get_session
 from ..deps import Principal, get_principal
 from ..models import UNPARSED_VENDOR, AccountTitle, File, Partner, Receipt, ReceiptFile, ReceiptLane, User
@@ -209,6 +210,46 @@ async def queue(
         )
         creators = {uid: (name or email) for uid, name, email in crows.all()}
 
+    # 円未確定(外貨など)の領収書に、照合されるカード明細行の「ご利用額(円)」を提案として添える。
+    # 手動リンク(明細側の linked_receipt_id)を優先し、無ければ外貨キー(通貨+現地額, ±日数)で照合。
+    # 金額を書くのは人 — 仕分け画面の「採用」ボタン→保存(仕訳確定)が人の確定になる。
+    card_amount_of: dict = {}
+    jpyless = [r for r in rows if r.amount_jpy is None and r.doc_type == "receipt"]
+    if jpyless and client_id:
+        card_lines = list(await session.scalars(select(Receipt).where(
+            Receipt.client_id == client_id,
+            Receipt.doc_type == "card_statement",
+            Receipt.approval_status != "deleted",
+            Receipt.amount_jpy.is_not(None),
+        )))
+        manual_of: dict = {}
+        by_fx: dict = {}
+        for line in card_lines:
+            cm = line.capture_meta or {}
+            if cm.get("link_manual") and cm.get("linked_receipt_id"):
+                manual_of[cm["linked_receipt_id"]] = line
+            if line.currency and line.currency != "JPY" and line.foreign_amount is not None:
+                by_fx.setdefault((line.currency, str(line.foreign_amount)), []).append(line)
+        for r in jpyless:
+            line = manual_of.get(str(r.id))
+            if (line is None and r.currency and r.currency != "JPY"
+                    and r.foreign_amount is not None and r.captured_at is not None):
+                best = None
+                for cand in by_fx.get((r.currency, str(r.foreign_amount)), []):
+                    if cand.captured_at is None:
+                        continue
+                    dd = abs((cand.captured_at.date() - r.captured_at.date()).days)
+                    if dd <= _MATCH_DAYS and (best is None or dd < best[0]):
+                        best = (dd, cand)
+                line = best[1] if best else None
+            if line is not None:
+                card_amount_of[r.id] = {
+                    "line_id": str(line.id),
+                    "amount_jpy": line.amount_jpy,
+                    "vendor": line.vendor,
+                    "date": line.captured_at.date().isoformat() if line.captured_at else None,
+                }
+
     imgs_map = await _capture_images_map(session, [r.id for r in rows])
     items = []
     for r in rows:
@@ -229,6 +270,8 @@ async def queue(
                 "tax_lines": r.tax_lines or [],
                 "currency": r.currency,
                 "foreign_amount": float(r.foreign_amount) if r.foreign_amount is not None else None,
+                # 円未確定の領収書に対する「照合済みカード明細のご利用額(円)」の採用提案。
+                "card_line_suggestion": card_amount_of.get(r.id),
                 "date": r.captured_at.date().isoformat() if r.captured_at else None,
                 "source": r.source,
                 "t_number": r.t_number,

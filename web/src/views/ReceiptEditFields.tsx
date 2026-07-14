@@ -19,6 +19,8 @@ export interface EditableReceipt {
   tax_mode: string | null
   currency?: string | null // 外貨("USD"等)。円建ては null
   foreign_amount?: number | null // 現地支払総額
+  // 照合済みカード明細の「ご利用額(円)」採用提案(円未確定の外貨領収書など)。
+  card_line_suggestion?: { line_id: string; amount_jpy: number | null; vendor: string | null; date: string | null } | null
   payment_method: string | null
   t_number: string | null
   description: string | null // 摘要
@@ -449,6 +451,19 @@ export function ReceiptEditFields({
         {/* 金額・消費税（すべて編集可能・請求書の印字値をそのまま）。税率は固定しない。 */}
         <div className="space-y-1.5 border-t border-slate-100 pt-2.5">
           <span className="text-xs font-medium text-slate-500">金額・消費税</span>
+          {/* 外貨領収書など円未確定のとき: 照合済みカード明細の引落額(円)を1クリックで採用。
+              書くのは人の操作(このボタン→保存=仕訳確定)。自動では書かない。 */}
+          {item.card_line_suggestion && !amountInput.trim() && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand-200 bg-brand-50/50 p-2.5">
+              <span className="text-xs text-slate-600">
+                クレジット明細と照合済み: {item.card_line_suggestion.date ?? '—'}・{item.card_line_suggestion.vendor ?? '—'}
+                （実際の引落額 ¥{(item.card_line_suggestion.amount_jpy ?? 0).toLocaleString()}）
+              </span>
+              <Button size="sm" onClick={() => setAmountInput(String(item.card_line_suggestion?.amount_jpy ?? ''))}>
+                合計金額に採用
+              </Button>
+            </div>
+          )}
           <div className="grid grid-cols-3 gap-2">
             <label className="space-y-1">
               <span className="text-xs text-slate-500">合計金額(税込)</span>
