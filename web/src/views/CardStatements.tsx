@@ -124,6 +124,14 @@ export function CardStatementsView({ clientId, initialBatch, onBatchOpened }: { 
     if (!window.confirm('この明細行を削除しますか?')) return
     if (await toast.run(() => api.setApproval(r.id, 'deleted'), '削除しました')) void load()
   }
+  // 「重複ではない」確定/解除: 正当な同日同額の取引を重複候補の束ねから外す(永続)。
+  async function setDupSplit(r: CardStatementLine, split: boolean) {
+    const ok = await toast.run(
+      () => api.setCardLineDup(r.id, split),
+      split ? '「重複ではない」にしました' : '重複判定に戻しました',
+    )
+    if (ok) void load()
+  }
   async function handleDeleteBatch(batchId: string, count: number) {
     if (!window.confirm(`この取込（${count}件）をまとめて削除しますか？`)) return
     if (await toast.run(() => api.deleteCardBatch(batchId), '取込をまとめて削除しました')) {
@@ -171,7 +179,25 @@ export function CardStatementsView({ clientId, initialBatch, onBatchOpened }: { 
             <Badge tone="danger">領収書なし</Badge>
           )}
         </Td>
-        <Td>{isDup ? <Badge tone="warning">重複の可能性</Badge> : null}</Td>
+        <Td>
+          {isDup ? (
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <Badge tone="warning">重複の可能性</Badge>
+              <button onClick={() => void setDupSplit(r, true)}
+                className="text-xs font-medium text-brand-700 hover:underline" title="正当な取引（重複ではない）として束ねから外す">
+                重複ではない
+              </button>
+            </span>
+          ) : r.dup_split ? (
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <Badge tone="neutral">重複ではない（確定）</Badge>
+              <button onClick={() => void setDupSplit(r, false)}
+                className="text-xs text-slate-400 hover:underline" title="自動の重複判定に戻す">
+                戻す
+              </button>
+            </span>
+          ) : null}
+        </Td>
         <Td className="text-right">
           <div className="flex items-center justify-end gap-1">
             <button

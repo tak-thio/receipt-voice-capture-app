@@ -229,6 +229,7 @@ export interface CardStatementLine {
   image_mime?: string | null
   dup_key?: string | null // 同一なら重複グループ(本体のid)。null=単独
   is_dup?: boolean // true=重複候補(削除してよい)
+  dup_split?: boolean // true=人が「重複ではない」と確定(束ねの対象外。戻すことも可)
   page?: number | null // 明細PDFの何ページ目由来か(画像プレビューを該当ページで開く)
   card_batch_id?: string | null // 取込バッチ(塊)。同じ取込の全行が共有
   imported_at?: string | null // 取込日時
@@ -461,6 +462,11 @@ export const api = {
   renameCardBatch: (batchId: string, label: string) =>
     req<{ label: string }>(`/card-statements/batch/${batchId}/label`, {
       method: 'POST', body: JSON.stringify({ label }),
+    }),
+  // 明細行の「重複ではない」確定/解除(正当な同日同額の取引を束ねから外す・永続)。
+  setCardLineDup: (lineId: string, split: boolean) =>
+    req<{ ok: boolean }>(`/card-statements/${lineId}/not-duplicate`, {
+      method: 'POST', body: JSON.stringify({ split }),
     }),
   // 明細行の領収書紐付けを手動設定。mode: receipt=指定領収書 / none=領収書なし確定 / auto=自動に戻す。
   setCardLineLink: (lineId: string, mode: 'receipt' | 'none' | 'auto', receiptId?: string) =>

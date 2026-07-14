@@ -129,9 +129,13 @@ async def list_statements(
             by_fx.setdefault((r.currency, str(r.foreign_amount)), []).append(r)
 
     # 重複アップロード検知: 同じ明細行(取引日＋金額＋利用先)をグループ化。最古を本体、残りを重複候補。
+    # 人が「重複ではない」と確定した行(capture_meta.card_dup_split)は束ねない
+    # (同じ日に同じ店で同額を2回使う正当な取引もあるため。判定は永続化され、戻すことも可能)。
     groups: dict = defaultdict(list)
     for c in cards:
         if c.amount_jpy is None or c.captured_at is None:
+            continue
+        if (c.capture_meta or {}).get("card_dup_split"):
             continue
         groups[(c.captured_at.date().isoformat(), c.amount_jpy, normalize_vendor(c.vendor))].append(c)
     dup_key: dict = {}
@@ -223,6 +227,8 @@ async def list_statements(
             "page": (c.capture_meta or {}).get("page"),  # 明細PDFの該当ページ(プレビュー用)
             "dup_key": dup_key.get(c.id),   # 同一なら重複グループ(本体のid)。null=単独
             "is_dup": dup_flag.get(c.id, False),  # True=重複候補
+            # 人が「重複ではない」と確定した行(束ねの対象外。「戻す」で解除できる)。
+            "dup_split": bool((c.capture_meta or {}).get("card_dup_split")),
             "card_batch_id": str(c.card_batch_id) if c.card_batch_id else None,  # 取込バッチ(塊)
             "imported_at": c.created_at.isoformat() if c.created_at else None,  # 取込日時
             "card_batch_label": (c.capture_meta or {}).get("card_batch_label"),  # バッチ名(未設定なら既定=取込日)
@@ -290,6 +296,31 @@ async def rename_batch(
             cm.pop("card_batch_label", None)  # 空=既定(取込日)に戻す
         r.capture_meta = cm
     return {"label": label}
+
+
+class DupBody(BaseModel):
+    split: bool = True  # true=「重複ではない」(束ねから外す・永続) / false=戻す(自動判定に復帰)
+
+
+@router.post("/{line_id}/not-duplicate")
+async def set_line_not_duplicate(
+    line_id: UUID,
+    body: DupBody,
+    _: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """明細行の「重複ではない」確定/解除。同じ日に同じ店で同額を2回使う正当な取引を
+    重複候補の束ねから外す(capture_meta.card_dup_split に永続化)。"""
+    c = await session.get(Receipt, line_id)
+    if c is None or c.doc_type != "card_statement":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "明細行が見つかりません")
+    cm = dict(c.capture_meta or {})
+    if body.split:
+        cm["card_dup_split"] = True
+    else:
+        cm.pop("card_dup_split", None)
+    c.capture_meta = cm
+    return {"ok": True, "split": body.split}
 
 
 class LinkBody(BaseModel):
