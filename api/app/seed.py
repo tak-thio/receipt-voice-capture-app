@@ -75,6 +75,28 @@ STANDARD_CHART: list[tuple[str, str]] = [
     ("790", "雑費"),
 ]
 
+# 「よく使う」の初期値: 新しい会社/顧問先の仕分けUIに既定表示する科目(後から画面で自由に変更可)。
+# ピンが1つも無いとUIは全科目(約45個)を並べるため、領収書経費の定番を最初から絞って出す。
+# 借方=経費の定番10 / 貸方=支払手段。
+PINNED_DEBIT_CODES = {
+    "758",  # 旅費交通費
+    "759",  # 消耗品費
+    "760",  # 通信費
+    "761",  # 接待交際費
+    "762",  # 会議費
+    "765",  # 支払手数料
+    "766",  # 水道光熱費
+    "767",  # 地代家賃
+    "769",  # 福利厚生費
+    "790",  # 雑費
+}
+PINNED_CREDIT_CODES = {
+    "100",  # 現金
+    "101",  # 普通預金
+    "305",  # 未払金(クレジットカード払いの相手科目)
+    "300",  # 買掛金
+}
+
 
 async def seed_firm_template(session: AsyncSession, firm_id: UUID) -> None:
     """Insert the standard chart as a firm's template (client_id = NULL).
@@ -89,6 +111,8 @@ async def seed_firm_template(session: AsyncSession, firm_id: UUID) -> None:
                 code=code,
                 name=name,
                 sort_order=order,
+                pinned_debit=code in PINNED_DEBIT_CODES,
+                pinned_credit=code in PINNED_CREDIT_CODES,
             )
         )
 
@@ -118,5 +142,7 @@ async def seed_client_chart(
                 name=name,
                 sort_order=order,
                 override_of=template_by_code.get(code),
+                pinned_debit=code in PINNED_DEBIT_CODES,
+                pinned_credit=code in PINNED_CREDIT_CODES,
             )
         )
