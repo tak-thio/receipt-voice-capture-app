@@ -77,6 +77,19 @@ export function LedgerView({ clientId, showCreator }: { clientId: string; showCr
     }
   }
 
+  // 仕訳の取消: 元帳から仕訳キューへ戻す(入力値は残る)。明細から起票した行なら紐付けロックも解除。
+  async function unjournalize() {
+    if (!editing) return
+    if (!window.confirm('この仕訳を取り消して「仕訳」キューに戻しますか？\n（入力した科目・金額などは残ります。取消は履歴に記録されます）')) return
+    setBusy(true)
+    const ok = await toast.run(() => api.unjournalize(editing.id), '仕訳を取り消しました（仕訳キューに戻りました）')
+    setBusy(false)
+    if (ok) {
+      setEditing(null)
+      await load()
+    }
+  }
+
   if (!clientId) {
     return (
       <>
@@ -109,6 +122,9 @@ export function LedgerView({ clientId, showCreator }: { clientId: string; showCr
             renderActions={(getValues) => (
               <>
                 <Button variant="ghost" disabled={busy} onClick={() => setEditing(null)}>キャンセル</Button>
+                <Button variant="danger-ghost" disabled={busy} onClick={() => void unjournalize()}>
+                  仕訳を取り消す
+                </Button>
                 <div className="flex-1" />
                 <Button variant="primary" disabled={busy} onClick={() => void save(getValues())}>
                   {busy ? '保存中…' : '保存'}

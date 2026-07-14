@@ -383,6 +383,30 @@ async def journalize(
     return {"id": str(receipt.id), "journalized_at": receipt.journalized_at.isoformat()}
 
 
+@router.post("/receipts/{receipt_id}/unjournalize")
+async def unjournalize(
+    receipt_id: UUID,
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """仕訳の取消: 元帳から仕訳キューへ戻す(入力済みの科目・金額・摘要はそのまま残す)。
+    「明細から起票」した明細行なら紐付けロックも解除される — 後から領収書が出てきた時の王道:
+    取消 → 領収書を紐付け → 領収書側から仕訳し直す。監査ログに取消履歴(電帳法の訂正削除履歴)。"""
+    receipt = await session.get(Receipt, receipt_id)
+    if not receipt:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "receipt not found")
+    if receipt.journalized_at is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "この仕訳は確定されていません")
+    receipt.journalized_at = None
+    await audit.log_audit(
+        session, firm_id=receipt.firm_id, client_id=receipt.client_id, actor_user_id=principal.user.id,
+        action="unjournalized", target_type="receipt", target_id=receipt.id,
+        summary="仕訳を取消（仕訳キューへ戻す）",
+    )
+    await session.flush()
+    return {"ok": True}
+
+
 @router.patch("/ledger/{receipt_id}")
 async def edit_ledger(
     receipt_id: UUID,

@@ -487,6 +487,9 @@ export const api = {
   suggest: (receiptId: string) => req<Suggestion>(`/journal/suggest/${receiptId}`),
   journalize: (receiptId: string, body: JournalizeBody) =>
     req(`/journal/receipts/${receiptId}`, { method: 'POST', body: JSON.stringify(body) }),
+  // 仕訳の取消: 元帳→仕訳キューへ戻す(入力値は残る)。明細から起票した行は紐付けロックも解除。
+  unjournalize: (receiptId: string) =>
+    req<{ ok: boolean }>(`/journal/receipts/${receiptId}/unjournalize`, { method: 'POST' }),
   hold: (receiptId: string) => req(`/journal/receipts/${receiptId}/hold`, { method: 'POST' }),
   unhold: (receiptId: string) => req(`/journal/receipts/${receiptId}/unhold`, { method: 'POST' }),
   setApproval: (receiptId: string, status: string) =>
