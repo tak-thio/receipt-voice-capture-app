@@ -161,6 +161,31 @@ export function ReceiptEditFields({
       ? titles
       : titles.filter((t) => t.pinned_credit || t.id === creditTitleId)
 
+  // 自動計算: 人が明示的に指示した時だけ計算する(既定は請求書の印字値をそのまま=計算しない)。
+  // 内税r%: 合計(税込)から税額を切り出す。外税r%: 税抜(空なら合計欄の値)を本体に税を上乗せ。
+  // 端数は切り捨て(実務慣行)。印字と合わない場合は手修正する。既存の値は上書きされる。
+  function autoTax(mode: 'inclusive' | 'exclusive', rate: number) {
+    if (mode === 'inclusive') {
+      const total = numOrNull(amountInput)
+      if (total == null) return
+      const tax = Math.floor((total * rate) / (100 + rate))
+      const base = total - tax
+      setSubtotalInput(String(base))
+      setTaxTotalInput(String(tax))
+      setTaxLines([{ label: `${rate}%`, tax_jpy: tax, base_jpy: base }])
+      setTaxModeInput('inclusive')
+    } else {
+      const base = numOrNull(subtotalInput) ?? numOrNull(amountInput)
+      if (base == null) return
+      const tax = Math.floor((base * rate) / 100)
+      setSubtotalInput(String(base))
+      setAmountInput(String(base + tax))
+      setTaxTotalInput(String(tax))
+      setTaxLines([{ label: `${rate}%`, tax_jpy: tax, base_jpy: base }])
+      setTaxModeInput('exclusive')
+    }
+  }
+
   // 税内訳を編集したら消費税合計を自動更新（確定値の集計。合計は手修正も可）。
   function syncTaxTotal(lines: TaxLine[]) {
     const vals = lines.map((l) => l.tax_jpy).filter((v): v is number => v != null)
@@ -437,6 +462,22 @@ export function ReceiptEditFields({
               <span className="text-xs text-slate-500">消費税合計</span>
               <Input inputMode="numeric" value={taxTotalInput} onChange={(e) => setTaxTotalInput(e.target.value)} className="text-right tabular-nums" />
             </label>
+          </div>
+          {/* 自動計算(明示指示): 税額の記載がない領収書向け。内税=合計から切り出し / 外税=税抜に上乗せ。 */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-slate-400">自動計算:</span>
+            {([['inclusive', 10, '内税10%'], ['exclusive', 10, '外税10%'], ['inclusive', 8, '内税8%'], ['exclusive', 8, '外税8%']] as const).map(([m, r, label]) => (
+              <button
+                key={label}
+                onClick={() => autoTax(m, r)}
+                disabled={m === 'inclusive' ? !amountInput.trim() : !(subtotalInput.trim() || amountInput.trim())}
+                className="rounded-md border border-brand-200 px-2 py-0.5 text-xs font-medium text-brand-700 hover:bg-brand-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300 disabled:hover:bg-transparent"
+                title={m === 'inclusive' ? '合計金額(税込)から税額を切り出して埋めます' : '税抜金額(空なら合計欄の値)を本体として税を上乗せします'}
+              >
+                {label}
+              </button>
+            ))}
+            <span className="text-[11px] text-slate-300">端数切捨て・入力済みの値は上書き</span>
           </div>
           {/* 消費税の内訳: 請求書通りに保存(計算しない)。複数税率の混在は行を足す。
               区分は自由入力＋サジェスト — 新税率(例: 食料品1%)が来てもここに足すだけ。 */}
