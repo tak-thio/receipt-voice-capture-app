@@ -1,10 +1,28 @@
 import { useEffect, useState } from 'react'
-import { api, type ReconcileItem, type ReconcileState } from '../api'
-import { Badge, Button, Card, EmptyState, Icon, PageHeader, Spinner } from '../ui'
+import { api, type ReconcileGroup, type ReconcileItem, type ReconcileState } from '../api'
+import { Alert, Badge, Button, Card, EmptyState, Icon, PageHeader, Spinner } from '../ui'
 import { useToast } from '../ui/toast'
 
 function yen(n: number | null) {
   return n == null ? '—' : `¥${n.toLocaleString()}`
+}
+
+// 金額表示(外貨対応): 円が未確定の外貨領収書は現地額($220.00 USD)を主表示にする。
+function money(item: ReconcileItem) {
+  const fx = item.currency && item.currency !== 'JPY' && item.foreign_amount != null
+    ? `${item.currency} ${item.foreign_amount.toFixed(2)}`
+    : null
+  if (item.amount_jpy == null) return fx ?? '—'
+  return fx ? `${yen(item.amount_jpy)}（${fx}）` : yen(item.amount_jpy)
+}
+
+// このグループが「なぜ重複っぽいか」— 外貨は円が無くても現地額で束ねる。
+function groupReason(g: ReconcileGroup): string {
+  const all = [g.primary, ...g.duplicates]
+  const fx = all[0].currency && all[0].currency !== 'JPY' && all[0].foreign_amount != null &&
+    all.every((m) => m.currency === all[0].currency && m.foreign_amount === all[0].foreign_amount)
+  if (fx) return `同日・同じ外貨額（${all[0].currency} ${all[0].foreign_amount!.toFixed(2)}）`
+  return '同日・同額・同じ取引先'
 }
 
 function Thumb({ item }: { item: ReconcileItem }) {
@@ -32,7 +50,7 @@ function Line({ item }: { item: ReconcileItem }) {
           {item.journalized_at && <Badge tone="success">仕訳済</Badge>}
         </div>
         <div className="text-xs text-slate-500">
-          {item.date || '—'} ・ {yen(item.amount_jpy)}
+          {item.date || '—'} ・ {money(item)}
           {item.source ? ` ・ ${item.source}` : ''}
         </div>
       </div>
@@ -71,7 +89,7 @@ export function ReconcileView({ clientId }: { clientId?: string }) {
   if (!clientId) {
     return (
       <div>
-        <PageHeader title="突き合わせ" description="同じ取引を自動でまとめます。" />
+        <PageHeader title="重複チェック" description="重複の可能性があるデータをあぶり出す補助画面です。" />
         <Card>
           <EmptyState icon={<Icon.Link />} title="顧問先を選択してください" />
         </Card>
@@ -84,9 +102,16 @@ export function ReconcileView({ clientId }: { clientId?: string }) {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="突き合わせ"
-        description="同日・同金額（領収書は取引先も一致）の取引を『同じもの』として自動でまとめます。クレジット明細の行も同じ扱いです。子（重複）は自動で仕訳・元帳から除外されます。違うものは「重複ではない」で外してください。"
+        title="重複チェック"
+        description="同じ取引の可能性があるデータ（同日・同額。外貨は同じ現地額 — 円の金額が無くても束ねます）を自動でまとめて表示します。"
       />
+      {/* ここに表示があってもエラーではない — 数字が合わない時の調査を助ける補助画面という位置づけ。 */}
+      <Alert>
+        ここにデータが表示されていても<strong>エラーではありません</strong>。
+        集計が合わない時などに、二重登録・二重計上になりやすいデータや疑わしいデータを見つけるための補助画面です。
+        重複（子）は仕訳・元帳から自動で除外されるので、通常はそのままで問題ありません。
+        別々の取引だった場合のみ「重複ではない」で外してください。
+      </Alert>
       <div>
         <Button variant="secondary" onClick={() => void load()} disabled={loading}>
           {loading ? <Spinner /> : <Icon.Search />}
@@ -96,20 +121,28 @@ export function ReconcileView({ clientId }: { clientId?: string }) {
 
       {groups.length === 0 ? (
         <Card>
-          <EmptyState icon={<Icon.Check />} title="まとめられた重複はありません" />
+          <EmptyState
+            icon={<Icon.Check />}
+            title="重複らしきデータはありません"
+            description="同日・同額（外貨は同じ現地額）で束ねられるデータが無い状態です。"
+          />
         </Card>
       ) : (
         <div className="space-y-3">
           {groups.map((g) => (
             <Card key={g.match_id} className="p-4">
-              {/* 親（残す1件） */}
+              {/* なぜ束ねたか(判定理由)を先頭に表示 */}
+              <div className="mb-2">
+                <Badge tone="info">{groupReason(g)}</Badge>
+              </div>
+              {/* 親（集計に使われる1件） */}
               <Line item={g.primary} />
-              {/* 子（自動で重複扱い）。インデントして表示。 */}
+              {/* 子（自動で重複扱い＝集計から除外中）。インデントして表示。 */}
               <div className="mt-2 space-y-2 border-l-2 border-amber-200 pl-3">
                 {g.duplicates.map((d) => (
                   <div key={d.id} className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
-                      <Badge tone="warning">重複</Badge>
+                      <Badge tone="warning">重複の可能性</Badge>
                       <Line item={d} />
                     </div>
                     <Button variant="secondary" onClick={() => void notDuplicate(d.id)}>

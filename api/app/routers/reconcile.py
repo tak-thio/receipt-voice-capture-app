@@ -46,6 +46,10 @@ def _item(r: Receipt, imgs: dict) -> dict:
         "vendor": r.vendor,
         "partner": r.partner_name or r.vendor,  # 取引先(表示)
         "amount_jpy": r.amount_jpy,
+        # 外貨(印字値)。外貨領収書の二重登録は円が無くても (通貨,現地額) で束ねられる
+        # (dedup の fx キー)。表示用に返す — 例: 同じ $220.00 の領収書を2回アップ。
+        "currency": r.currency,
+        "foreign_amount": float(r.foreign_amount) if r.foreign_amount is not None else None,
         "t_number": r.t_number,
         "journalized_at": r.journalized_at.isoformat() if r.journalized_at else None,
         "image_file_id": str(fid) if fid else None,

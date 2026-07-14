@@ -330,6 +330,8 @@ export interface ReconcileItem {
   vendor: string | null
   partner: string | null // 取引先(表示)
   amount_jpy: number | null
+  currency?: string | null // 外貨("USD"等)。円建ては null
+  foreign_amount?: number | null // 現地支払総額(外貨の二重登録は円が無くてもこれで束ねる)
   t_number: string | null
   journalized_at: string | null
   image_file_id: string | null
