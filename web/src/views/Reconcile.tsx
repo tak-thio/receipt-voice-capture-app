@@ -22,7 +22,7 @@ function groupReason(g: ReconcileGroup): string {
   const fx = all[0].currency && all[0].currency !== 'JPY' && all[0].foreign_amount != null &&
     all.every((m) => m.currency === all[0].currency && m.foreign_amount === all[0].foreign_amount)
   if (fx) return `同日・同じ外貨額（${all[0].currency} ${all[0].foreign_amount!.toFixed(2)}）`
-  return '同日・同額・同じ取引先'
+  return '同日・同額'
 }
 
 function Thumb({ item }: { item: ReconcileItem }) {

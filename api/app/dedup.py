@@ -1,10 +1,13 @@
 """自動重複(突き合わせ)の再計算。
 
-同じ取引を1つにまとめる。判定キー:
-- 同日(利用日/領収書日付) ＋ 同金額(税込)。
-- 領収書同士は さらに 取引先(正規化)が一致したときだけ同一とみなす。
-- カード明細行(card_statement)が絡むものは 日付＋金額のみで同一とみなす
-  (カードの利用先名は領収書の取引先と表記が違うため取引先は条件にしない)。
+同じ取引を1つにまとめる。判定キー = **同日(利用日/領収書日付) ＋ 同金額(税込)** のみ。
+外貨で円が未確定の領収書は 金額の代わりに (通貨, 現地額) を使う。
+
+取引先の一致は条件にしない(2026-07-15にuser判断で撤廃): 取引先はAI読取で表記が
+ゆらぐ(同じ店でも経路により「スターバックス」「STARBUCKS」等)ため、条件に入れると
+本物の重複が静かにすり抜ける。過検知は受信箱/重複チェックで目立ち「重複ではない」
+1クリック(永続)で外せるが、見逃しは誰も気づけない=二重計上になる。この非対称性から
+「ゆるく検知して人が外す」に倒す。
 
 各グループの親(残す1件)は「領収書優先 → 仕訳済 → T番号あり → 登録が早い」。
 親は pending、それ以外は自動で duplicate(=仕訳/元帳から除外)。
@@ -19,7 +22,6 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .journaling import normalize_vendor
 from .models import Receipt, ReceiptLane
 
 CARD = "card_statement"
@@ -29,11 +31,6 @@ _MANAGED = ["pending", "duplicate"]
 
 def _date_key(r: Receipt):
     return r.captured_at.date().isoformat() if r.captured_at else None
-
-
-def _partner_key(r: Receipt) -> str:
-    """領収書の取引先キー(取引先名 > 店舗名 を正規化)。"""
-    return normalize_vendor(r.partner_name or r.vendor)
 
 
 def _is_split(r: Receipt) -> bool:
@@ -82,18 +79,10 @@ def _components(rows: list[Receipt]) -> list[list[Receipt]]:
     for members in buckets.values():
         if len(members) < 2:
             continue
-        if any(m.doc_type == CARD for m in members):
-            # カードが絡む → 日付+金額だけで全部同一
-            for m in members[1:]:
-                union(members[0].id, m.id)
-        else:
-            # 領収書のみ → 取引先が一致するものだけ同一
-            by_partner: dict = defaultdict(list)
-            for m in members:
-                by_partner[_partner_key(m)].append(m)
-            for grp in by_partner.values():
-                for m in grp[1:]:
-                    union(grp[0].id, m.id)
+        # 同日+同額なら取引先を問わず同一候補(AI読取の表記ゆらぎで見逃さないため)。
+        # 別取引の同日同額は「重複ではない」で人が外す(永続)。
+        for m in members[1:]:
+            union(members[0].id, m.id)
 
     by_id = {r.id: r for r in rows}
     comps: dict = defaultdict(list)
