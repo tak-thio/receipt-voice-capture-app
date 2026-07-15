@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api, type JournalizeBody, type MasterRow, type NoteRow, type SubAccountRow, type Suggestion, type TaxLine } from '../api'
 import { Button, cn, Icon, Input, Select, Textarea } from '../ui'
+import { useToast } from '../ui/toast'
 import { NoteChips, NotePickerModal } from '../notes'
 import { ZoomableImage } from './ZoomableImage'
 import { EmailViewModal } from './EmailViewModal'
@@ -62,6 +63,7 @@ export function ReceiptEditFields({
   onToggleNote: (noteId: string) => void
   renderActions: (getValues: () => JournalizeBody, debitSelected: boolean) => ReactNode
 }) {
+  const toast = useToast()
   const [tagging, setTagging] = useState(false)
   const [showEmail, setShowEmail] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
@@ -268,25 +270,32 @@ export function ReceiptEditFields({
   // 内税r%: 合計(税込)から税額を切り出す。外税r%: 税抜(空なら合計欄の値)を本体に税を上乗せ。
   // 端数は切り捨て(実務慣行)。印字と合わない場合は手修正する。既存の値は上書きされる。
   function autoTax(mode: 'inclusive' | 'exclusive', rate: number) {
+    // 計算結果が既存の入力と同一だと「押しても何も起きない」ように見えるため、
+    // 何をどう計算したかを必ずトーストで返す(変化が無ければその旨も)。
+    const before = `${numOrNull(amountInput)}/${numOrNull(subtotalInput)}/${numOrNull(taxTotalInput)}`
+    let total: number, base: number, tax: number
     if (mode === 'inclusive') {
-      const total = numOrNull(amountInput)
-      if (total == null) return
-      const tax = Math.floor((total * rate) / (100 + rate))
-      const base = total - tax
-      setSubtotalInput(String(base))
-      setTaxTotalInput(String(tax))
-      setTaxLines([{ label: `${rate}%`, tax_jpy: tax, base_jpy: base }])
-      setTaxModeInput('inclusive')
+      const a = numOrNull(amountInput)
+      if (a == null) return
+      total = a
+      tax = Math.floor((total * rate) / (100 + rate))
+      base = total - tax
     } else {
-      const base = numOrNull(subtotalInput) ?? numOrNull(amountInput)
-      if (base == null) return
-      const tax = Math.floor((base * rate) / 100)
-      setSubtotalInput(String(base))
-      setAmountInput(String(base + tax))
-      setTaxTotalInput(String(tax))
-      setTaxLines([{ label: `${rate}%`, tax_jpy: tax, base_jpy: base }])
-      setTaxModeInput('exclusive')
+      const s = numOrNull(subtotalInput) ?? numOrNull(amountInput)
+      if (s == null) return
+      base = s
+      tax = Math.floor((base * rate) / 100)
+      total = base + tax
     }
+    setAmountInput(String(total))
+    setSubtotalInput(String(base))
+    setTaxTotalInput(String(tax))
+    setTaxLines([{ label: `${rate}%`, tax_jpy: tax, base_jpy: base }])
+    setTaxModeInput(mode)
+    const same = before === `${total}/${base}/${tax}`
+    toast.success(
+      `${mode === 'inclusive' ? '内税' : '外税'}${rate}%で計算: 合計 ¥${total.toLocaleString()}・税抜 ¥${base.toLocaleString()}・消費税 ¥${tax.toLocaleString()}${same ? '（既にこの値でした）' : ''}`,
+    )
   }
 
   // 税内訳を編集したら消費税合計を自動更新（確定値の集計。合計は手修正も可）。
