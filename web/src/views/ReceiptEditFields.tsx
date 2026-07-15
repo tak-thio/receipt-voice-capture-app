@@ -85,6 +85,7 @@ export function ReceiptEditFields({
   const [showFx, setShowFx] = useState(false) // 外貨入力欄を出す(国内行にはノイズを出さない)
   const [paymentInput, setPaymentInput] = useState('') // 支払方法
   const [tnumberInput, setTnumberInput] = useState('') // インボイス番号(T番号)
+  const [tnumberFromMaster, setTnumberFromMaster] = useState(false) // 取引先マスタから補完した印
   const [descriptionInput, setDescriptionInput] = useState('') // 摘要
   const [memoInput, setMemoInput] = useState('') // 自由メモ
 
@@ -165,6 +166,21 @@ export function ReceiptEditFields({
     showAllCredit || pinnedCredit.length === 0
       ? titles
       : titles.filter((t) => t.pinned_credit || t.id === creditTitleId)
+
+  // T番号の補完(画面表示時): 領収書から読めていない時だけ、引当済み(or提案/名称一致)の
+  // 取引先マスタのT番号を入力欄へ入れる。人が画面で確認して保存する=それが確定。
+  // 既に値がある(AI読取/手入力/補完済み)場合は一切触らない。
+  useEffect(() => {
+    if (tnumberInput.trim()) return
+    const pid = item.partner_id ?? item.suggestion?.partner_id ?? null
+    const p = (pid ? partners.find((x) => x.id === pid) : undefined)
+      ?? partners.find((x) => x.name === partnerNameInput.trim())
+    if (p?.t_number) {
+      setTnumberInput(p.t_number)
+      setTnumberFromMaster(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id, partners, partnerNameInput])
 
   // 自動計算: 人が明示的に指示した時だけ計算する(既定は請求書の印字値をそのまま=計算しない)。
   // 内税r%: 合計(税込)から税額を切り出す。外税r%: 税抜(空なら合計欄の値)を本体に税を上乗せ。
@@ -382,7 +398,12 @@ export function ReceiptEditFields({
           </label>
           <label className="block space-y-1">
             <span className="text-xs font-medium text-slate-500">インボイス番号(T番号)</span>
-            <Input value={tnumberInput} onChange={(e) => setTnumberInput(e.target.value)} placeholder="T1234567890123" />
+            <Input value={tnumberInput}
+              onChange={(e) => { setTnumberInput(e.target.value); setTnumberFromMaster(false) }}
+              placeholder="T1234567890123" />
+            {tnumberFromMaster && (
+              <span className="block text-[11px] text-emerald-600">取引先マスタから補完（保存で確定）</span>
+            )}
           </label>
         </div>
 
