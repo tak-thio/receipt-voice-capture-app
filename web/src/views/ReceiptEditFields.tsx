@@ -182,6 +182,68 @@ export function ReceiptEditFields({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.id, partners, partnerNameInput])
 
+  // --- 空欄の導出(算術のみ・税率の仮定はしない) -------------------------------
+  // 入っている値から一意に決まる空欄を連鎖的に導出する(空欄を埋めるボタン/活性判定で共用)。
+  function deriveBlanks(a0: number | null, s0: number | null, t0: number | null, lines0: TaxLine[]) {
+    let amount = a0, subtotal = s0, tax = t0, lines = lines0, changed = false
+    for (let i = 0; i < 5; i++) {
+      const lineTaxes = lines.map((l) => l.tax_jpy).filter((v): v is number => v != null)
+      if (tax == null && lineTaxes.length > 0) { tax = lineTaxes.reduce((x, y) => x + y, 0); changed = true; continue }
+      if (subtotal == null && lines.length > 0 && lines.every((l) => l.base_jpy != null)) {
+        subtotal = lines.reduce((x, l) => x + (l.base_jpy as number), 0); changed = true; continue
+      }
+      if (amount == null && subtotal != null && tax != null) { amount = subtotal + tax; changed = true; continue }
+      if (subtotal == null && amount != null && tax != null) { subtotal = amount - tax; changed = true; continue }
+      if (tax == null && amount != null && subtotal != null) { tax = amount - subtotal; changed = true; continue }
+      // 税内訳が1行だけなら、その対象額=税抜(全体)と一意に決まる。
+      if (subtotal != null && lines.length === 1 && lines[0].base_jpy == null && (lines[0].tax_jpy != null || lines[0].label)) {
+        lines = [{ ...lines[0], base_jpy: subtotal }]; changed = true; continue
+      }
+      break
+    }
+    return { amount, subtotal, tax, lines, changed }
+  }
+  const derived = deriveBlanks(numOrNull(amountInput), numOrNull(subtotalInput), numOrNull(taxTotalInput), taxLines)
+  function fillBlanks() {
+    if (!derived.changed) return
+    if (derived.amount != null) setAmountInput(String(derived.amount))
+    if (derived.subtotal != null) setSubtotalInput(String(derived.subtotal))
+    if (derived.tax != null) setTaxTotalInput(String(derived.tax))
+    setTaxLines(derived.lines)
+  }
+
+  // --- 金額の整合性チェック(表示のみ。入力済みの値だけを検算し、空欄は対象外) ----
+  const consistency = (() => {
+    const amount = numOrNull(amountInput)
+    const subtotal = numOrNull(subtotalInput)
+    const tax = numOrNull(taxTotalInput)
+    const lineTaxes = taxLines.map((l) => l.tax_jpy).filter((v): v is number => v != null)
+    const allBases = taxLines.length > 0 && taxLines.every((l) => l.base_jpy != null)
+    const bad = new Set<string>()
+    const msgs: string[] = []
+    if (amount != null && subtotal != null && tax != null && subtotal + tax !== amount) {
+      bad.add('amount'); bad.add('subtotal'); bad.add('tax')
+      msgs.push(`合計 ≠ 税抜＋消費税（差 ¥${(amount - subtotal - tax).toLocaleString()}）`)
+    }
+    if (tax != null && lineTaxes.length > 0) {
+      const sum = lineTaxes.reduce((x, y) => x + y, 0)
+      if (sum !== tax) {
+        bad.add('tax'); bad.add('lines')
+        msgs.push(`消費税合計 ≠ 税内訳の税額計（差 ¥${(tax - sum).toLocaleString()}）`)
+      }
+    }
+    if (subtotal != null && allBases) {
+      const sum = taxLines.reduce((x, l) => x + (l.base_jpy as number), 0)
+      if (sum !== subtotal) {
+        bad.add('subtotal'); bad.add('lines')
+        msgs.push(`税抜 ≠ 税内訳の対象額計（差 ¥${(subtotal - sum).toLocaleString()}）`)
+      }
+    }
+    return { bad, msgs }
+  })()
+  // Input の基底クラス(border-slate-300/bg-white)に勝つため !important 修飾で上書きする。
+  const errCls = (k: string) => (consistency.bad.has(k) ? '!border-rose-400 !bg-rose-50' : '')
+
   // 自動計算: 人が明示的に指示した時だけ計算する(既定は請求書の印字値をそのまま=計算しない)。
   // 内税r%: 合計(税込)から税額を切り出す。外税r%: 税抜(空なら合計欄の値)を本体に税を上乗せ。
   // 端数は切り捨て(実務慣行)。印字と合わない場合は手修正する。既存の値は上書きされる。
@@ -493,19 +555,36 @@ export function ReceiptEditFields({
           <div className="grid grid-cols-3 gap-2">
             <label className="space-y-1">
               <span className="text-xs text-slate-500">合計金額(税込)</span>
-              <Input inputMode="numeric" value={amountInput} onChange={(e) => setAmountInput(e.target.value)} className="text-right tabular-nums" />
+              <Input inputMode="numeric" value={amountInput} onChange={(e) => setAmountInput(e.target.value)} className={cn('text-right tabular-nums', errCls('amount'))} />
             </label>
             <label className="space-y-1">
               <span className="text-xs text-slate-500">税抜金額</span>
-              <Input inputMode="numeric" value={subtotalInput} onChange={(e) => setSubtotalInput(e.target.value)} className="text-right tabular-nums" />
+              <Input inputMode="numeric" value={subtotalInput} onChange={(e) => setSubtotalInput(e.target.value)} className={cn('text-right tabular-nums', errCls('subtotal'))} />
             </label>
             <label className="space-y-1">
               <span className="text-xs text-slate-500">消費税合計</span>
-              <Input inputMode="numeric" value={taxTotalInput} onChange={(e) => setTaxTotalInput(e.target.value)} className="text-right tabular-nums" />
+              <Input inputMode="numeric" value={taxTotalInput} onChange={(e) => setTaxTotalInput(e.target.value)} className={cn('text-right tabular-nums', errCls('tax'))} />
             </label>
           </div>
-          {/* 自動計算(明示指示): 税額の記載がない領収書向け。内税=合計から切り出し / 外税=税抜に上乗せ。 */}
+          {/* 金額の不整合(入力済みの値だけを検算)。どこが合わないかを差額つきで示す。 */}
+          {consistency.msgs.length > 0 && (
+            <div className="space-y-0.5">
+              {consistency.msgs.map((m) => (
+                <p key={m} className="text-xs font-medium text-rose-600">⚠ {m}</p>
+              ))}
+            </div>
+          )}
+          {/* 補完(算術のみ) と 自動計算(税率の指示つき)。 */}
           <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              onClick={fillBlanks}
+              disabled={!derived.changed}
+              className="rounded-md border border-emerald-300 px-2 py-0.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300 disabled:hover:bg-transparent"
+              title="入力済みの値から一意に決まる空欄を算術で埋めます(税率の仮定はしません)"
+            >
+              空欄を埋める
+            </button>
+            <span className="mx-0.5 h-3.5 w-px bg-slate-200" />
             <span className="text-xs text-slate-400">自動計算:</span>
             {([['inclusive', 10, '内税10%'], ['exclusive', 10, '外税10%'], ['inclusive', 8, '内税8%'], ['exclusive', 8, '外税8%']] as const).map(([m, r, label]) => (
               <button
@@ -522,7 +601,7 @@ export function ReceiptEditFields({
           </div>
           {/* 消費税の内訳: 請求書通りに保存(計算しない)。複数税率の混在は行を足す。
               区分は自由入力＋サジェスト — 新税率(例: 食料品1%)が来てもここに足すだけ。 */}
-          <div className="space-y-1 rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+          <div className={cn('space-y-1 rounded-lg border border-slate-100 bg-slate-50/50 p-2', consistency.bad.has('lines') && '!border-rose-300 !bg-rose-50/40')}>
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-500">消費税の内訳（請求書の表記のまま）</span>
               <button onClick={addTaxLine} className="text-xs font-medium text-brand-700 hover:underline">＋ 行を追加</button>
