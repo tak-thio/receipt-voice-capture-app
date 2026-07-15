@@ -47,7 +47,7 @@ function numOrNull(s: string): number | null {
 }
 
 export function ReceiptEditFields({
-  item, titles, partners, notes, noteIds, showCreator, lockDate, onToggleNote, renderActions,
+  item, titles, partners, notes, noteIds, showCreator, lockDate, fitViewport, onToggleNote, renderActions,
 }: {
   item: EditableReceipt
   titles: MasterRow[]
@@ -56,6 +56,9 @@ export function ReceiptEditFields({
   noteIds: string[]
   showCreator?: boolean
   lockDate?: string | null // 締め日(YYYY-MM-DD)。取引日がこれ以前なら「期間外」警告
+  // 1080ディスプレイ対策(仕分け画面): エディタ全体をビューポート内に収め、左右カラムを
+  // 内部スクロールにする(操作ボタン行は右カラム下部に固定表示)。下のキューが常に見える。
+  fitViewport?: boolean
   onToggleNote: (noteId: string) => void
   renderActions: (getValues: () => JournalizeBody, debitSelected: boolean) => ReactNode
 }) {
@@ -256,9 +259,9 @@ export function ReceiptEditFields({
   )
 
   return (
-    <div className="grid gap-4 p-4 lg:grid-cols-2">
-      {/* 左: 領収書イメージ（縦長対応で大きく） */}
-      <div className="space-y-1">
+    <div className={cn('grid gap-4 p-4 lg:grid-cols-2', fitViewport && 'lg:h-[calc(100vh-28rem)] lg:min-h-[30rem]')}>
+      {/* 左: 領収書イメージ（縦長対応で大きく）。fitViewport時はカラム内スクロール。 */}
+      <div className={cn('space-y-1', fitViewport && 'lg:min-h-0 lg:overflow-y-auto lg:pr-1')}>
         {(() => {
           // マージ済み(明細+鏡)は画像が複数。images があれば全部を並列(縦積み)で表示。無ければ1枚。
           const imgs = item.images?.length
@@ -268,7 +271,7 @@ export function ReceiptEditFields({
               : []
           if (!imgs.length) {
             return (
-              <div className="flex h-[24rem] items-center justify-center rounded-xl border border-slate-200 bg-slate-50 lg:h-[32rem]">
+              <div className={cn('flex h-[24rem] items-center justify-center rounded-xl border border-slate-200 bg-slate-50', fitViewport ? 'lg:h-[28rem]' : 'lg:h-[32rem]')}>
                 <span className="text-sm text-slate-400">画像なし</span>
               </div>
             )
@@ -281,7 +284,7 @@ export function ReceiptEditFields({
                   <ZoomableImage
                     src={api.previewUrl(im.file_id, item.page)}
                     alt="領収書"
-                    className="h-[24rem] rounded-xl border border-slate-200 lg:h-[32rem]"
+                    className={cn('h-[24rem] rounded-xl border border-slate-200', fitViewport ? 'lg:h-[28rem]' : 'lg:h-[32rem]')}
                   />
                   {imgs.length > 1 && (
                     <span className="absolute left-2 top-2 rounded bg-slate-900/60 px-2 py-0.5 text-[11px] font-medium text-white">
@@ -321,8 +324,10 @@ export function ReceiptEditFields({
         </div>
       </div>
 
-      {/* 右: 店舗名/日付 → 取引先+T番号 → 借方 → 貸方 → 金額・消費税 → 操作 */}
-      <div className="space-y-3">
+      {/* 右: 店舗名/日付 → 取引先+T番号 → 借方 → 貸方 → 金額・消費税 → 操作。
+          fitViewport時は入力部だけスクロールし、操作ボタン行は下に固定表示。 */}
+      <div className={cn('space-y-3', fitViewport && 'lg:flex lg:min-h-0 lg:flex-col')}>
+        <div className={cn('space-y-3', fitViewport && 'lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1')}>
         {item.parse_failed && (
           <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
             請求書として認識できませんでした。内容を手入力するか、「否認」「削除」してください。
@@ -555,8 +560,9 @@ export function ReceiptEditFields({
           </div>
         </div>
 
-        {/* 操作（呼び出し側が差し込む） */}
-        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+        </div>
+        {/* 操作（呼び出し側が差し込む）。fitViewport時もスクロールせず常に見える。 */}
+        <div className={cn('flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3', fitViewport && 'lg:shrink-0')}>
           {renderActions(getValues, !!titleId)}
         </div>
       </div>

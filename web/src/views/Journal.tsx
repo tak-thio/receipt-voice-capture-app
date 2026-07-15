@@ -136,6 +136,8 @@ export function JournalView({ clientId, showCreator, lockDate }: { clientId: str
               noteIds={top.note_ids}
               showCreator={showCreator}
               lockDate={lockDate}
+              fitViewport
+
               onToggleNote={(id) => void toggleNote(id)}
               renderActions={(getValues, debitSelected) => (
                 <>
