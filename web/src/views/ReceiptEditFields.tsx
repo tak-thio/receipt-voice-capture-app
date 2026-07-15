@@ -67,6 +67,7 @@ export function ReceiptEditFields({
   const [showHistory, setShowHistory] = useState(false)
   const [titleId, setTitleId] = useState('') // 借方科目
   const [creditTitleId, setCreditTitleId] = useState('') // 貸方科目
+  const [creditFromPayment, setCreditFromPayment] = useState(false) // 支払方法から初期提案した印
   const [subTitleId, setSubTitleId] = useState('') // 補助科目(借方科目に紐づく)
   const [subAccounts, setSubAccounts] = useState<SubAccountRow[]>([]) // 選択中の借方科目の補助科目
   const [partnerNameInput, setPartnerNameInput] = useState('') // 取引先(自由入力)
@@ -166,6 +167,25 @@ export function ReceiptEditFields({
     showAllCredit || pinnedCredit.length === 0
       ? titles
       : titles.filter((t) => t.pinned_credit || t.id === creditTitleId)
+
+  // 貸方の初期提案(画面表示時): 貸方が未確定で、支払方法(AI読取)から推定できる場合だけ
+  // 初期選択する(人が変えられる・保存で確定)。確信の持てない支払方法は未確定のまま。
+  // 現金→現金 / クレジット・カード→未払金 / 口座振替・振込→普通預金。
+  useEffect(() => {
+    if (creditTitleId || item.credit_account_title_id) return
+    const pm = item.payment_method ?? ''
+    if (!pm.trim()) return
+    const pick = (name: string) => titles.find((t) => t.name === name)?.id
+    let id: string | undefined
+    if (/現金/.test(pm)) id = pick('現金')
+    else if (/クレジット|カード|credit|visa|master|jcb|amex/i.test(pm)) id = pick('未払金')
+    else if (/口座振替|振替|振込|引き落/.test(pm)) id = pick('普通預金')
+    if (id) {
+      setCreditTitleId(id)
+      setCreditFromPayment(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id, titles])
 
   // T番号の補完(画面表示時): 領収書から読めていない時だけ、引当済み(or提案/名称一致)の
   // 取引先マスタのT番号を入力欄へ入れる。人が画面で確認して保存する=それが確定。
@@ -502,7 +522,12 @@ export function ReceiptEditFields({
         {/* 貸方科目 */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500">貸方科目</span>
+            <span className="text-xs font-medium text-slate-500">
+              貸方科目
+              {creditFromPayment && (
+                <span className="ml-1.5 font-normal text-emerald-600">支払方法「{item.payment_method}」から提案</span>
+              )}
+            </span>
             {pinnedCredit.length > 0 && (
               <button onClick={() => setShowAllCredit((v) => !v)} className="text-xs font-medium text-brand-600 hover:underline">
                 {showAllCredit ? 'よく使うのみ' : `すべて表示 (${titles.length})`}
@@ -510,17 +535,19 @@ export function ReceiptEditFields({
             )}
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => setCreditTitleId('')}
+            {/* 貸方は任意: 領収書からは支払手段の勘定が確定できないことがあるため、
+                「未確定」のまま仕訳し、経理側/会計ソフト側で決める運用を許す。 */}
+            <button onClick={() => { setCreditTitleId(''); setCreditFromPayment(false) }}
               className={cn(
                 'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
                 creditTitleId === ''
                   ? 'bg-slate-600 text-white shadow-sm'
                   : 'border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100',
               )}>
-              (なし)
+              (未確定)
             </button>
             {shownCredit.map((t) => (
-              <button key={t.id} onClick={() => setCreditTitleId(t.id)}
+              <button key={t.id} onClick={() => { setCreditTitleId(t.id); setCreditFromPayment(false) }}
                 className={cn(
                   'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
                   creditTitleId === t.id
