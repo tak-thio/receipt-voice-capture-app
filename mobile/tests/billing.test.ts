@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks'
 
 import {
+  getApplePurchaseContext,
   getBillingSubscription,
   verifyStorePurchase,
 } from '../src/api/server-api'
@@ -112,6 +113,27 @@ describe('billing subscription API', () => {
     )
   })
 
+  it('loads the server-issued Apple purchase context', async () => {
+    const context = { appAccountToken: '5b6a4a62-caf8-4bc1-821f-3a26ef2afc87' }
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(context), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      getApplePurchaseContext('https://api.example.test/', 'device-token'),
+    ).resolves.toEqual(context)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.test/billing/apple/purchase-context',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer device-token' }),
+      }),
+    )
+  })
+
   it('rejects a Google purchase without a purchase token before fetching', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
@@ -164,8 +186,15 @@ describe('billing subscription API', () => {
   it('uses the Apple verification path after an iOS native purchase', async () => {
     vi.stubGlobal('isTauri', true)
     vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' })
-    mockIPC((command) => {
+    const accountToken = '5b6a4a62-caf8-4bc1-821f-3a26ef2afc87'
+    const diagnosticEvents: string[] = []
+    mockIPC((command, args) => {
+      if (command === 'native_billing_diagnostic') {
+        diagnosticEvents.push((args as { event: string }).event)
+        return null
+      }
       expect(command).toBe('native_subscribe')
+      expect(args).toEqual({ appAccountToken: accountToken })
       return {
         platform: 'apple',
         productId: 'pro_monthly',
@@ -174,37 +203,74 @@ describe('billing subscription API', () => {
         signedTransactionInfo: 'signed-transaction',
       }
     })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ appAccountToken: accountToken }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ active: true, plan: 'pro', used: 3, cap: 500 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await upgradeToPro('https://api.example.test', 'device-token')
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://api.example.test/billing/apple/purchase-context',
+      expect.objectContaining({ headers: expect.any(Object) }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://api.example.test/billing/apple/verify',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(diagnosticEvents).toEqual([
+      'upgrade.started',
+      'purchase-context.started',
+      'purchase-context.completed',
+      'native-subscribe.started',
+      'native-subscribe.completed',
+      'verify.started',
+      'verify.completed',
+    ])
+  })
+
+  it('rejects a native purchase whose platform does not match the current store', async () => {
+    vi.stubGlobal('isTauri', true)
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' })
+    const diagnosticEvents: string[] = []
+    mockIPC((command, args) => {
+      if (command === 'native_billing_diagnostic') {
+        diagnosticEvents.push((args as { event: string }).event)
+        return null
+      }
+      return {
+        platform: 'google',
+        productId: 'pro_monthly',
+        purchaseToken: 'play-token',
+      }
+    })
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ active: true, plan: 'pro', used: 3, cap: 500 }), {
+      new Response(JSON.stringify({
+        appAccountToken: '5b6a4a62-caf8-4bc1-821f-3a26ef2afc87',
+      }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }),
     )
     vi.stubGlobal('fetch', fetchMock)
 
-    await upgradeToPro('https://api.example.test', 'device-token')
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.example.test/billing/apple/verify',
-      expect.objectContaining({ method: 'POST' }),
-    )
-  })
-
-  it('rejects a native purchase whose platform does not match the current store', async () => {
-    vi.stubGlobal('isTauri', true)
-    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' })
-    mockIPC(() => ({
-      platform: 'google',
-      productId: 'pro_monthly',
-      purchaseToken: 'play-token',
-    }))
-    const fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
-
     await expect(
       upgradeToPro('https://api.example.test', 'device-token'),
     ).rejects.toThrow('購入情報のストアが実行中の端末と一致しません')
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(diagnosticEvents.at(-1)).toBe('upgrade.failed')
   })
 
   it('restores an iOS subscription and verifies the restored transaction', async () => {

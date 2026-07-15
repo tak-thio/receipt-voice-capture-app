@@ -2,6 +2,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import {
+  getApplePurchaseContext,
   verifyStorePurchase,
   type BillingPlatform,
   type StorePurchasePayload,
@@ -12,6 +13,27 @@ const APPLE_SUBSCRIPTIONS_URL = 'https://apps.apple.com/account/subscriptions'
 
 type NativeSubscribeResult = Omit<StorePurchasePayload, 'platform'> & {
   platform?: BillingPlatform
+}
+
+type IosBillingDiagnosticEvent =
+  | 'upgrade.started'
+  | 'purchase-context.started'
+  | 'purchase-context.completed'
+  | 'native-subscribe.started'
+  | 'native-subscribe.completed'
+  | 'verify.started'
+  | 'verify.completed'
+  | 'upgrade.failed'
+
+async function recordIosBillingDiagnostic(
+  enabled: boolean, event: IosBillingDiagnosticEvent,
+): Promise<void> {
+  if (!enabled) return
+  try {
+    await invoke('native_billing_diagnostic', { event })
+  } catch {
+    // 診断記録の失敗で購入フローを止めない。
+  }
 }
 
 /** 実行中のネイティブストアを返す。ブラウザ/デスクトップでは null。 */
@@ -58,8 +80,11 @@ function normalizeNativePurchase(
   return { ...purchase, platform }
 }
 
-async function subscribePro(platform: BillingPlatform): Promise<StorePurchasePayload> {
-  const purchase = await invoke<NativeSubscribeResult>('native_subscribe')
+async function subscribePro(
+  platform: BillingPlatform, appAccountToken?: string,
+): Promise<StorePurchasePayload> {
+  const args = appAccountToken ? { appAccountToken } : undefined
+  const purchase = await invoke<NativeSubscribeResult>('native_subscribe', args)
   return normalizeNativePurchase(purchase, platform)
 }
 
@@ -69,8 +94,26 @@ export async function upgradeToPro(serverUrl: string, deviceToken: string): Prom
   if (!platform) {
     throw new Error('アプリ内課金はこの端末では利用できません。')
   }
-  const purchase = await subscribePro(platform)
-  return verifyStorePurchase(serverUrl, deviceToken, purchase)
+  const iosDiagnostics = platform === 'apple'
+  await recordIosBillingDiagnostic(iosDiagnostics, 'upgrade.started')
+  try {
+    let appAccountToken: string | undefined
+    if (platform === 'apple') {
+      await recordIosBillingDiagnostic(true, 'purchase-context.started')
+      appAccountToken = (await getApplePurchaseContext(serverUrl, deviceToken)).appAccountToken
+      await recordIosBillingDiagnostic(true, 'purchase-context.completed')
+    }
+    await recordIosBillingDiagnostic(iosDiagnostics, 'native-subscribe.started')
+    const purchase = await subscribePro(platform, appAccountToken)
+    await recordIosBillingDiagnostic(iosDiagnostics, 'native-subscribe.completed')
+    await recordIosBillingDiagnostic(iosDiagnostics, 'verify.started')
+    const verified = await verifyStorePurchase(serverUrl, deviceToken, purchase)
+    await recordIosBillingDiagnostic(iosDiagnostics, 'verify.completed')
+    return verified
+  } catch (error) {
+    await recordIosBillingDiagnostic(iosDiagnostics, 'upgrade.failed')
+    throw error
+  }
 }
 
 /** iOS の過去の購入を復元し、サーバ側の購読状態を更新する。 */

@@ -416,6 +416,19 @@ export interface StorePurchasePayload {
   signedTransactionInfo?: string
 }
 
+export interface ApplePurchaseContext {
+  appAccountToken: string
+}
+
+/** StoreKit 購入を現在の firm に結び付けるサーバ発行 UUID。 */
+export function getApplePurchaseContext(
+  serverUrl: string, deviceToken: string,
+): Promise<ApplePurchaseContext> {
+  return expenseReq<ApplePurchaseContext>(
+    serverUrl, deviceToken, '/billing/apple/purchase-context',
+  )
+}
+
 /** 現在のストア購読状態。管理先(Google Play / App Store)の表示判定に使う。 */
 export function getBillingSubscription(
   serverUrl: string, deviceToken: string,

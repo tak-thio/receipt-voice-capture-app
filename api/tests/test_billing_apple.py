@@ -31,6 +31,32 @@ class AppleSubscriptionMappingTest(unittest.TestCase):
         self.assertEqual(result["state"], "active")
         self.assertEqual(result["environment"], "sandbox")
 
+    def test_maps_apple_account_and_store_ordering_fields(self):
+        signed = datetime.now(timezone.utc).replace(microsecond=0)
+        revoked = signed - timedelta(minutes=1)
+
+        result = billing.normalize_apple_subscription(
+            {
+                "productId": "pro_monthly",
+                "transactionId": "200000000000009",
+                "originalTransactionId": "100000000000009",
+                "expiresDate": int((signed + timedelta(days=10)).timestamp() * 1000),
+                "revocationDate": int(revoked.timestamp() * 1000),
+                "signedDate": int(signed.timestamp() * 1000),
+                "appAccountToken": "5b6a4a62-caf8-4bc1-821f-3a26ef2afc87",
+                "environment": "Sandbox",
+            },
+            renewal_info={"autoRenewStatus": 0},
+            expected_product_id="pro_monthly",
+        )
+
+        self.assertEqual(result["signed_at"], signed)
+        self.assertEqual(result["revoked_at"], revoked)
+        self.assertEqual(
+            result["app_account_token"], "5b6a4a62-caf8-4bc1-821f-3a26ef2afc87"
+        )
+        self.assertFalse(result["auto_renew_enabled"])
+
     def test_revoked_transaction_is_not_entitled(self):
         exp = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=10)
 
@@ -195,10 +221,46 @@ class AppleNotificationVerificationTest(unittest.TestCase):
                 product_id="pro_monthly",
             )
 
-        self.assertEqual(
-            result,
-            {"test": True, "notification_type": "TEST", "subtype": ""},
-        )
+        self.assertTrue(result["test"])
+        self.assertEqual(result["notification_type"], "TEST")
+        self.assertEqual(result["subtype"], "")
+        self.assertTrue(result["notification_uuid"])
+
+    def test_maps_notification_uuid_signed_date_and_environment(self):
+        signed = datetime.now(timezone.utc).replace(microsecond=0)
+        expiry = signed + timedelta(days=3)
+
+        class FakeVerifier:
+            @staticmethod
+            def verify_and_decode_notification(signed_payload):
+                return {
+                    "notificationType": "DID_RENEW",
+                    "notificationUUID": "notification-uuid",
+                    "signedDate": int(signed.timestamp() * 1000),
+                    "data": {
+                        "environment": "Sandbox",
+                        "signedTransactionInfo": "transaction-jws",
+                    },
+                }
+
+            @staticmethod
+            def verify_and_decode_signed_transaction(signed_payload):
+                return {
+                    "productId": "pro_monthly",
+                    "originalTransactionId": "100000000000205",
+                    "expiresDate": int(expiry.timestamp() * 1000),
+                    "environment": "Sandbox",
+                }
+
+        with patch.object(billing, "_apple_verifier", return_value=FakeVerifier()):
+            result = billing.verify_apple_notification(
+                signed_payload="notification-jws",
+                product_id="pro_monthly",
+            )
+
+        self.assertEqual(result["notification_uuid"], "notification-uuid")
+        self.assertEqual(result["signed_at"], signed)
+        self.assertEqual(result["environment"], "sandbox")
 
     def test_expired_notification_overrides_still_valid_transaction(self):
         expiry = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=3)

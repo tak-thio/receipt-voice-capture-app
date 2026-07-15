@@ -4,6 +4,11 @@ use serde::{Deserialize, Serialize};
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::{AppHandle, Runtime};
 
+#[cfg(target_os = "ios")]
+use std::fs::{create_dir_all, OpenOptions};
+#[cfg(target_os = "ios")]
+use std::io::Write;
+
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use tauri::{plugin::PluginHandle, Manager};
 
@@ -33,25 +38,81 @@ pub struct SubscribeResult {
     pub signed_transaction_info: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
+struct SubscribeArgs {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    app_account_token: Option<String>,
+}
+
+#[cfg(target_os = "ios")]
+const IOS_BILLING_DIAGNOSTIC_EVENTS: &[&str] = &[
+    "upgrade.started",
+    "purchase-context.started",
+    "purchase-context.completed",
+    "native-subscribe.started",
+    "native-subscribe.completed",
+    "verify.started",
+    "verify.completed",
+    "upgrade.failed",
+];
+
 #[tauri::command]
-pub fn native_subscribe<R: Runtime>(app: AppHandle<R>) -> Result<SubscribeResult, String> {
+pub fn native_billing_diagnostic<R: Runtime>(
+    app: AppHandle<R>,
+    event: String,
+) -> Result<(), String> {
+    #[cfg(target_os = "ios")]
+    {
+        if !IOS_BILLING_DIAGNOSTIC_EVENTS.contains(&event.as_str()) {
+            return Err("不明な課金診断イベントです".into());
+        }
+        let documents = app.path().document_dir().map_err(|error| error.to_string())?;
+        create_dir_all(&documents).map_err(|error| error.to_string())?;
+        let reset = event == "upgrade.started";
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(reset)
+            .append(!reset)
+            .open(documents.join("billing-diagnostics.log"))
+            .map_err(|error| error.to_string())?;
+        writeln!(file, "[billing-debug][frontend] {event}").map_err(|error| error.to_string())?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = (app, event);
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub async fn native_subscribe<R: Runtime>(
+    app: AppHandle<R>,
+    app_account_token: Option<String>,
+) -> Result<SubscribeResult, String> {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         let state = app.state::<NativeBilling<R>>();
         state
             .0
-            .run_mobile_plugin::<SubscribeResult>("subscribe", ())
+            .run_mobile_plugin::<SubscribeResult>(
+                "subscribe",
+                SubscribeArgs { app_account_token },
+            )
             .map_err(|e| e.to_string())
     }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        let _ = app;
+        let _ = (app, app_account_token);
         Err("アプリ内課金は Android または iOS のみ対応です".into())
     }
 }
 
 #[tauri::command]
-pub fn native_restore_subscription<R: Runtime>(
+pub async fn native_restore_subscription<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<SubscribeResult, String> {
     #[cfg(target_os = "ios")]

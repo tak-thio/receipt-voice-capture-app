@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -23,43 +23,48 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		0A76CF38E4F062895B7C74EB /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		095FCC963F1D6F432E8C7347 /* native_audio.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = native_audio.rs; sourceTree = "<group>"; };
+		0A76CF38E4F062895B7C74EB /* mod.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = mod.rs; sourceTree = "<group>"; };
+		10B0F9AEBC7140029614A4AE /* native_fcm.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = native_fcm.rs; sourceTree = "<group>"; };
 		159F1E48F9E179A96D59C46E /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
-		16E7E28DD831A008518EE838 /* ocr.rs */ = {isa = PBXFileReference; path = ocr.rs; sourceTree = "<group>"; };
-		1AF30EA6638D224F49D2F503 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		16E7E28DD831A008518EE838 /* ocr.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = ocr.rs; sourceTree = "<group>"; };
+		1AF30EA6638D224F49D2F503 /* mod.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = mod.rs; sourceTree = "<group>"; };
 		2E0E3145452352D9B601E073 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		311CB2E1BB4A7A5762D54BC7 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		2E67ABD37FFDAAB6E48690E9 /* native_billing.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = native_billing.rs; sourceTree = "<group>"; };
+		311CB2E1BB4A7A5762D54BC7 /* mod.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = mod.rs; sourceTree = "<group>"; };
 		33CB7AF970688DDA842D9CD0 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
-		37B639C2F300D52F91ED664E /* api_keys.rs */ = {isa = PBXFileReference; path = api_keys.rs; sourceTree = "<group>"; };
+		37B639C2F300D52F91ED664E /* api_keys.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = api_keys.rs; sourceTree = "<group>"; };
 		42A7EC250F22A164AC8CDBB7 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
 		432B577A4A2F34AE750C80E3 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		49B6AFFC6B8693482099DC03 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		4F6B363DE4AB97F2D6338AD4 /* settings.rs */ = {isa = PBXFileReference; path = settings.rs; sourceTree = "<group>"; };
+		4F6B363DE4AB97F2D6338AD4 /* settings.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = settings.rs; sourceTree = "<group>"; };
 		52A89828E50B25739D0FA050 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
-		54E2E8C5A239830193856E50 /* ocr.rs */ = {isa = PBXFileReference; path = ocr.rs; sourceTree = "<group>"; };
+		54E2E8C5A239830193856E50 /* ocr.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = ocr.rs; sourceTree = "<group>"; };
 		5827886C0829EDD6F7C93062 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
-		6DD5FEE60361A0094BA6BAD7 /* stt.rs */ = {isa = PBXFileReference; path = stt.rs; sourceTree = "<group>"; };
+		5FECC3DC6C496AF8DD5A6104 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		6DD5FEE60361A0094BA6BAD7 /* stt.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = stt.rs; sourceTree = "<group>"; };
 		731E452671AEAB7EA39CEEF8 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
-		7460402B6516E3EF7E4971D5 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
-		77258EA0E160C44155AA0B67 /* audio.rs */ = {isa = PBXFileReference; path = audio.rs; sourceTree = "<group>"; };
+		7460402B6516E3EF7E4971D5 /* mod.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = mod.rs; sourceTree = "<group>"; };
+		77258EA0E160C44155AA0B67 /* audio.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = audio.rs; sourceTree = "<group>"; };
 		87E31069127E608065A6A4E2 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		9BCFBA091278BDF1F2A52D50 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
-		9D04135E70C7C4EA1002C09E /* receipt_voice_capture_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = receipt_voice_capture_iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		9DE755914251CD5760036D73 /* stt.rs */ = {isa = PBXFileReference; path = stt.rs; sourceTree = "<group>"; };
-		AC4903DF8A78F9351BA95EC0 /* export.rs */ = {isa = PBXFileReference; path = export.rs; sourceTree = "<group>"; };
+		9D04135E70C7C4EA1002C09E /* ReceiptBox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "ReceiptBox.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9DE755914251CD5760036D73 /* stt.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = stt.rs; sourceTree = "<group>"; };
+		AC4903DF8A78F9351BA95EC0 /* export.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = export.rs; sourceTree = "<group>"; };
 		B218F669935A70793F838FC0 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
-		B4647A34ED0DE80F052854C8 /* session.rs */ = {isa = PBXFileReference; path = session.rs; sourceTree = "<group>"; };
+		B4647A34ED0DE80F052854C8 /* session.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = session.rs; sourceTree = "<group>"; };
 		BD555CF8021239F58CE89850 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
-		C0F76AE98A9A72C744B53CF6 /* ai_formatter.rs */ = {isa = PBXFileReference; path = ai_formatter.rs; sourceTree = "<group>"; };
-		C7876C0DFF6E3631E66F7ACE /* ai_formatter.rs */ = {isa = PBXFileReference; path = ai_formatter.rs; sourceTree = "<group>"; };
-		CBC5CC1B34F29F318091F571 /* settings_repository.rs */ = {isa = PBXFileReference; path = settings_repository.rs; sourceTree = "<group>"; };
-		CE2089A02B4DC575C58CC26C /* capture.rs */ = {isa = PBXFileReference; path = capture.rs; sourceTree = "<group>"; };
+		BEEAB7C030072D4F00E29653 /* LocalBilling.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = LocalBilling.storekit; sourceTree = "<group>"; };
+		C0F76AE98A9A72C744B53CF6 /* ai_formatter.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = ai_formatter.rs; sourceTree = "<group>"; };
+		C7876C0DFF6E3631E66F7ACE /* ai_formatter.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = ai_formatter.rs; sourceTree = "<group>"; };
+		CBC5CC1B34F29F318091F571 /* settings_repository.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = settings_repository.rs; sourceTree = "<group>"; };
+		CE2089A02B4DC575C58CC26C /* capture.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = capture.rs; sourceTree = "<group>"; };
 		D6895232C32CAC6E8CBE9EB9 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
-		E0D6ACE01086F07014D2F34D /* session_repository.rs */ = {isa = PBXFileReference; path = session_repository.rs; sourceTree = "<group>"; };
+		E0D6ACE01086F07014D2F34D /* session_repository.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = session_repository.rs; sourceTree = "<group>"; };
 		F0563BAF673E098C6934A57D /* receipt_voice_capture_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = receipt_voice_capture_iOS.entitlements; sourceTree = "<group>"; };
-		F7B899B98D93F7854B0E594D /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		F7B899B98D93F7854B0E594D /* lib.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = lib.rs; sourceTree = "<group>"; };
 		FBA24927D15FA40570E78DC0 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
-		FF0D0A51FA0718E28FA4E1B9 /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
+		FF0D0A51FA0718E28FA4E1B9 /* main.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = main.rs; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -82,6 +87,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		02BC83308DA4E20F9B2C762F /* arm64 */ = {
+			isa = PBXGroup;
+			children = (
+				BAA333EBA2640C574EA9ACD9 /* debug */,
+			);
+			path = arm64;
+			sourceTree = "<group>";
+		};
 		09F6050D44056EBE4B7981EF /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -113,6 +126,9 @@
 			children = (
 				F7B899B98D93F7854B0E594D /* lib.rs */,
 				FF0D0A51FA0718E28FA4E1B9 /* main.rs */,
+				095FCC963F1D6F432E8C7347 /* native_audio.rs */,
+				2E67ABD37FFDAAB6E48690E9 /* native_billing.rs */,
+				10B0F9AEBC7140029614A4AE /* native_fcm.rs */,
 				6685FAA76C4192F14A0E6C86 /* commands */,
 				9C6FBD2A86FC48D7496E58F0 /* models */,
 				1414E3EDA1DDB3F4A27FA477 /* repositories */,
@@ -125,7 +141,7 @@
 		42874034C983190D3009516E /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				9D04135E70C7C4EA1002C09E /* receipt_voice_capture_iOS.app */,
+				9D04135E70C7C4EA1002C09E /* ReceiptBox.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -170,6 +186,7 @@
 		9AF44F9997E20950BE3A4933 = {
 			isa = PBXGroup;
 			children = (
+				BEEAB7C030072D4F00E29653 /* LocalBilling.storekit */,
 				42A7EC250F22A164AC8CDBB7 /* assets */,
 				49B6AFFC6B8693482099DC03 /* Assets.xcassets */,
 				B218F669935A70793F838FC0 /* LaunchScreen.storyboard */,
@@ -202,8 +219,17 @@
 		B968324017B95E89EF07874E /* Externals */ = {
 			isa = PBXGroup;
 			children = (
+				02BC83308DA4E20F9B2C762F /* arm64 */,
 			);
 			path = Externals;
+			sourceTree = "<group>";
+		};
+		BAA333EBA2640C574EA9ACD9 /* debug */ = {
+			isa = PBXGroup;
+			children = (
+				5FECC3DC6C496AF8DD5A6104 /* libapp.a */,
+			);
+			path = debug;
 			sourceTree = "<group>";
 		};
 		CACBF86390DB408A1B285686 /* bindings */ = {
@@ -242,7 +268,7 @@
 			packageProductDependencies = (
 			);
 			productName = receipt_voice_capture_iOS;
-			productReference = 9D04135E70C7C4EA1002C09E /* receipt_voice_capture_iOS.app */;
+			productReference = 9D04135E70C7C4EA1002C09E /* ReceiptBox.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -253,10 +279,9 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
-				TargetAttributes = {
-				};
 			};
 			buildConfigurationList = 3538FC31BB1E25D26CD296F7 /* Build configuration list for PBXProject "receipt_voice_capture" */;
+			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -265,8 +290,6 @@
 			);
 			mainGroup = 9AF44F9997E20950BE3A4933;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
-			productRefGroup = 42874034C983190D3009516E /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -447,12 +470,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
-				ARCHS = (
-					arm64,
-				);
+				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = receipt_voice_capture_iOS/receipt_voice_capture_iOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = "UHPB9Y4TX2";
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -460,18 +482,30 @@
 					"\".\"",
 				);
 				INFOPLIST_FILE = receipt_voice_capture_iOS/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
-				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION)",
+					"$(SDKROOT)/usr/lib/swift",
+					"$(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)",
+					"$(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION)",
+					"$(SDKROOT)/usr/lib/swift",
+					"$(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)",
+					"$(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.itsherpa.ffreceipt;
-				PRODUCT_NAME = "領収書入力";
+				PRODUCT_NAME = "ReceiptBox";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
-				DEVELOPMENT_TEAM = "UHPB9Y4TX2";
 			};
 			name = release;
 		};
@@ -479,12 +513,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
-				ARCHS = (
-					arm64,
-				);
+				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = receipt_voice_capture_iOS/receipt_voice_capture_iOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = "UHPB9Y4TX2";
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -492,18 +525,30 @@
 					"\".\"",
 				);
 				INFOPLIST_FILE = receipt_voice_capture_iOS/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
-				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION)",
+					"$(SDKROOT)/usr/lib/swift",
+					"$(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)",
+					"$(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION)",
+					"$(SDKROOT)/usr/lib/swift",
+					"$(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)",
+					"$(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.itsherpa.ffreceipt;
-				PRODUCT_NAME = "領収書入力";
+				PRODUCT_NAME = "ReceiptBox";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
-				DEVELOPMENT_TEAM = "UHPB9Y4TX2";
 			};
 			name = debug;
 		};

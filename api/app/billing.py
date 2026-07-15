@@ -6,6 +6,7 @@ run_in_threadpool で呼ぶこと。更新/解約の反映はストア通知(RTD
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -173,20 +174,36 @@ def normalize_apple_subscription(
         "expiry": effective_expiry,
         "state": state,
         "environment": _apple_environment_name(_field(transaction, "environment")),
+        "app_account_token": _field(transaction, "appAccountToken"),
+        "auto_renew_enabled": (
+            _apple_bool(auto_renew_status_value)
+            if auto_renew_status_value is not None
+            else None
+        ),
+        "signed_at": _apple_datetime(_field(transaction, "signedDate")),
+        "revoked_at": revoked_at,
     }
 
 
-def _apple_environment():
+def _apple_environment(environment_name: str | None = None):
     try:
         from appstoreserverlibrary.models.Environment import Environment
     except Exception:
         _log.exception("App Store Server library is not available")
         return None
 
-    key = _settings.apple_environment.strip().replace("-", "_").lower()
+    key = (
+        (environment_name or _settings.apple_environment)
+        .strip()
+        .replace("-", "_")
+        .lower()
+    )
     attr = _APPLE_ENV_ALIASES.get(key)
     if not attr:
-        _log.error("Unsupported Apple environment: %s", _settings.apple_environment)
+        _log.error(
+            "Unsupported Apple environment: %s",
+            environment_name or _settings.apple_environment,
+        )
         return None
     return getattr(Environment, attr, None)
 
@@ -202,8 +219,8 @@ def _apple_root_certificates() -> list[bytes] | None:
         return None
 
 
-def _apple_verifier():
-    environment = _apple_environment()
+def _apple_verifier(environment_name: str | None = None):
+    environment = _apple_environment(environment_name)
     root_certificates = _apple_root_certificates()
     if environment is None or not root_certificates or not _settings.apple_bundle_id:
         return None
@@ -328,9 +345,14 @@ def _apple_enum_value(value: object | None) -> str:
     return str(raw or "").strip()
 
 
-def verify_apple_notification(*, signed_payload: str, product_id: str) -> dict | None:
+def verify_apple_notification(
+    *,
+    signed_payload: str,
+    product_id: str,
+    expected_environment: str | None = None,
+) -> dict | None:
     """App Store Server Notifications V2 を検証し、購読状態へ正規化する。"""
-    verifier = _apple_verifier()
+    verifier = _apple_verifier(expected_environment)
     if verifier is None or not signed_payload:
         return None
 
@@ -343,10 +365,23 @@ def verify_apple_notification(*, signed_payload: str, product_id: str) -> dict |
         subtype = _apple_enum_value(
             _field(notification, "subtype") or _field(notification, "rawSubtype")
         ).upper()
-        if notification_type == "TEST":
-            return {"test": True, "notification_type": notification_type, "subtype": subtype}
-
+        notification_uuid = str(
+            _field(notification, "notificationUUID")
+            or hashlib.sha256(signed_payload.encode()).hexdigest()
+        )
+        signed_at = _apple_datetime(_field(notification, "signedDate"))
         data = _field(notification, "data")
+        environment = _apple_environment_name(_field(data, "environment"))
+        if notification_type == "TEST":
+            return {
+                "test": True,
+                "notification_type": notification_type,
+                "subtype": subtype,
+                "notification_uuid": notification_uuid,
+                "signed_at": signed_at,
+                "environment": environment,
+            }
+
         signed_transaction = _field(data, "signedTransactionInfo")
         if not signed_transaction:
             raise ValueError("Apple notification transaction is missing")
@@ -387,6 +422,9 @@ def verify_apple_notification(*, signed_payload: str, product_id: str) -> dict |
             test=False,
             notification_type=notification_type,
             subtype=subtype,
+            notification_uuid=notification_uuid,
+            signed_at=signed_at or result.get("signed_at"),
+            environment=environment or result.get("environment"),
         )
         return result
     except ValueError:

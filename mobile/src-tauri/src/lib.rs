@@ -37,6 +37,7 @@ pub fn run() {
             native_audio::native_start_recording,
             native_audio::native_stop_recording,
             native_fcm::get_fcm_token,
+            native_billing::native_billing_diagnostic,
             native_billing::native_subscribe,
             native_billing::native_restore_subscription
         ])
