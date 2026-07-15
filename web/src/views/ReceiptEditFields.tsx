@@ -496,13 +496,6 @@ export function ReceiptEditFields({
             placeholder="仕訳の摘要（AIが自動入力します。修正できます）" />
         </label>
 
-        {/* メモ（取込時にファイル名/ページ/音声を初期値。自由に編集・削除可） */}
-        <label className="block space-y-1">
-          <span className="text-xs font-medium text-slate-500">メモ</span>
-          <Textarea rows={3} value={memoInput} onChange={(e) => setMemoInput(e.target.value)}
-            placeholder="ファイル名・ページ・音声などの控え（自由に編集できます）" />
-        </label>
-
         {/* 借方科目 */}
         <div className="space-y-1.5 border-t border-slate-100 pt-2.5">
           <div className="flex items-center justify-between">
@@ -687,6 +680,12 @@ export function ReceiptEditFields({
           </div>
         </div>
 
+        {/* メモ（取込時にファイル名/ページ/音声を初期値。自由に編集・削除可）。参照頻度が低いので最下部。 */}
+        <label className="block space-y-1 border-t border-slate-100 pt-2.5">
+          <span className="text-xs font-medium text-slate-500">メモ</span>
+          <Textarea rows={3} value={memoInput} onChange={(e) => setMemoInput(e.target.value)}
+            placeholder="ファイル名・ページ・音声などの控え（自由に編集できます）" />
+        </label>
         </div>
         {/* 操作（呼び出し側が差し込む）。fitViewport時もスクロールせず常に見える。 */}
         <div className={cn('flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3', fitViewport && 'lg:shrink-0')}>
