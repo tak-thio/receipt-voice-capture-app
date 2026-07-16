@@ -46,6 +46,27 @@ struct SubscribeArgs {
     app_account_token: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(target_os = "ios")]
+struct UnfinishedResult {
+    transactions: Vec<SubscribeResult>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(target_os = "ios")]
+struct FinishArgs {
+    transaction_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg(target_os = "ios")]
+struct FinishResult {
+    #[allow(dead_code)]
+    finished: bool,
+}
+
 #[cfg(target_os = "ios")]
 const IOS_BILLING_DIAGNOSTIC_EVENTS: &[&str] = &[
     "upgrade.started",
@@ -127,6 +148,47 @@ pub async fn native_restore_subscription<R: Runtime>(
     {
         let _ = app;
         Err("購入の復元は iOS のみ対応です".into())
+    }
+}
+
+#[tauri::command]
+pub async fn native_unfinished_transactions<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<Vec<SubscribeResult>, String> {
+    #[cfg(target_os = "ios")]
+    {
+        let state = app.state::<NativeBilling<R>>();
+        state
+            .0
+            .run_mobile_plugin::<UnfinishedResult>("unfinished", ())
+            .map(|result| result.transactions)
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = app;
+        Err("未完了取引の取得は iOS のみ対応です".into())
+    }
+}
+
+#[tauri::command]
+pub async fn native_finish_transaction<R: Runtime>(
+    app: AppHandle<R>,
+    transaction_id: String,
+) -> Result<(), String> {
+    #[cfg(target_os = "ios")]
+    {
+        let state = app.state::<NativeBilling<R>>();
+        state
+            .0
+            .run_mobile_plugin::<FinishResult>("finish", FinishArgs { transaction_id })
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = (app, transaction_id);
+        Err("取引の完了は iOS のみ対応です".into())
     }
 }
 

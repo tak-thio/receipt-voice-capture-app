@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -20,6 +20,24 @@ describe('iOS StoreKit purchase presentation', () => {
     expect(billingPlugin).toMatch(
       /private func foregroundScene\(\) -> UIWindowScene\? \{\s*if let scene = manager\.viewController\?\.viewIfLoaded\?\.window\?\.windowScene,\s*scene\.activationState == \.foregroundActive\s*\{\s*return scene\s*\}\s*return UIApplication\.shared\.connectedScenes\s*\.compactMap \{ \$0 as\? UIWindowScene \}\s*\.first \{ \$0\.activationState == \.foregroundActive \}\s*\}/,
     )
+  })
+
+  it('keeps verified purchases unfinished until server verification succeeds', () => {
+    const subscribeBody = billingPlugin.match(
+      /@objc public func subscribe\(_ invoke: Invoke\) throws \{([\s\S]*?)\n\s*@objc public func restore/,
+    )?.[1]
+
+    expect(subscribeBody).toBeTruthy()
+    expect(subscribeBody).toContain('case .success(let verification):')
+    expect(subscribeBody).not.toContain('transaction.finish()')
+    expect(billingPlugin).toContain('@objc public func unfinished(_ invoke: Invoke) throws')
+    expect(billingPlugin).toContain('Transaction.unfinished')
+    expect(billingPlugin).toContain('@objc public func finish(_ invoke: Invoke) throws')
+  })
+
+  it('avoids cross-thread plugin listeners and relies on unfinished polling', () => {
+    expect(billingPlugin).not.toContain('Transaction.updates')
+    expect(billingPlugin).not.toContain('trigger("transaction-updated"')
   })
 
   it('emits safe cancellable diagnostics while StoreKit is awaiting presentation', () => {
@@ -86,6 +104,47 @@ describe('iOS StoreKit purchase presentation', () => {
     )
     expect(snapshot).not.toMatch(
       /tokenString|appAccountToken|transaction|verification|signedTransactionInfo|localizedDescription|serverUrl|deviceToken|email/,
+    )
+  })
+})
+
+describe('iOS StoreKit release configuration', () => {
+  it('keeps the generated Xcode version aligned with the committed Info.plist', () => {
+    const project = readFileSync(
+      resolve(process.cwd(), 'src-tauri/gen/apple/project.yml'),
+      'utf8',
+    )
+    const infoPlist = readFileSync(
+      resolve(process.cwd(), 'src-tauri/gen/apple/receipt_voice_capture_iOS/Info.plist'),
+      'utf8',
+    )
+
+    expect(project).toContain('CFBundleShortVersionString: 1.0.2')
+    expect(project).toContain('CFBundleVersion: "1.0.2"')
+    expect(project).toContain('storeKitConfiguration: LocalBilling.storekit')
+    expect(project).toMatch(/fileGroups:.*LocalBilling\.storekit/)
+    expect(infoPlist).toMatch(
+      /<key>CFBundleShortVersionString<\/key>\s*<string>1\.0\.2<\/string>/,
+    )
+  })
+
+  it('ships the StoreKit configuration referenced by the shared scheme', () => {
+    const storeKitPath = resolve(process.cwd(), 'src-tauri/gen/apple/LocalBilling.storekit')
+    const scheme = readFileSync(
+      resolve(
+        process.cwd(),
+        'src-tauri/gen/apple/receipt_voice_capture.xcodeproj/xcshareddata/xcschemes/receipt_voice_capture_iOS.xcscheme',
+      ),
+      'utf8',
+    )
+
+    expect(existsSync(storeKitPath)).toBe(true)
+    expect(scheme).toContain('../../LocalBilling.storekit')
+    const storeKit = JSON.parse(readFileSync(storeKitPath, 'utf8')) as {
+      subscriptionGroups: Array<{ subscriptions: Array<{ productID: string }> }>
+    }
+    expect(storeKit.subscriptionGroups[0]?.subscriptions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ productID: 'pro_monthly' })]),
     )
   })
 })

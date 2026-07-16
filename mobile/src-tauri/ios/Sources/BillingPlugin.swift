@@ -15,6 +15,22 @@ private enum BillingError: LocalizedError {
   }
 }
 
+private struct BillingTransactionPayload: Encodable {
+  let platform: String
+  let productId: String
+  let transactionId: String
+  let originalTransactionId: String
+  let signedTransactionInfo: String
+}
+
+private struct UnfinishedTransactionsPayload: Encodable {
+  let transactions: [BillingTransactionPayload]
+}
+
+private struct FinishTransactionPayload: Encodable {
+  let finished: Bool
+}
+
 private enum BillingDiagnosticEvent: String {
   case subscribeEntry = "subscribe.entry"
   case argumentsValidated = "arguments.validated"
@@ -201,7 +217,6 @@ private final class BillingPlugin: Plugin {
         case .success(let verification):
           BillingDiagnostics.result(attemptId, .success)
           let transaction = try checkVerified(verification)
-          await transaction.finish()
           invoke.resolve(
             payload(
               for: transaction,
@@ -239,6 +254,56 @@ private final class BillingPlugin: Plugin {
         invoke.reject("復元できる購入が見つかりません")
       } catch {
         invoke.reject("購入の復元に失敗しました: \(error.localizedDescription)")
+      }
+    }
+  }
+
+  @objc public func unfinished(_ invoke: Invoke) throws {
+    Task {
+      var transactions: [BillingTransactionPayload] = []
+      for await verification in Transaction.unfinished {
+        do {
+          let transaction = try checkVerified(verification)
+          guard transaction.productID == productId else { continue }
+          transactions.append(
+            payload(
+              for: transaction,
+              signedTransactionInfo: verification.jwsRepresentation))
+        } catch {
+          continue
+        }
+      }
+      invoke.resolve(UnfinishedTransactionsPayload(transactions: transactions))
+    }
+  }
+
+  @objc public func finish(_ invoke: Invoke) throws {
+    Task {
+      do {
+        let args = try invoke.getArgs()
+        guard
+          let transactionId = args.getString("transactionId"),
+          let requestedId = UInt64(transactionId)
+        else {
+          invoke.reject("取引IDがありません")
+          return
+        }
+        for await verification in Transaction.unfinished {
+          let transaction: Transaction
+          do {
+            transaction = try checkVerified(verification)
+          } catch {
+            continue
+          }
+          guard transaction.id == requestedId else { continue }
+          await transaction.finish()
+          invoke.resolve(FinishTransactionPayload(finished: true))
+          return
+        }
+        // 既に完了済みの場合も冪等な成功として扱う。
+        invoke.resolve(FinishTransactionPayload(finished: false))
+      } catch {
+        invoke.reject("取引を完了できませんでした: \(error.localizedDescription)")
       }
     }
   }
@@ -359,14 +424,16 @@ private final class BillingPlugin: Plugin {
     }
   }
 
-  private func payload(for transaction: Transaction, signedTransactionInfo: String) -> JsonObject {
-    [
-      "platform": "apple",
-      "productId": transaction.productID,
-      "transactionId": String(transaction.id),
-      "originalTransactionId": String(transaction.originalID),
-      "signedTransactionInfo": signedTransactionInfo,
-    ]
+  private func payload(
+    for transaction: Transaction,
+    signedTransactionInfo: String
+  ) -> BillingTransactionPayload {
+    BillingTransactionPayload(
+      platform: "apple",
+      productId: transaction.productID,
+      transactionId: String(transaction.id),
+      originalTransactionId: String(transaction.originalID),
+      signedTransactionInfo: signedTransactionInfo)
   }
 }
 

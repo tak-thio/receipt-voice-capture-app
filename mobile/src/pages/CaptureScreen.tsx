@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { getUsage, uploadBatch, type UsageInfo } from '../api/server-api'
 import { MediaRecorderService, getMediaRecordingSupport } from '../services/audio/media-recorder-service'
 import { isNativeAudioAvailable, nativeStartRecording, nativeStopRecording } from '../services/audio/native-recorder'
-import { isBillingAvailable, upgradeToPro } from '../services/billing/native-billing'
+import {
+  connectionAfterBillingVerification,
+  isBillingAvailable,
+  upgradeToPro,
+} from '../services/billing/native-billing'
 import type { RecordedAudioClip } from '../types/audio'
 import { useAppStore } from '../store/app-store'
 
@@ -55,9 +59,14 @@ export function CaptureScreen({ onSent }: { onSent?: () => void }) {
     setUpgrading(true)
     try {
       const r = await upgradeToPro(connection.serverUrl, connection.deviceToken)
+      const currentConnection = useAppStore.getState().connection
+      const updatedConnection = connectionAfterBillingVerification(
+        connection, currentConnection, r,
+      )
+      if (!updatedConnection) return
+      if (updatedConnection !== currentConnection) setConnection(updatedConnection)
+      setUsage(r) // VerifyPurchaseResult は used/cap/plan を含む
       if (r.active) {
-        setConnection({ ...connection, plan: r.plan })
-        setUsage(r) // VerifyPurchaseResult は used/cap/plan を含む
         showToast('サブスクを開始しました。今月から月500枚まで解析できます。')
       } else {
         showToast('購入を確認しています。反映まで少しお待ちください。')

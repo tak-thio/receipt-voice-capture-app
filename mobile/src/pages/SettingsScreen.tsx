@@ -4,10 +4,13 @@ import {
   ApiError, deleteIndividualAccount, driveConnectUrl, driveExport, driveStatus, getBillingSubscription, individualClaim,
   updateIndividualName,
   type BillingSubscription,
+  type VerifyPurchaseResult,
 } from '../api/server-api'
 import { toUserMessage } from '../lib/errors'
 import {
   accountDeletionConfirmation,
+  BILLING_SUBSCRIPTION_UPDATED_EVENT,
+  connectionAfterBillingVerification,
   currentBillingPlatform,
   currentStoreLabel,
   isBillingAvailable,
@@ -21,6 +24,12 @@ const PLAN_LABEL: Record<string, string> = {
   free: '無料プラン（月30枚）',
   pro: 'サブスク（月500枚）',
   business: '会社プラン',
+}
+
+interface BillingSubscriptionSnapshot {
+  serverUrl: string
+  deviceToken: string
+  value: BillingSubscription
 }
 
 /** 設定: 接続情報の表示・ログアウト/連携解除・(個人は)退会。 */
@@ -38,20 +47,73 @@ export function SettingsScreen() {
   const [driveConnected, setDriveConnected] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState('')
-  const [billingSubscription, setBillingSubscription] = useState<BillingSubscription | null>(null)
+  const [billingSnapshot, setBillingSnapshot] = useState<BillingSubscriptionSnapshot | null>(null)
   const billingPlatform = currentBillingPlatform()
   const storeLabel = currentStoreLabel()
+  const billingSubscription = individual
+    && billingSnapshot?.serverUrl === connection.serverUrl
+    && billingSnapshot.deviceToken === connection.deviceToken
+    ? billingSnapshot.value
+    : null
+  const managementBillingPlatforms = billingSubscription?.managementPlatforms ?? (
+    billingSubscription?.activePlatforms?.length
+      ? billingSubscription.activePlatforms
+      : billingSubscription?.platform
+        ? [billingSubscription.platform]
+        : []
+  )
 
   // 連携済みか確認(個人のみ。Drive エクスポートの出し分け用)。
   useEffect(() => {
     if (!individual) return
+    let cancelled = false
     driveStatus(connection.serverUrl, connection.deviceToken)
-      .then((s) => setDriveConnected(s.connected))
+      .then((s) => { if (!cancelled) setDriveConnected(s.connected) })
       .catch((e) => console.error('[drive.status]', e)) // 非致命: 未連携扱いで続行(ログだけ残す)
-    getBillingSubscription(connection.serverUrl, connection.deviceToken)
-      .then(setBillingSubscription)
-      .catch((e) => console.error('[billing.subscription]', e))
+    return () => { cancelled = true }
   }, [connection.deviceToken, connection.serverUrl, individual])
+
+  useEffect(() => {
+    if (!individual) return
+    let cancelled = false
+    const expected = {
+      serverUrl: connection.serverUrl,
+      deviceToken: connection.deviceToken,
+    }
+    let requestId = 0
+    const refresh = () => {
+      const currentRequestId = ++requestId
+      void getBillingSubscription(expected.serverUrl, expected.deviceToken)
+        .then((value) => {
+          const current = useAppStore.getState().connection
+          if (
+            cancelled
+            || currentRequestId !== requestId
+            || !current
+            || current.serverUrl !== expected.serverUrl
+            || current.deviceToken !== expected.deviceToken
+          ) return
+          setBillingSnapshot({ ...expected, value })
+        })
+        .catch((e) => console.error('[billing.subscription]', e))
+    }
+    refresh()
+    window.addEventListener(BILLING_SUBSCRIPTION_UPDATED_EVENT, refresh)
+    return () => {
+      cancelled = true
+      window.removeEventListener(BILLING_SUBSCRIPTION_UPDATED_EVENT, refresh)
+    }
+  }, [connection.deviceToken, connection.serverUrl, individual])
+
+  function applyBillingResult(result: VerifyPurchaseResult): boolean {
+    const currentConnection = useAppStore.getState().connection
+    const updatedConnection = connectionAfterBillingVerification(
+      connection, currentConnection, result,
+    )
+    if (!updatedConnection) return false
+    if (updatedConnection !== currentConnection) setConnection(updatedConnection)
+    return true
+  }
 
   // 匿名アカウントにメール/パスワードを登録(遅延サインアップ)。device token はそのまま使い続ける。
   async function register() {
@@ -80,11 +142,8 @@ export function SettingsScreen() {
     setBusy(true)
     try {
       const r = await upgradeToPro(connection.serverUrl, connection.deviceToken)
+      if (!applyBillingResult(r)) return
       if (r.active) {
-        setConnection({ ...connection, plan: r.plan })
-        getBillingSubscription(connection.serverUrl, connection.deviceToken)
-          .then(setBillingSubscription)
-          .catch((e) => console.error('[billing.subscription]', e))
         showToast('サブスクを開始しました。今月から月500枚まで解析できます。')
       } else {
         showToast('購入を確認しています。反映まで少しお待ちください。')
@@ -114,7 +173,7 @@ export function SettingsScreen() {
   }
 
   async function remove() {
-    if (!window.confirm(accountDeletionConfirmation(billingSubscription?.platform ?? null))) return
+    if (!window.confirm(accountDeletionConfirmation(managementBillingPlatforms))) return
     setBusy(true)
     try {
       await deleteIndividualAccount(connection.serverUrl, connection.deviceToken)
@@ -142,11 +201,8 @@ export function SettingsScreen() {
     setBusy(true)
     try {
       const r = await restoreProSubscription(connection.serverUrl, connection.deviceToken)
+      if (!applyBillingResult(r)) return
       if (r.active) {
-        setConnection({ ...connection, plan: r.plan })
-        getBillingSubscription(connection.serverUrl, connection.deviceToken)
-          .then(setBillingSubscription)
-          .catch((e) => console.error('[billing.subscription]', e))
         showToast('購入を復元しました。今月から月500枚まで解析できます。')
       } else {
         showToast('購入情報を確認できませんでした。時間をおいて再度お試しください。')
@@ -258,7 +314,7 @@ export function SettingsScreen() {
         </p>
       )}
 
-      {individual && billingSubscription?.platform === 'apple' && billingPlatform === 'apple' && (
+      {individual && managementBillingPlatforms.includes('apple') && billingPlatform === 'apple' && (
         <>
           <button className="ghost-button" disabled={busy} onClick={() => void manageSubscription()}>
             サブスクリプションを管理

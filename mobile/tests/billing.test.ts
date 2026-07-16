@@ -8,16 +8,23 @@ import {
 } from '../src/api/server-api'
 import {
   accountDeletionConfirmation,
+  BILLING_SUBSCRIPTION_UPDATED_EVENT,
+  canRecoverAppleTransactions,
+  connectionAfterBillingVerification,
   currentBillingPlatform,
   currentStoreLabel,
   isBillingAvailable,
+  recoverUnfinishedAppleTransactions,
   restoreProSubscription,
+  startAppleTransactionRecovery,
   upgradeToPro,
 } from '../src/services/billing/native-billing'
+import type { Connection } from '../src/types/connection'
 
 describe('billing subscription API', () => {
   afterEach(() => {
     clearMocks()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -25,6 +32,8 @@ describe('billing subscription API', () => {
     const summary = {
       active: true,
       platform: 'apple' as const,
+      activePlatforms: ['apple'] as const,
+      managementPlatforms: ['apple'] as const,
       productId: 'pro_monthly',
       currentPeriodEnd: '2026-08-10T00:00:00+00:00',
     }
@@ -188,9 +197,16 @@ describe('billing subscription API', () => {
     vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' })
     const accountToken = '5b6a4a62-caf8-4bc1-821f-3a26ef2afc87'
     const diagnosticEvents: string[] = []
+    const finishedTransactions: string[] = []
+    const subscriptionUpdated = vi.fn()
+    window.addEventListener(BILLING_SUBSCRIPTION_UPDATED_EVENT, subscriptionUpdated)
     mockIPC((command, args) => {
       if (command === 'native_billing_diagnostic') {
         diagnosticEvents.push((args as { event: string }).event)
+        return null
+      }
+      if (command === 'native_finish_transaction') {
+        finishedTransactions.push((args as { transactionId: string }).transactionId)
         return null
       }
       expect(command).toBe('native_subscribe')
@@ -239,6 +255,46 @@ describe('billing subscription API', () => {
       'verify.started',
       'verify.completed',
     ])
+    expect(finishedTransactions).toEqual(['transaction-id'])
+    expect(subscriptionUpdated).toHaveBeenCalledOnce()
+    window.removeEventListener(BILLING_SUBSCRIPTION_UPDATED_EVENT, subscriptionUpdated)
+  })
+
+  it('leaves an Apple transaction unfinished when server verification fails', async () => {
+    vi.stubGlobal('isTauri', true)
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' })
+    const finishedTransactions: string[] = []
+    mockIPC((command, args) => {
+      if (command === 'native_billing_diagnostic') return null
+      if (command === 'native_finish_transaction') {
+        finishedTransactions.push((args as { transactionId: string }).transactionId)
+        return null
+      }
+      return {
+        platform: 'apple',
+        productId: 'pro_monthly',
+        transactionId: 'transaction-id',
+        signedTransactionInfo: 'signed-transaction',
+      }
+    })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          appAccountToken: '5b6a4a62-caf8-4bc1-821f-3a26ef2afc87',
+        }), { status: 200, headers: { 'content-type': 'application/json' } }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: 'temporary failure' }), {
+          status: 503,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      upgradeToPro('https://api.example.test', 'device-token'),
+    ).rejects.toThrow()
+    expect(finishedTransactions).toEqual([])
   })
 
   it('rejects a native purchase whose platform does not match the current store', async () => {
@@ -276,7 +332,10 @@ describe('billing subscription API', () => {
   it('restores an iOS subscription and verifies the restored transaction', async () => {
     vi.stubGlobal('isTauri', true)
     vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)' })
+    const commands: string[] = []
     mockIPC((command) => {
+      commands.push(command)
+      if (command === 'native_finish_transaction') return null
       expect(command).toBe('native_restore_subscription')
       return {
         platform: 'apple',
@@ -298,14 +357,237 @@ describe('billing subscription API', () => {
       'https://api.example.test/billing/apple/verify',
       expect.objectContaining({ method: 'POST' }),
     )
+    expect(commands).toEqual(['native_restore_subscription', 'native_finish_transaction'])
+  })
+
+  it('recovers unfinished Apple transactions and finishes each only after verification', async () => {
+    vi.stubGlobal('isTauri', true)
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' })
+    const commands: string[] = []
+    mockIPC((command) => {
+      commands.push(command)
+      if (command === 'native_unfinished_transactions') {
+        return [{
+          platform: 'apple',
+          productId: 'pro_monthly',
+          transactionId: 'approved-transaction-id',
+          signedTransactionInfo: 'approved-signed-transaction',
+        }]
+      }
+      if (command === 'native_finish_transaction') return null
+      throw new Error(`unexpected command: ${command}`)
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ active: true, plan: 'pro', used: 0, cap: 500 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ))
+
+    const onVerified = vi.fn()
+    await recoverUnfinishedAppleTransactions(
+      'https://api.example.test',
+      'device-token',
+      onVerified,
+    )
+
+    expect(commands).toEqual([
+      'native_unfinished_transactions',
+      'native_finish_transaction',
+    ])
+    expect(onVerified).toHaveBeenCalledWith(
+      { active: true, plan: 'pro', used: 0, cap: 500 },
+    )
+  })
+
+  it('does not share in-flight Apple verification across device accounts', async () => {
+    vi.stubGlobal('isTauri', true)
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' })
+    const commands: string[] = []
+    mockIPC((command) => {
+      commands.push(command)
+      if (command === 'native_unfinished_transactions') {
+        return [{
+          platform: 'apple',
+          productId: 'pro_monthly',
+          transactionId: 'shared-transaction-id',
+          signedTransactionInfo: 'shared-signed-transaction',
+        }]
+      }
+      if (command === 'native_finish_transaction') return null
+      throw new Error(`unexpected command: ${command}`)
+    })
+    const resolvers: Array<(response: Response) => void> = []
+    const fetchMock = vi.fn().mockImplementation(
+      () => new Promise<Response>((resolve) => { resolvers.push(resolve) }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const first = recoverUnfinishedAppleTransactions(
+      'https://api.example.test', 'device-token-a',
+    )
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    const second = recoverUnfinishedAppleTransactions(
+      'https://api.example.test', 'device-token-b',
+    )
+    await vi.waitFor(() => {
+      expect(commands.filter((command) => command === 'native_unfinished_transactions')).toHaveLength(2)
+    })
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
+    const verificationCalls = fetchMock.mock.calls.length
+    for (const resolve of resolvers) {
+      resolve(new Response(JSON.stringify({ active: true, plan: 'pro', used: 0, cap: 500 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+    }
+    await Promise.all([first, second])
+
+    expect(verificationCalls).toBe(2)
+  })
+
+  it('ignores a verified plan after the active connection changes', () => {
+    const expected: Connection = {
+      serverUrl: 'https://api.example.test',
+      deviceToken: 'old-device-token',
+      clientId: 'old-client',
+      plan: 'free',
+    }
+    const current: Connection = {
+      ...expected,
+      deviceToken: 'new-device-token',
+      clientId: 'new-client',
+    }
+
+    expect(connectionAfterBillingVerification(
+      expected,
+      current,
+      { active: true, plan: 'pro', used: 0, cap: 500 },
+    )).toBeNull()
+  })
+
+  it('applies an inactive verified plan returned by the server', () => {
+    const connection: Connection = {
+      serverUrl: 'https://api.example.test',
+      deviceToken: 'device-token',
+      clientId: 'client',
+      plan: 'pro',
+    }
+
+    expect(connectionAfterBillingVerification(
+      connection,
+      connection,
+      { active: false, plan: 'free', used: 30, cap: 30 },
+    )).toEqual({ ...connection, plan: 'free' })
+  })
+
+  it('returns the current connection unchanged when the verified plan already matches', () => {
+    const connection: Connection = {
+      serverUrl: 'https://api.example.test',
+      deviceToken: 'device-token',
+      clientId: 'client',
+      plan: 'pro',
+    }
+
+    expect(connectionAfterBillingVerification(
+      connection,
+      connection,
+      { active: true, plan: 'pro', used: 0, cap: 500 },
+    )).toBe(connection)
+  })
+
+  it('only recovers Apple transactions for a registered personal account', () => {
+    const eligible: Connection = {
+      serverUrl: 'https://api.example.test',
+      deviceToken: 'device-token',
+      clientId: 'client',
+      individual: true,
+      email: 'user@example.test',
+    }
+
+    expect(canRecoverAppleTransactions(eligible)).toBe(true)
+    expect(canRecoverAppleTransactions({ ...eligible, email: undefined })).toBe(false)
+    expect(canRecoverAppleTransactions({ ...eligible, individual: false })).toBe(false)
+    expect(canRecoverAppleTransactions({ ...eligible, demo: true })).toBe(false)
+    expect(canRecoverAppleTransactions(null)).toBe(false)
+  })
+
+  it('does not notify after Apple transaction recovery is stopped', async () => {
+    vi.stubGlobal('isTauri', true)
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' })
+    const commands: string[] = []
+    mockIPC((command) => {
+      commands.push(command)
+      if (command === 'native_unfinished_transactions') {
+        return [{
+          platform: 'apple',
+          productId: 'pro_monthly',
+          transactionId: 'stopped-transaction-id',
+          signedTransactionInfo: 'stopped-signed-transaction',
+        }]
+      }
+      if (command === 'native_finish_transaction') return null
+      throw new Error(`unexpected command: ${command}`)
+    })
+    let resolveVerification: ((response: Response) => void) | undefined
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(
+      () => new Promise<Response>((resolve) => { resolveVerification = resolve }),
+    ))
+    const onVerified = vi.fn()
+
+    const stop = await startAppleTransactionRecovery(
+      'https://api.example.test', 'device-token', onVerified,
+    )
+    await vi.waitFor(() => expect(resolveVerification).toBeTypeOf('function'))
+    stop()
+    resolveVerification?.(new Response(
+      JSON.stringify({ active: true, plan: 'pro', used: 0, cap: 500 }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    ))
+    await vi.waitFor(() => {
+      expect(commands).toContain('native_finish_transaction')
+    })
+    expect(onVerified).not.toHaveBeenCalled()
+  })
+
+  it('coalesces overlapping unfinished transaction polling', async () => {
+    vi.stubGlobal('isTauri', true)
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' })
+    let unfinishedCalls = 0
+    let resolveUnfinished: ((transactions: unknown[]) => void) | undefined
+    mockIPC((command) => {
+      if (command === 'native_unfinished_transactions') {
+        unfinishedCalls += 1
+        return new Promise<unknown[]>((resolve) => { resolveUnfinished = resolve })
+      }
+      throw new Error(`unexpected command: ${command}`)
+    })
+
+    const stop = startAppleTransactionRecovery(
+      'https://api.example.test', 'device-token',
+    )
+    await vi.waitFor(() => expect(unfinishedCalls).toBe(1))
+    window.dispatchEvent(new Event('online'))
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
+
+    expect(unfinishedCalls).toBe(1)
+    resolveUnfinished?.([])
+    stop()
   })
 
   it('warns that Apple subscriptions remain managed by the Apple account after deletion', () => {
-    expect(accountDeletionConfirmation('apple')).toContain(
+    expect(accountDeletionConfirmation(['apple'])).toContain(
       'App Store のサブスクリプションは退会後も Apple アカウント側で管理されます。',
     )
-    expect(accountDeletionConfirmation('apple')).toContain(
+    expect(accountDeletionConfirmation(['apple'])).toContain(
       '請求を停止するには、退会前に「サブスクリプションを管理」から解約してください。',
     )
+  })
+
+  it('keeps the Apple cancellation warning when Google is also active', () => {
+    const confirmation = accountDeletionConfirmation(['google', 'apple'])
+
+    expect(confirmation).toContain('App Store のサブスクリプション')
+    expect(confirmation).toContain('Google Play のサブスクリプションは自動的に解約されます。')
   })
 })

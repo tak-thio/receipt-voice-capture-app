@@ -39,7 +39,9 @@ pub fn run() {
             native_fcm::get_fcm_token,
             native_billing::native_billing_diagnostic,
             native_billing::native_subscribe,
-            native_billing::native_restore_subscription
+            native_billing::native_restore_subscription,
+            native_billing::native_unfinished_transactions,
+            native_billing::native_finish_transaction
         ])
         .run(tauri::generate_context!())
         .expect("failed to run tauri application");

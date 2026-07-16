@@ -8,8 +8,12 @@ import {
   type StorePurchasePayload,
   type VerifyPurchaseResult,
 } from '../../api/server-api'
+import type { Connection } from '../../types/connection'
 
 const APPLE_SUBSCRIPTIONS_URL = 'https://apps.apple.com/account/subscriptions'
+const APPLE_RECOVERY_INTERVAL_MS = 60_000
+const processingAppleTransactions = new Map<string, Promise<VerifyPurchaseResult>>()
+export const BILLING_SUBSCRIPTION_UPDATED_EVENT = 'billing-subscription-updated'
 
 type NativeSubscribeResult = Omit<StorePurchasePayload, 'platform'> & {
   platform?: BillingPlatform
@@ -60,15 +64,76 @@ export function currentStoreLabel(): 'Google Play' | 'App Store' | 'ストア' {
 }
 
 /** 退会前に表示するストア別の確認文言。 */
-export function accountDeletionConfirmation(platform: BillingPlatform | null): string {
+export function accountDeletionConfirmation(managementPlatforms: BillingPlatform[]): string {
   const deletion = '退会すると、取り込んだ領収書データはすべて削除され、元に戻せません。'
-  if (platform === 'apple') {
-    return `${deletion}\n\nApp Store のサブスクリプションは退会後も Apple アカウント側で管理されます。\n請求を停止するには、退会前に「サブスクリプションを管理」から解約してください。\n\n退会しますか？`
+  const appleActive = managementPlatforms.includes('apple')
+  const googleActive = managementPlatforms.includes('google')
+  if (appleActive) {
+    const googleMessage = googleActive
+      ? '\nGoogle Play のサブスクリプションは自動的に解約されます。'
+      : ''
+    return `${deletion}\n\nApp Store のサブスクリプションは退会後も Apple アカウント側で管理されます。\n請求を停止するには、退会前に「サブスクリプションを管理」から解約してください。${googleMessage}\n\n退会しますか？`
   }
-  if (platform === 'google') {
+  if (googleActive) {
     return `${deletion}\n\nPro サブスクをご契約中の場合は自動的に解約されます。\n\n退会しますか？`
   }
   return `${deletion}\n\nPro サブスクをご契約中の場合は、退会前にストア側の解約状況をご確認ください。\n\n退会しますか？`
+}
+
+async function verifyAndFinishAppleTransaction(
+  serverUrl: string,
+  deviceToken: string,
+  purchase: StorePurchasePayload,
+): Promise<VerifyPurchaseResult> {
+  const transactionId = purchase.transactionId
+  if (!transactionId) {
+    throw new Error('App Store の取引IDが必要です')
+  }
+  const processingKey = `${serverUrl}\n${deviceToken}\n${transactionId}`
+  const inFlight = processingAppleTransactions.get(processingKey)
+  if (inFlight) return inFlight
+
+  const verification = (async () => {
+    const verified = await verifyStorePurchase(serverUrl, deviceToken, purchase)
+    await invoke('native_finish_transaction', { transactionId })
+    window.dispatchEvent(new Event(BILLING_SUBSCRIPTION_UPDATED_EVENT))
+    return verified
+  })()
+  processingAppleTransactions.set(processingKey, verification)
+  try {
+    return await verification
+  } finally {
+    if (processingAppleTransactions.get(processingKey) === verification) {
+      processingAppleTransactions.delete(processingKey)
+    }
+  }
+}
+
+export function connectionAfterBillingVerification(
+  expectedConnection: Pick<Connection, 'serverUrl' | 'deviceToken'>,
+  currentConnection: Connection | null,
+  result: VerifyPurchaseResult,
+): Connection | null {
+  if (
+    !currentConnection
+    || currentConnection.serverUrl !== expectedConnection.serverUrl
+    || currentConnection.deviceToken !== expectedConnection.deviceToken
+  ) {
+    return null
+  }
+  return currentConnection.plan === result.plan
+    ? currentConnection
+    : { ...currentConnection, plan: result.plan }
+}
+
+export function canRecoverAppleTransactions(
+  connection: Connection | null,
+): connection is Connection {
+  return Boolean(
+    connection?.individual
+    && connection.email
+    && !connection.demo,
+  )
 }
 
 function normalizeNativePurchase(
@@ -107,7 +172,9 @@ export async function upgradeToPro(serverUrl: string, deviceToken: string): Prom
     const purchase = await subscribePro(platform, appAccountToken)
     await recordIosBillingDiagnostic(iosDiagnostics, 'native-subscribe.completed')
     await recordIosBillingDiagnostic(iosDiagnostics, 'verify.started')
-    const verified = await verifyStorePurchase(serverUrl, deviceToken, purchase)
+    const verified = platform === 'apple'
+      ? await verifyAndFinishAppleTransaction(serverUrl, deviceToken, purchase)
+      : await verifyStorePurchase(serverUrl, deviceToken, purchase)
     await recordIosBillingDiagnostic(iosDiagnostics, 'verify.completed')
     return verified
   } catch (error) {
@@ -125,7 +192,62 @@ export async function restoreProSubscription(
   }
   const restored = await invoke<NativeSubscribeResult>('native_restore_subscription')
   const purchase = normalizeNativePurchase(restored, 'apple')
-  return verifyStorePurchase(serverUrl, deviceToken, purchase)
+  return verifyAndFinishAppleTransaction(serverUrl, deviceToken, purchase)
+}
+
+/** StoreKit に残っている未完了取引をサーバ検証し、成功したものだけ完了する。 */
+export async function recoverUnfinishedAppleTransactions(
+  serverUrl: string,
+  deviceToken: string,
+  onVerified?: (result: VerifyPurchaseResult) => void,
+): Promise<void> {
+  if (currentBillingPlatform() !== 'apple') return
+  const unfinished = await invoke<NativeSubscribeResult[]>('native_unfinished_transactions')
+  for (const nativePurchase of unfinished) {
+    try {
+      const purchase = normalizeNativePurchase(nativePurchase, 'apple')
+      const result = await verifyAndFinishAppleTransaction(serverUrl, deviceToken, purchase)
+      onVerified?.(result)
+    } catch {
+      // 未完了のまま保持し、次回の定期回復で再試行する。
+    }
+  }
+}
+
+/** Ask to Buy 承認や一時的な通信失敗を、アプリ起動中も自動回復する。 */
+export function startAppleTransactionRecovery(
+  serverUrl: string,
+  deviceToken: string,
+  onVerified?: (result: VerifyPurchaseResult) => void,
+): () => void {
+  if (currentBillingPlatform() !== 'apple') return () => undefined
+
+  let stopped = false
+  let recoveryInFlight: Promise<void> | undefined
+  const notifyVerified = (result: VerifyPurchaseResult) => {
+    if (!stopped) onVerified?.(result)
+  }
+  const recover = () => {
+    if (stopped || recoveryInFlight) return
+    const recovery = recoverUnfinishedAppleTransactions(
+      serverUrl, deviceToken, notifyVerified,
+    )
+    recoveryInFlight = recovery
+    void recovery
+      .catch((error) => console.error('[billing.recovery]', error))
+      .finally(() => {
+        if (recoveryInFlight === recovery) recoveryInFlight = undefined
+      })
+  }
+  recover()
+  const interval = window.setInterval(recover, APPLE_RECOVERY_INTERVAL_MS)
+  window.addEventListener('online', recover)
+
+  return () => {
+    stopped = true
+    window.clearInterval(interval)
+    window.removeEventListener('online', recover)
+  }
 }
 
 /** Apple の標準購読管理画面を開く。 */

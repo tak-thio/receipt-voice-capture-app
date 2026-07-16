@@ -403,6 +403,8 @@ export type BillingPlatform = 'google' | 'apple'
 export interface BillingSubscription {
   active: boolean
   platform: BillingPlatform | null
+  activePlatforms: BillingPlatform[]
+  managementPlatforms: BillingPlatform[]
   productId: string | null
   currentPeriodEnd: string | null
 }
