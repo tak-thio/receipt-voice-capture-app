@@ -54,6 +54,14 @@ class AppleNotificationBody(BaseModel):
     signedPayload: str
 
 
+def _apple_verification_is_stale(sub: Subscription, result: dict) -> bool:
+    current_signed_at = getattr(sub, "latest_store_signed_at", None)
+    incoming_signed_at = result.get("signed_at")
+    if current_signed_at:
+        return incoming_signed_at is None or incoming_signed_at < current_signed_at
+    return result.get("authoritative") is not True
+
+
 @router.get("/apple/purchase-context")
 async def apple_purchase_context(
     principal: Principal = Depends(get_principal),
@@ -91,7 +99,11 @@ async def google_verify(
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "課金が未設定、または検証に失敗しました")
 
     new_status = "active" if result["active"] else result["state"]
-    sub = await session.scalar(select(Subscription).where(Subscription.purchase_token == body.purchase_token))
+    sub = await session.scalar(
+        select(Subscription)
+        .where(Subscription.purchase_token == body.purchase_token)
+        .with_for_update()
+    )
     if sub:
         sub.firm_id = firm_id
         sub.product_id = result["product_id"]
@@ -104,10 +116,8 @@ async def google_verify(
                 purchase_token=body.purchase_token, status=new_status, current_period_end=result["expiry"],
             )
         )
-    firm = await session.get(Firm, firm_id)
-    if firm and result["active"] and firm.plan != plans.PLAN_BUSINESS:
-        firm.plan = plans.PLAN_PRO  # 有効な購入で pro に昇格(business は据え置き)
     await session.flush()
+    firm = await recompute_firm_plan(session, firm_id)
     plan = firm.plan if firm else None
     return {
         "plan": plan,
@@ -159,9 +169,12 @@ async def apple_verify(
             Subscription.firm_id == firm_id,
             Subscription.platform == "apple",
             Subscription.purchase_token == result["purchase_token"],
-        )
+        ).with_for_update()
     )
-    if sub:
+    response_active = result["active"]
+    if sub and _apple_verification_is_stale(sub, result):
+        response_active = is_subscription_entitled(sub)
+    elif sub:
         sub.product_id = result["product_id"]
         sub.status = new_status
         sub.current_period_end = result["expiry"]
@@ -194,8 +207,6 @@ async def apple_verify(
             )
         )
 
-    if firm and result["active"] and firm.plan != plans.PLAN_BUSINESS:
-        firm.plan = plans.PLAN_PRO
     try:
         await session.flush()
     except IntegrityError as exc:
@@ -204,10 +215,11 @@ async def apple_verify(
             status.HTTP_409_CONFLICT,
             "この購入は別のアカウントに紐づいています",
         ) from exc
+    firm = await recompute_firm_plan(session, firm_id)
     plan = firm.plan if firm else None
     return {
         "plan": plan,
-        "active": result["active"],
+        "active": response_active,
         "used": await metering.monthly_usage(session, firm_id),
         "cap": plans.monthly_cap(plan),
     }
@@ -273,7 +285,7 @@ async def _process_apple_notification(
                 select(Subscription).where(
                     Subscription.platform == "apple",
                     Subscription.purchase_token == result["purchase_token"],
-                )
+                ).with_for_update()
             )
             if not sub:
                 event.status = "pending"
@@ -282,7 +294,9 @@ async def _process_apple_notification(
             event.subscription_id = getattr(sub, "id", None)
             current_signed_at = getattr(sub, "latest_store_signed_at", None)
             incoming_signed_at = result.get("signed_at")
-            if current_signed_at and incoming_signed_at and incoming_signed_at < current_signed_at:
+            if current_signed_at and (
+                incoming_signed_at is None or incoming_signed_at < current_signed_at
+            ):
                 event.status = "ignored_stale"
                 event.processed_at = datetime.now(timezone.utc)
                 return {"ok": True}
@@ -358,16 +372,38 @@ async def billing_subscription(
     sub = choose_effective_subscription(subscriptions) or (
         subscriptions[0] if subscriptions else None
     )
+    active_platforms = list(dict.fromkeys(
+        subscription.platform
+        for subscription in subscriptions
+        if _subscription_is_active(subscription)
+    ))
+    management_platforms = list(dict.fromkeys(
+        subscription.platform
+        for subscription in subscriptions
+        if _subscription_is_active(subscription)
+        or (
+            subscription.platform == "apple"
+            and (
+                getattr(subscription, "auto_renew_enabled", None) is True
+                or str(getattr(subscription, "status", "") or "").lower()
+                in {"billing_retry", "did_fail_to_renew"}
+            )
+        )
+    ))
     if not sub:
         return {
             "active": False,
             "platform": None,
+            "activePlatforms": [],
+            "managementPlatforms": [],
             "productId": None,
             "currentPeriodEnd": None,
         }
     return {
         "active": _subscription_is_active(sub),
         "platform": sub.platform,
+        "activePlatforms": active_platforms,
+        "managementPlatforms": management_platforms,
         "productId": sub.product_id,
         "currentPeriodEnd": (
             sub.current_period_end.isoformat() if sub.current_period_end else None
@@ -414,7 +450,9 @@ async def google_rtdn(request: Request, token: str = ""):
     async with OwnerSessionLocal() as session:  # クロステナント。id で明示スコープ。
         async with session.begin():
             sub = await session.scalar(
-                select(Subscription).where(Subscription.purchase_token == purchase_token)
+                select(Subscription)
+                .where(Subscription.purchase_token == purchase_token)
+                .with_for_update()
             )
             if not sub:
                 return {"ok": True}  # 未知トークン(初回検証前など)。何もしない。

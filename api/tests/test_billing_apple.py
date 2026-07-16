@@ -110,6 +110,22 @@ class AppleSubscriptionMappingTest(unittest.TestCase):
 
 
 class AppleSubscriptionVerificationTest(unittest.TestCase):
+    def test_latest_store_candidate_prefers_newer_revoked_state(self):
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        active = {
+            "active": True,
+            "expiry": now + timedelta(days=30),
+            "signed_at": now - timedelta(minutes=1),
+        }
+        revoked = {
+            "active": False,
+            "expiry": active["expiry"],
+            "signed_at": now,
+            "state": "revoked",
+        }
+
+        self.assertIs(billing._prefer_apple_subscription(active, revoked), revoked)
+
     def test_verify_returns_none_when_apple_verifier_is_not_configured(self):
         with patch.object(billing, "_apple_verifier", return_value=None):
             result = billing.verify_apple_subscription(
@@ -151,6 +167,49 @@ class AppleSubscriptionVerificationTest(unittest.TestCase):
         self.assertTrue(result["active"])
         self.assertEqual(result["purchase_token"], "100000000000004")
         self.assertEqual(result["expiry"], exp)
+
+    def test_verify_signed_transaction_falls_back_from_production_to_sandbox(self):
+        exp = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=10)
+        attempted_environments = []
+
+        class RejectingVerifier:
+            @staticmethod
+            def verify_and_decode_signed_transaction(_signed_transaction):
+                raise ValueError("wrong environment")
+
+        class SandboxVerifier:
+            @staticmethod
+            def verify_and_decode_signed_transaction(_signed_transaction):
+                return {
+                    "productId": "pro_monthly",
+                    "transactionId": "200000000000010",
+                    "originalTransactionId": "100000000000010",
+                    "expiresDate": int(exp.timestamp() * 1000),
+                    "environment": "Sandbox",
+                }
+
+        def verifier_for(environment_name=None):
+            attempted_environments.append(environment_name)
+            if environment_name == "production":
+                return RejectingVerifier()
+            if environment_name == "sandbox":
+                return SandboxVerifier()
+            return None
+
+        with (
+            patch.object(billing._settings, "apple_environment", "production"),
+            patch.object(billing, "_apple_verifier", side_effect=verifier_for),
+            patch.object(billing, "_apple_api_client", return_value=None),
+        ):
+            result = billing.verify_apple_subscription(
+                signed_transaction_info="sandbox-signed-jws",
+                transaction_id=None,
+                product_id="pro_monthly",
+            )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["environment"], "sandbox")
+        self.assertEqual(attempted_environments[:2], ["production", "sandbox"])
 
 
 class AppleNotificationVerificationTest(unittest.TestCase):

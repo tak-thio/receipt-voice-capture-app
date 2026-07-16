@@ -28,6 +28,14 @@ class FakeSession:
             return self.subscriptions
         return []
 
+    async def scalar(self, statement):
+        descriptions = getattr(statement, "column_descriptions", [])
+        entity = descriptions[0].get("entity") if descriptions else None
+        if entity is Firm:
+            firm_id = next(iter(statement.compile().params.values()), None)
+            return self.firms.get(firm_id)
+        return None
+
     async def get(self, model, object_id):
         if model is Firm:
             return self.firms.get(object_id)
@@ -66,6 +74,7 @@ class AppleReconciliationTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(kwargs["transaction_id"], sub.purchase_token)
             return {
                 "active": True,
+                "authoritative": True,
                 "product_id": "pro_monthly",
                 "purchase_token": sub.purchase_token,
                 "transaction_id": "latest-transaction",
@@ -122,6 +131,7 @@ class AppleReconciliationTest(unittest.IsolatedAsyncioTestCase):
                 raise RuntimeError("temporary Apple failure")
             return {
                 "active": True,
+                "authoritative": True,
                 "product_id": "pro_monthly",
                 "purchase_token": "works",
                 "transaction_id": "latest",
@@ -140,6 +150,50 @@ class AppleReconciliationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats, {"seen": 2, "updated": 1, "failed": 1})
         self.assertEqual(subscriptions[1].status, "active")
         log_exception.assert_called_once()
+
+    async def test_non_authoritative_fallback_cannot_replace_store_state(self):
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        firm_id = uuid4()
+        sub = SimpleNamespace(
+            id=uuid4(),
+            firm_id=firm_id,
+            platform="apple",
+            product_id="pro_monthly",
+            purchase_token="original-transaction",
+            status="revoked",
+            current_period_end=now + timedelta(days=30),
+            latest_transaction_id="latest-transaction",
+            revoked_at=now,
+            created_at=now - timedelta(days=30),
+        )
+        firm = SimpleNamespace(id=firm_id, plan=plans.PLAN_FREE)
+        session = FakeSession([sub], {firm_id: firm})
+
+        def verify(**_kwargs):
+            return {
+                "active": True,
+                "authoritative": False,
+                "product_id": "pro_monthly",
+                "purchase_token": sub.purchase_token,
+                "transaction_id": "old-transaction",
+                "expiry": now + timedelta(days=60),
+                "state": "active",
+                "environment": "production",
+                "signed_at": now - timedelta(days=1),
+                "revoked_at": None,
+            }
+
+        stats = await reconcile_apple_subscriptions(
+            session,
+            verify_subscription=verify,
+            product_id="pro_monthly",
+        )
+
+        self.assertEqual(stats, {"seen": 1, "updated": 0, "failed": 1})
+        self.assertEqual(sub.status, "revoked")
+        self.assertEqual(sub.latest_transaction_id, "latest-transaction")
+        self.assertEqual(sub.revoked_at, now)
+        self.assertEqual(firm.plan, plans.PLAN_FREE)
 
 
 class RunAppleReconcileLoopTest(unittest.IsolatedAsyncioTestCase):

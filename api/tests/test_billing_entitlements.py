@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 import unittest
+from uuid import uuid4
 
 from app import plans
 from app.models import Firm, StoreNotificationEvent, Subscription
@@ -8,6 +9,7 @@ from app.subscription_entitlements import (
     choose_effective_subscription,
     desired_plan_for_subscriptions,
     is_subscription_entitled,
+    recompute_firm_plan,
 )
 
 
@@ -93,6 +95,30 @@ class SubscriptionEntitlementTest(unittest.TestCase):
             ),
             plans.PLAN_FREE,
         )
+
+
+class FirmPlanRecomputeTest(unittest.IsolatedAsyncioTestCase):
+    async def test_locks_firm_before_recomputing_cross_platform_entitlement(self):
+        firm_id = uuid4()
+        firm = SimpleNamespace(id=firm_id, plan=plans.PLAN_PRO)
+
+        class Session:
+            def __init__(self):
+                self.scalar_statement = None
+
+            async def scalar(self, statement):
+                self.scalar_statement = statement
+                return firm
+
+            async def scalars(self, _statement):
+                return []
+
+        session = Session()
+
+        await recompute_firm_plan(session, firm_id)
+
+        self.assertIsNotNone(session.scalar_statement._for_update_arg)
+        self.assertEqual(firm.plan, plans.PLAN_FREE)
 
 
 if __name__ == "__main__":

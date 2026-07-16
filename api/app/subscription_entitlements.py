@@ -80,7 +80,10 @@ async def subscriptions_for_firm(session, firm_id: UUID) -> list[Subscription]:
 
 
 async def recompute_firm_plan(session, firm_id: UUID) -> Firm | None:
-    firm = await session.get(Firm, firm_id)
+    # Google / Apple の同時更新でも、最後の再計算が全購読を見た状態で確定する。
+    firm = await session.scalar(
+        select(Firm).where(Firm.id == firm_id).with_for_update()
+    )
     if not firm or firm.plan == plans.PLAN_BUSINESS:
         return firm
     subscriptions = await subscriptions_for_firm(session, firm_id)

@@ -208,6 +208,16 @@ def _apple_environment(environment_name: str | None = None):
     return getattr(Environment, attr, None)
 
 
+def _apple_environment_candidates() -> list[str]:
+    configured = (
+        _settings.apple_environment.strip().replace("-", "_").lower()
+    )
+    candidates = [configured, "production", "sandbox"]
+    return list(dict.fromkeys(
+        candidate for candidate in candidates if candidate in _APPLE_ENV_ALIASES
+    ))
+
+
 def _apple_root_certificates() -> list[bytes] | None:
     paths = [p.strip() for p in _settings.apple_root_certificate_paths.split(",") if p.strip()]
     if not paths:
@@ -239,7 +249,7 @@ def _apple_verifier(environment_name: str | None = None):
         return None
 
 
-def _apple_api_client():
+def _apple_api_client(environment_name: str | None = None):
     if not (
         _settings.apple_issuer_id
         and _settings.apple_key_id
@@ -247,7 +257,7 @@ def _apple_api_client():
         and _settings.apple_bundle_id
     ):
         return None
-    environment = _apple_environment()
+    environment = _apple_environment(environment_name)
     if environment is None:
         return None
     try:
@@ -277,11 +287,25 @@ def _iter_items(value: object | None) -> list:
 def _prefer_apple_subscription(current: dict | None, candidate: dict) -> dict:
     if current is None:
         return candidate
+    current_signed_at = current.get("signed_at")
+    candidate_signed_at = candidate.get("signed_at")
+    if candidate_signed_at and (
+        not current_signed_at or candidate_signed_at > current_signed_at
+    ):
+        return candidate
+    if current_signed_at and (
+        not candidate_signed_at or candidate_signed_at < current_signed_at
+    ):
+        return current
     current_expiry = current.get("expiry")
     candidate_expiry = candidate.get("expiry")
     if candidate_expiry and (not current_expiry or candidate_expiry > current_expiry):
         return candidate
-    if candidate_expiry == current_expiry and candidate.get("active") and not current.get("active"):
+    if (
+        candidate_expiry == current_expiry
+        and not candidate.get("active")
+        and current.get("active")
+    ):
         return candidate
     return current
 
@@ -312,32 +336,65 @@ def verify_apple_subscription(
     product_id: str,
 ) -> dict | None:
     """Apple signed transaction を検証し、正規化済み購読状態を返す。"""
-    verifier = _apple_verifier()
-    if verifier is None or not (signed_transaction_info or transaction_id):
+    if not (signed_transaction_info or transaction_id):
         return None
 
-    client = _apple_api_client()
-    try:
-        if signed_transaction_info:
-            transaction = verifier.verify_and_decode_signed_transaction(signed_transaction_info)
-        elif client is not None:
-            response = client.get_transaction_info(transaction_id)
-            transaction = verifier.verify_and_decode_signed_transaction(_field(response, "signedTransactionInfo"))
-        else:
+    for environment_name in _apple_environment_candidates():
+        verifier = _apple_verifier(environment_name)
+        if verifier is None:
+            continue
+        client = None
+        try:
+            if signed_transaction_info:
+                transaction = verifier.verify_and_decode_signed_transaction(
+                    signed_transaction_info
+                )
+            else:
+                client = _apple_api_client(environment_name)
+                if client is None:
+                    continue
+                response = client.get_transaction_info(transaction_id)
+                transaction = verifier.verify_and_decode_signed_transaction(
+                    _field(response, "signedTransactionInfo")
+                )
+        except Exception:
+            # TestFlight は Sandbox、本番配信は Production なので両方を検証する。
+            continue
+
+        try:
+            result = normalize_apple_subscription(
+                transaction,
+                renewal_info=None,
+                expected_product_id=product_id,
+            )
+        except ValueError:
+            _log.exception("Apple subscription payload rejected")
             return None
 
-        result = normalize_apple_subscription(transaction, renewal_info=None, expected_product_id=product_id)
+        result_environment = result.get("environment")
+        if result_environment in {"production", "sandbox"}:
+            environment_name = result_environment
+        if client is None:
+            client = _apple_api_client(environment_name)
         if client is not None:
-            latest = _latest_apple_subscription(verifier, client, result["purchase_token"], product_id)
-            if latest is not None:
-                return latest
+            try:
+                latest = _latest_apple_subscription(
+                    verifier,
+                    client,
+                    result["purchase_token"],
+                    product_id,
+                )
+                if latest is not None:
+                    latest["authoritative"] = True
+                    return latest
+            except Exception:
+                # 署名済み transaction 自体の検証結果は有効なので、API の一時障害で捨てない。
+                _log.exception("Apple latest subscription lookup failed")
+        result["authoritative"] = False
         return result
-    except ValueError:
-        _log.exception("Apple subscription payload rejected")
-        return None
-    except Exception:
-        _log.exception("Apple subscription verify failed")
-        return None
+
+    _log.error("Apple subscription verification failed in all environments")
+    return None
 
 
 def _apple_enum_value(value: object | None) -> str:

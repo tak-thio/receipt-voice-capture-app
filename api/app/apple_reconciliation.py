@@ -70,7 +70,11 @@ async def reconcile_apple_subscriptions(
                 subscription.id,
             )
             continue
-        if result is None or result.get("purchase_token") != subscription.purchase_token:
+        if (
+            result is None
+            or result.get("authoritative") is not True
+            or result.get("purchase_token") != subscription.purchase_token
+        ):
             stats["failed"] += 1
             continue
 
