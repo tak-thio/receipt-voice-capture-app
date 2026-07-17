@@ -89,6 +89,18 @@ class Settings(BaseSettings):
     # 空なら RTDN エンドポイントは無効(401)。
     play_rtdn_secret: str = ""
 
+    # Apple App Store Server API / Notifications。空なら Apple 購入検証は無効。
+    apple_bundle_id: str = "com.itsherpa.ffreceipt"
+    apple_app_apple_id: int | None = None
+    apple_environment: str = "sandbox"  # sandbox | production | xcode | local_testing
+    apple_issuer_id: str = ""
+    apple_key_id: str = ""
+    apple_private_key_path: str = ""
+    # Apple ルート証明書のパス(カンマ区切り)。ライブラリには DER bytes を渡す。
+    apple_root_certificate_paths: str = ""
+    apple_pro_product_id: str = "pro_monthly"
+    apple_reconcile_interval_minutes: int = 15  # Apple 購読の定期再照会の間隔(分)
+
     @property
     def runtime_database_url(self) -> str:
         return self.app_database_url or self.database_url

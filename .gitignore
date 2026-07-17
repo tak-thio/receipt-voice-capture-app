@@ -30,6 +30,9 @@ __pycache__
 
 # Secrets — never commit
 .env
+*.p8
+/mobile/keys/
+/key-store/
 client_secret_*.json
 *.apps.googleusercontent.com.json
 
@@ -37,3 +40,10 @@ client_secret_*.json
 *-firebase-adminsdk-*.json
 **/secrets/
 fcm-sa.json
+
+# ローカルの資格情報ヘルパー(絶対にコミットしない)
+pw.txt
+
+# AI / dev tooling (local only)
+.claude/
+.serena/

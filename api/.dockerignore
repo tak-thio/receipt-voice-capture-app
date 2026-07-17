@@ -1,0 +1,11 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+._*
+*.p8
+secrets/
+client_secret_*.json
+*.apps.googleusercontent.com.json
+*-firebase-adminsdk-*.json
+fcm-sa.json

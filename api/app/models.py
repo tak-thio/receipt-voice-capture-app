@@ -92,6 +92,10 @@ class Firm(Base, TimestampMixin):
     ai_config: Mapped[dict] = mapped_column(JSONB, default=dict)
     plan: Mapped[str] = mapped_column(String(50), default="free")
     status: Mapped[str] = mapped_column(String(50), default="active")
+    # StoreKit appAccountToken。既存 firm は purchase-context 初回取得時に遅延生成する。
+    billing_account_token: Mapped[UUID | None] = mapped_column(
+        unique=True, nullable=True
+    )
 
 
 class User(Base, TimestampMixin):
@@ -422,6 +426,41 @@ class Subscription(Base, TimestampMixin):
     purchase_token: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(40), default="active")  # active | canceled | expired ...
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    latest_transaction_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    store_environment: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    app_account_token: Mapped[UUID | None] = mapped_column(nullable=True, index=True)
+    auto_renew_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    latest_store_signed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class StoreNotificationEvent(Base, TimestampMixin):
+    """ストア通知の durable inbox。webhook は先に保存し、冪等かつ順序付きで反映する。"""
+
+    __tablename__ = "store_notification_events"
+    __table_args__ = (
+        UniqueConstraint("notification_uuid", name="uq_store_notification_uuid"),
+    )
+
+    id: Mapped[UUID] = _uuid_pk()
+    platform: Mapped[str] = mapped_column(String(20), default="apple")
+    environment: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    notification_uuid: Mapped[str] = mapped_column(String(100))
+    purchase_token: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    signed_payload: Mapped[str] = mapped_column(Text)
+    signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="received", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    subscription_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("subscriptions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class DriveConnection(Base, TimestampMixin):

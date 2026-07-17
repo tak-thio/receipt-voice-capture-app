@@ -51,6 +51,8 @@ services:
         condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - ./mobile/keys/SubscriptionKey_Q7BT756M36.p8:/run/secrets/apple-iap.p8:ro
     ports:
       - "127.0.0.1:8000:8000"
     command: >

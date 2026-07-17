@@ -9,6 +9,11 @@ import { ExpenseScreen } from './pages/ExpenseScreen'
 import { InboxScreen } from './pages/InboxScreen'
 import { SettingsScreen } from './pages/SettingsScreen'
 import { getFcmToken, isNativeFcmAvailable } from './services/fcm/native-fcm'
+import {
+  canRecoverAppleTransactions,
+  connectionAfterBillingVerification,
+  startAppleTransactionRecovery,
+} from './services/billing/native-billing'
 import { useAppStore } from './store/app-store'
 
 type Tab = 'home' | 'capture' | 'inbox' | 'expense' | 'settings'
@@ -63,6 +68,29 @@ export default function App() {
       }
     })()
   }, [connection])
+
+  useEffect(() => {
+    if (!canRecoverAppleTransactions(connection)) return
+    const expectedConnection = {
+      serverUrl: connection.serverUrl,
+      deviceToken: connection.deviceToken,
+    }
+    return startAppleTransactionRecovery(
+      connection.serverUrl,
+      connection.deviceToken,
+      (result) => {
+        const currentConnection = useAppStore.getState().connection
+        const updatedConnection = connectionAfterBillingVerification(
+          expectedConnection,
+          currentConnection,
+          result,
+        )
+        if (updatedConnection && updatedConnection !== currentConnection) {
+          setConnection(updatedConnection)
+        }
+      },
+    )
+  }, [connection, setConnection])
 
   if (!ready) {
     return <div className="boot-screen">アプリを読み込んでいます...</div>

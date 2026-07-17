@@ -7,7 +7,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import storage
 from .config import get_settings
-from .worker import run_cleanup, run_gmail_poller, run_worker
+from .worker import run_apple_reconcile, run_cleanup, run_gmail_poller, run_worker
 from .routers import (
     auth,
     billing,
@@ -44,12 +44,14 @@ async def lifespan(_: FastAPI):
     worker = asyncio.create_task(run_worker())
     poller = asyncio.create_task(run_gmail_poller())  # 連携メールの定期取り込み(Cron相当)
     cleaner = asyncio.create_task(run_cleanup())  # 匿名アカウントの定期掃除(1日1回)
+    reconciler = asyncio.create_task(run_apple_reconcile())  # Apple 購読の定期対帳(pending/失効の吸収)
     try:
         yield
     finally:
         worker.cancel()
         poller.cancel()
         cleaner.cancel()
+        reconciler.cancel()
 
 
 app = FastAPI(title="Receipt SaaS API", version="0.1.0", lifespan=lifespan)
