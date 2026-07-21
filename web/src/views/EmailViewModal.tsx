@@ -29,7 +29,7 @@ function buildSrcDoc(e: ReceiptEmail): string {
     <div class="subj">${esc(e.subject) || '(件名なし)'}</div>
     <div class="row"><b>差出人</b>: ${esc(e.from_addr) || '—'}</div>
     <div class="row"><b>宛先</b>: ${esc(e.account) || '—'}</div>
-    <div class="row"><b>日付</b>: ${esc(e.date ? e.date.slice(0, 10) : '') || '—'}</div>
+    <div class="row"><b>日付</b>: ${esc(e.date ? e.date.slice(0, 10).replaceAll('-', '/') : '') || '—'}</div>
   </div>
   <div class="body">${body}</div>
 </body></html>`

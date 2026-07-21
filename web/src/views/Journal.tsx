@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { formatDate } from '../format'
 import { api, type MasterRow, type NoteRow, type QueueItem } from '../api'
 import {
   Alert, Button, Card, cn, EmptyState, Icon, PageHeader,
@@ -180,7 +181,7 @@ export function JournalView({ clientId, showCreator, lockDate }: { clientId: str
                     const sug = titles.find((t) => t.id === r.suggestion.account_title_id)
                     return (
                       <Tr key={r.id} active={i === activeIdx} onClick={() => setActiveIndex(i)}>
-                        <Td className="whitespace-nowrap text-slate-500">{r.date ?? '—'}</Td>
+                        <Td className="whitespace-nowrap text-slate-500">{formatDate(r.date)}</Td>
                         <Td className="font-medium text-slate-800">
                           {r.parse_failed ? <span className="text-rose-600">認識できませんでした</span> : (r.vendor || '—')}
                           {/* 「領収書なし(確定)」のクレジット明細から起票する行(証憑=明細画像・税内訳なし) */}

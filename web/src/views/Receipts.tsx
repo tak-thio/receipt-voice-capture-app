@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { formatDate } from '../format'
 import { api, type NoteRow, type ReceiptRow } from '../api'
 import {
   Badge, Button, Card, cn, EmptyState, Icon, IconButton, Input, Modal, PageHeader,
@@ -246,7 +247,7 @@ export function ReceiptsView({
         <Tr key={r.id} className="bg-sky-50/60">
           <Td className="w-8"></Td>
           <Td className="text-slate-500">
-            {r.captured_at?.slice(0, 10) ?? '—'}
+            {formatDate(r.captured_at)}
             <span className="block text-[10px] text-slate-400">取込</span>
           </Td>
           <Td><span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">明細</span></Td>
@@ -298,7 +299,7 @@ export function ReceiptsView({
           )}
         </Td>
         <Td className={cn('text-slate-500', grouped && 'border-l-2 border-amber-300')}>
-          {r.captured_at?.slice(0, 10) ?? '—'}
+          {formatDate(r.captured_at)}
         </Td>
         <Td><SourceIcon source={r.source} /></Td>
         <Td className="font-medium text-slate-800">
@@ -335,7 +336,7 @@ export function ReceiptsView({
             {lockDate && r.captured_at && r.captured_at.slice(0, 10) <= lockDate && <Badge tone="danger">期間外</Badge>}
             {/* 明細から仕訳済み(領収書なし確定)の行と一致 → この領収書はその証憑の可能性。仕訳すると二重計上のおそれ。 */}
             {r.journalized_line_match && (
-              <span title={`仕訳済みの「領収書なし」明細（${r.journalized_line_match.date ?? '—'}・${r.journalized_line_match.vendor ?? '—'}・¥${(r.journalized_line_match.amount_jpy ?? 0).toLocaleString()}）と同額・近い日付です。この領収書を仕訳すると二重計上のおそれがあります（明細側の仕訳を確認してください）。`}>
+              <span title={`仕訳済みの「領収書なし」明細（${formatDate(r.journalized_line_match.date)}・${r.journalized_line_match.vendor ?? '—'}・¥${(r.journalized_line_match.amount_jpy ?? 0).toLocaleString()}）と同額・近い日付です。この領収書を仕訳すると二重計上のおそれがあります（明細側の仕訳を確認してください）。`}>
                 <Badge tone="warning">仕訳済み明細の領収書?</Badge>
               </span>
             )}

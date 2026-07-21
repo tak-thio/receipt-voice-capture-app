@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { formatDate } from '../format'
 import { api, type ReconcileGroup, type ReconcileItem, type ReconcileState } from '../api'
 import { Alert, Badge, Button, Card, EmptyState, Icon, PageHeader, Spinner } from '../ui'
 import { useToast } from '../ui/toast'
@@ -50,7 +51,7 @@ function Line({ item }: { item: ReconcileItem }) {
           {item.journalized_at && <Badge tone="success">仕訳済</Badge>}
         </div>
         <div className="text-xs text-slate-500">
-          {item.date || '—'} ・ {money(item)}
+          {formatDate(item.date)} ・ {money(item)}
           {item.source ? ` ・ ${item.source}` : ''}
         </div>
       </div>

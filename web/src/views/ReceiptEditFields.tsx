@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { formatDate } from '../format'
 import { api, type JournalizeBody, type MasterRow, type NoteRow, type SubAccountRow, type Suggestion, type TaxLine } from '../api'
 import { Button, cn, Icon, Input, Select, Textarea } from '../ui'
 import { useToast } from '../ui/toast'
@@ -573,7 +574,7 @@ export function ReceiptEditFields({
           {item.card_line_suggestion && !amountInput.trim() && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand-200 bg-brand-50/50 p-2.5">
               <span className="text-xs text-slate-600">
-                クレジット明細と照合済み: {item.card_line_suggestion.date ?? '—'}・{item.card_line_suggestion.vendor ?? '—'}
+                クレジット明細と照合済み: {formatDate(item.card_line_suggestion.date)}・{item.card_line_suggestion.vendor ?? '—'}
                 （実際の引落額 ¥{(item.card_line_suggestion.amount_jpy ?? 0).toLocaleString()}）
               </span>
               <Button size="sm" onClick={() => setAmountInput(String(item.card_line_suggestion?.amount_jpy ?? ''))}>

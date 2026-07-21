@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { formatDate } from '../format'
 import { api, type LedgerRow, type MasterRow, type NoteRow } from '../api'
 import {
   Button, Card, EmptyState, Icon, IconButton, Input, PageHeader,
@@ -176,7 +177,7 @@ export function LedgerView({ clientId, showCreator }: { clientId: string; showCr
           <Tbody>
             {shown.map((r) => (
               <Tr key={r.id} onClick={() => openEdit(r)}>
-                <Td className="whitespace-nowrap text-slate-500">{r.date ?? '—'}</Td>
+                <Td className="whitespace-nowrap text-slate-500">{formatDate(r.date)}</Td>
                 <Td className="font-medium text-slate-800">{r.vendor ?? '—'}</Td>
                 <Td className="text-slate-600">{r.partner ?? '—'}</Td>
                 <Td className="text-slate-600">{r.debit ?? '—'}</Td>

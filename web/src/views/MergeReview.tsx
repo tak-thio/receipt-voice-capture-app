@@ -44,7 +44,7 @@ function fmtVal(f: MergeField, v: unknown): string {
     return f.options?.find((o) => o.value === s)?.label ?? '不明'
   }
   if (v == null || v === '') return '（空欄）'
-  if (f.kind === 'date') return String(v).slice(0, 10)
+  if (f.kind === 'date') return String(v).slice(0, 10).replaceAll('-', '/')
   if (f.kind === 'amount') return typeof v === 'number' ? `¥${v.toLocaleString()}` : String(v)
   return String(v)
 }

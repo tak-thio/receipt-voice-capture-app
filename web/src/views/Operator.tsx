@@ -245,7 +245,7 @@ function OperatorDashboard({ me, onLogout }: { me: OperatorInfo; onLogout: () =>
                       )}
                     </Td>
                     <Td className="text-slate-600">{f.owners.join(', ') || '—'}</Td>
-                    <Td className="text-slate-500">{f.created_at ? f.created_at.slice(0, 10) : '—'}</Td>
+                    <Td className="text-slate-500">{f.created_at ? f.created_at.slice(0, 10).replaceAll('-', '/') : '—'}</Td>
                     <Td className="text-right">
                       <div className="flex justify-end gap-1.5">
                         <Button size="sm" variant="secondary" onClick={() => setEditing(f)}>

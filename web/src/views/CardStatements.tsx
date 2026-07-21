@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { formatDate } from '../format'
 import { api, type CardStatementLine, type ReceiptRow } from '../api'
 import {
   Badge, Button, Card, EmptyState, Icon, IconButton, Input, Modal,
@@ -154,7 +155,7 @@ export function CardStatementsView({ clientId, initialBatch, onBatchOpened }: { 
     const isDup = r.is_dup
     return (
       <Tr key={r.id} className={isDup ? 'bg-amber-50/70' : undefined}>
-        <Td className="whitespace-nowrap text-sm text-slate-600">{r.date ?? '—'}</Td>
+        <Td className="whitespace-nowrap text-sm text-slate-600">{formatDate(r.date)}</Td>
         <Td className="text-sm text-slate-800">
           {isDup && <span className="mr-1 text-amber-600">↳</span>}
           {r.vendor || '(未解析)'}
@@ -243,7 +244,7 @@ export function CardStatementsView({ clientId, initialBatch, onBatchOpened }: { 
               <span>{detail.label}</span>
             </span>
           }
-          description={`${detail.lines.length}件${detail.importedAt ? ` ・ ${detail.importedAt.slice(0, 10)} 取込` : ''}（明細は仕訳には入りません）`}
+          description={`${detail.lines.length}件${detail.importedAt ? ` ・ ${formatDate(detail.importedAt)} 取込` : ''}（明細は仕訳には入りません）`}
           actions={
             detail.batchId && (
               <Button variant="secondary" onClick={() => void handleDeleteBatch(detail.batchId!, detail.lines.length)}>
@@ -317,7 +318,7 @@ export function CardStatementsView({ clientId, initialBatch, onBatchOpened }: { 
                 className="cursor-pointer hover:bg-slate-50"
                 onClick={() => b.batchId && setSelectedBatch(b.batchId)}
               >
-                <Td className="whitespace-nowrap text-sm text-slate-600">{b.importedAt?.slice(0, 10) ?? '—'}</Td>
+                <Td className="whitespace-nowrap text-sm text-slate-600">{formatDate(b.importedAt)}</Td>
                 <Td className="font-medium text-slate-800">
                   {b.label}
                   {b.batchId && (
@@ -505,7 +506,7 @@ function LinkModal({
       <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
         <div className="min-w-0">
           <div className="truncate text-lg font-semibold text-slate-900">{line.vendor ?? '—'}</div>
-          <div className="text-sm text-slate-500">{line.date ?? '—'}</div>
+          <div className="text-sm text-slate-500">{formatDate(line.date)}</div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <div className="text-right">
@@ -578,7 +579,7 @@ function LinkModal({
                 className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
               >
                 <span className="min-w-0">
-                  <span className="text-xs text-slate-500">{r.captured_at?.slice(0, 10) ?? '—'}</span>
+                  <span className="text-xs text-slate-500">{formatDate(r.captured_at)}</span>
                   <span className="ml-2 font-medium text-slate-800">{r.vendor ?? '—'}</span>
                   {fxMatch(r) && (
                     <span className="ml-2 rounded bg-emerald-100 px-1 text-[10px] font-medium text-emerald-700">

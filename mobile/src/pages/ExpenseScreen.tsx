@@ -231,7 +231,7 @@ export function ExpenseScreen() {
                     <span className="amt">{yen(r.amount_jpy)}</span>
                   </div>
                   <div className="inbox-sub">
-                    <span>{r.captured_at ? r.captured_at.slice(0, 10) : '—'}</span>
+                    <span>{r.captured_at ? r.captured_at.slice(0, 10).replaceAll('-', '/') : '—'}</span>
                     {noPurpose && <span className="img-mark warnmark">用途未記入</span>}
                     <span className={`st ${s.cls}`}>{s.text}</span>
                   </div>
@@ -264,7 +264,7 @@ export function ExpenseScreen() {
                   </div>
                   <div className="inbox-sub">
                     <span>{c.item_count}件</span>
-                    <span>{c.created_at ? c.created_at.slice(0, 10) : '—'}</span>
+                    <span>{c.created_at ? c.created_at.slice(0, 10).replaceAll('-', '/') : '—'}</span>
                     <span className={`st ${s.cls}`}>{s.text}</span>
                   </div>
                   {c.status === 'rejected' && c.reject_reason && (
@@ -353,7 +353,7 @@ function ClaimReviewScreen({
               <span className="amt">{yen(r.amount_jpy)}</span>
             </div>
             <div className="inbox-sub">
-              <span>{r.captured_at ? r.captured_at.slice(0, 10) : '—'}</span>
+              <span>{r.captured_at ? r.captured_at.slice(0, 10).replaceAll('-', '/') : '—'}</span>
             </div>
             <label className="field claim-desc">
               <span>用途・目的</span>

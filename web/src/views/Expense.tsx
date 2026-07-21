@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { formatDate } from '../format'
 import { api, type ExpenseClaim, type ExpenseClaimItem, type MasterRow, type ReceiptRow } from '../api'
 import {
   Badge, Button, Card, cn, EmptyState, Icon, Input, Modal,
@@ -109,7 +110,7 @@ export function ExpenseView({ clientId, canApprove, userId }: { clientId: string
                   <Td className="text-right tabular-nums">{c.item_count}</Td>
                   <Td className="text-right tabular-nums">{yen(c.total_jpy)}</Td>
                   <Td><Badge tone={st.tone}>{st.label}</Badge></Td>
-                  <Td className="whitespace-nowrap text-xs text-slate-400">{c.created_at?.slice(0, 10) ?? '—'}</Td>
+                  <Td className="whitespace-nowrap text-xs text-slate-400">{formatDate(c.created_at)}</Td>
                   <Td className="text-right">
                     <div className="flex flex-wrap items-center justify-end gap-1">
                       {mine && (c.status === 'draft' || c.status === 'rejected') && (
@@ -207,7 +208,7 @@ function ClaimEditModal({
           receipts.map((r) => (
             <label key={r.id} className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-slate-50">
               <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} />
-              <span className="w-24 text-xs text-slate-400">{r.captured_at?.slice(0, 10) ?? '—'}</span>
+              <span className="w-24 text-xs text-slate-400">{formatDate(r.captured_at)}</span>
               <span className="flex-1 truncate text-sm text-slate-700">{r.vendor || '(未解析)'}</span>
               <span className="tabular-nums text-sm text-slate-700">{r.amount_jpy != null ? `¥${r.amount_jpy.toLocaleString()}` : '—'}</span>
             </label>
@@ -276,7 +277,7 @@ function ApproveModal({
         <div className="space-y-2">
           {items.map((it) => (
             <div key={it.receipt_id} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
-              <span className="w-20 shrink-0 text-xs text-slate-400">{it.date ?? '—'}</span>
+              <span className="w-20 shrink-0 text-xs text-slate-400">{formatDate(it.date)}</span>
               <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{it.vendor || '(未解析)'}</span>
               <span className="shrink-0 tabular-nums text-sm text-slate-700">{yen(it.amount_jpy)}</span>
               <span className="shrink-0 text-xs text-slate-400">借方</span>

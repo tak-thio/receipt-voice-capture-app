@@ -87,7 +87,7 @@ export function InboxScreen() {
                 <span className="amt">{r.amount_jpy != null ? `¥${r.amount_jpy.toLocaleString()}` : '—'}</span>
               </div>
               <div className="inbox-sub">
-                <span>{r.captured_at ? r.captured_at.slice(0, 10) : '—'}</span>
+                <span>{r.captured_at ? r.captured_at.slice(0, 10).replaceAll('-', '/') : '—'}</span>
                 <span className="src">{SOURCE_LABEL[r.source] ?? r.source}</span>
                 {hasImage && <span className="img-mark">画像</span>}
                 {r.page != null && <span className="img-mark">P.{r.page}</span>}
