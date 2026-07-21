@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, type GmailAccountRow } from '../api'
+import { formatDateTime } from '../format'
 import { Badge, Button, Icon, Section } from '../ui'
 import { useToast } from '../ui/toast'
 
@@ -70,7 +71,7 @@ export function GmailLink({ clientId }: { clientId: string }) {
                   {!a.has_refresh_token && <Badge tone="warning">再連携が必要</Badge>}
                 </div>
                 <div className="text-xs text-slate-400">
-                  最終取込: {a.last_synced_at ? a.last_synced_at.slice(0, 16).replace('T', ' ') : '—'}
+                  最終取込: {a.last_synced_at ? formatDateTime(a.last_synced_at) : '—'}
                 </div>
               </div>
               <Button size="sm" variant="secondary" disabled={busy === a.id} onClick={() => void sync(a)}>

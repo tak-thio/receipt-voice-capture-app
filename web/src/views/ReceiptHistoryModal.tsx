@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, type AuditEntry } from '../api'
+import { formatDateTime } from '../format'
 import { Alert, Badge, Modal, Spinner } from '../ui'
 
 const ACTION_LABEL: Record<string, { label: string; tone: 'neutral' | 'danger' | 'success' }> = {
@@ -60,7 +61,7 @@ export function ReceiptHistoryModal({ receiptId, onClose }: { receiptId: string;
                   <Badge tone={act.tone}>{act.label}</Badge>
                   <span className="text-sm text-slate-700">{a.actor ?? 'システム'}</span>
                   <span className="ml-auto text-xs text-slate-400">
-                    {a.at ? a.at.slice(0, 16).replace('T', ' ') : ''}
+                    {formatDateTime(a.at)}
                   </span>
                 </div>
                 {a.summary && <div className="mt-1 text-xs text-slate-500">{a.summary}</div>}
