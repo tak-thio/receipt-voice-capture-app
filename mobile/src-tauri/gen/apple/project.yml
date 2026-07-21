@@ -2,8 +2,8 @@ name: receipt_voice_capture
 options:
   bundleIdPrefix: com.itsherpa.ffreceipt
   deploymentTarget:
-    iOS: 14.0
-fileGroups: [../../src]
+    iOS: 15.0
+fileGroups: [../../src, LocalBilling.storekit]
 configs:
   debug: debug
   release: release
@@ -51,8 +51,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 0.1.0
-        CFBundleVersion: "0.1.0"
+        CFBundleShortVersionString: 1.0.2
+        CFBundleVersion: "1.0.2"
         NSCameraUsageDescription: 領収書を撮影して記録するためにカメラを使用します。
         NSMicrophoneUsageDescription: 領収書の内容を音声入力するためにマイクを使用します。
         NSLocalNetworkUsageDescription: 同一ネットワーク上の事務所サーバへ領収書データを送信するためにローカルネットワークへアクセスします。
@@ -61,6 +61,7 @@ targets:
     entitlements:
       path: receipt_voice_capture_iOS/receipt_voice_capture_iOS.entitlements
     scheme:
+      storeKitConfiguration: LocalBilling.storekit
       environmentVariables:
         RUST_BACKTRACE: full
         RUST_LOG: info
@@ -82,6 +83,7 @@ targets:
       - sdk: MetalKit.framework
       - sdk: QuartzCore.framework
       - sdk: Security.framework
+      - sdk: StoreKit.framework
       - sdk: UIKit.framework
       - sdk: WebKit.framework
     preBuildScripts:

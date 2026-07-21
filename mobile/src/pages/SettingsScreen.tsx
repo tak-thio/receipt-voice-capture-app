@@ -1,17 +1,35 @@
 import { useEffect, useState } from 'react'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import {
-  ApiError, deleteIndividualAccount, driveConnectUrl, driveExport, driveStatus, individualClaim,
+  ApiError, deleteIndividualAccount, driveConnectUrl, driveExport, driveStatus, getBillingSubscription, individualClaim,
   updateIndividualName,
+  type BillingSubscription,
+  type VerifyPurchaseResult,
 } from '../api/server-api'
 import { toUserMessage } from '../lib/errors'
-import { isBillingAvailable, upgradeToPro } from '../services/billing/native-billing'
+import {
+  accountDeletionConfirmation,
+  BILLING_SUBSCRIPTION_UPDATED_EVENT,
+  connectionAfterBillingVerification,
+  currentBillingPlatform,
+  currentStoreLabel,
+  isBillingAvailable,
+  manageAppleSubscription,
+  restoreProSubscription,
+  upgradeToPro,
+} from '../services/billing/native-billing'
 import { useAppStore } from '../store/app-store'
 
 const PLAN_LABEL: Record<string, string> = {
   free: '無料プラン（月30枚）',
   pro: 'サブスク（月500枚）',
   business: '会社プラン',
+}
+
+interface BillingSubscriptionSnapshot {
+  serverUrl: string
+  deviceToken: string
+  value: BillingSubscription
 }
 
 /** 設定: 接続情報の表示・ログアウト/連携解除・(個人は)退会。 */
@@ -29,15 +47,73 @@ export function SettingsScreen() {
   const [driveConnected, setDriveConnected] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState('')
+  const [billingSnapshot, setBillingSnapshot] = useState<BillingSubscriptionSnapshot | null>(null)
+  const billingPlatform = currentBillingPlatform()
+  const storeLabel = currentStoreLabel()
+  const billingSubscription = individual
+    && billingSnapshot?.serverUrl === connection.serverUrl
+    && billingSnapshot.deviceToken === connection.deviceToken
+    ? billingSnapshot.value
+    : null
+  const managementBillingPlatforms = billingSubscription?.managementPlatforms ?? (
+    billingSubscription?.activePlatforms?.length
+      ? billingSubscription.activePlatforms
+      : billingSubscription?.platform
+        ? [billingSubscription.platform]
+        : []
+  )
 
   // 連携済みか確認(個人のみ。Drive エクスポートの出し分け用)。
   useEffect(() => {
     if (!individual) return
+    let cancelled = false
     driveStatus(connection.serverUrl, connection.deviceToken)
-      .then((s) => setDriveConnected(s.connected))
+      .then((s) => { if (!cancelled) setDriveConnected(s.connected) })
       .catch((e) => console.error('[drive.status]', e)) // 非致命: 未連携扱いで続行(ログだけ残す)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    return () => { cancelled = true }
+  }, [connection.deviceToken, connection.serverUrl, individual])
+
+  useEffect(() => {
+    if (!individual) return
+    let cancelled = false
+    const expected = {
+      serverUrl: connection.serverUrl,
+      deviceToken: connection.deviceToken,
+    }
+    let requestId = 0
+    const refresh = () => {
+      const currentRequestId = ++requestId
+      void getBillingSubscription(expected.serverUrl, expected.deviceToken)
+        .then((value) => {
+          const current = useAppStore.getState().connection
+          if (
+            cancelled
+            || currentRequestId !== requestId
+            || !current
+            || current.serverUrl !== expected.serverUrl
+            || current.deviceToken !== expected.deviceToken
+          ) return
+          setBillingSnapshot({ ...expected, value })
+        })
+        .catch((e) => console.error('[billing.subscription]', e))
+    }
+    refresh()
+    window.addEventListener(BILLING_SUBSCRIPTION_UPDATED_EVENT, refresh)
+    return () => {
+      cancelled = true
+      window.removeEventListener(BILLING_SUBSCRIPTION_UPDATED_EVENT, refresh)
+    }
+  }, [connection.deviceToken, connection.serverUrl, individual])
+
+  function applyBillingResult(result: VerifyPurchaseResult): boolean {
+    const currentConnection = useAppStore.getState().connection
+    const updatedConnection = connectionAfterBillingVerification(
+      connection, currentConnection, result,
+    )
+    if (!updatedConnection) return false
+    if (updatedConnection !== currentConnection) setConnection(updatedConnection)
+    return true
+  }
 
   // 匿名アカウントにメール/パスワードを登録(遅延サインアップ)。device token はそのまま使い続ける。
   async function register() {
@@ -66,8 +142,8 @@ export function SettingsScreen() {
     setBusy(true)
     try {
       const r = await upgradeToPro(connection.serverUrl, connection.deviceToken)
+      if (!applyBillingResult(r)) return
       if (r.active) {
-        setConnection({ ...connection, plan: r.plan })
         showToast('サブスクを開始しました。今月から月500枚まで解析できます。')
       } else {
         showToast('購入を確認しています。反映まで少しお待ちください。')
@@ -97,7 +173,7 @@ export function SettingsScreen() {
   }
 
   async function remove() {
-    if (!window.confirm('退会すると、取り込んだ領収書データはすべて削除され、Pro サブスクをご契約中の場合は自動的に解約されます。元に戻せません。退会しますか？')) return
+    if (!window.confirm(accountDeletionConfirmation(managementBillingPlatforms))) return
     setBusy(true)
     try {
       await deleteIndividualAccount(connection.serverUrl, connection.deviceToken)
@@ -105,6 +181,35 @@ export function SettingsScreen() {
       disconnect()
     } catch (e) {
       showToast(toUserMessage(e, '退会に失敗しました', 'account.delete'))
+      setBusy(false)
+    }
+  }
+
+  async function manageSubscription() {
+    try {
+      await manageAppleSubscription()
+    } catch (e) {
+      showToast(toUserMessage(e, 'サブスクリプション管理画面を開けませんでした', 'billing.manage'))
+    }
+  }
+
+  async function restoreSubscription() {
+    if (!connection.email) {
+      showToast('購入を復元するには、先にメールアドレスを登録するか、以前のアカウントでログインしてください。')
+      return
+    }
+    setBusy(true)
+    try {
+      const r = await restoreProSubscription(connection.serverUrl, connection.deviceToken)
+      if (!applyBillingResult(r)) return
+      if (r.active) {
+        showToast('購入を復元しました。今月から月500枚まで解析できます。')
+      } else {
+        showToast('購入情報を確認できませんでした。時間をおいて再度お試しください。')
+      }
+    } catch (e) {
+      showToast(toUserMessage(e, '購入の復元に失敗しました', 'billing.restore'))
+    } finally {
       setBusy(false)
     }
   }
@@ -205,8 +310,23 @@ export function SettingsScreen() {
 
       {individual && plan === 'free' && isBillingAvailable() && (
         <p className="muted small">
-          無料プランは月30枚まで。上の「プラン」からアップグレードすると月500枚まで解析できます（¥3,000/月・税込）。お支払い・解約は Google Play で管理されます。
+          無料プランは月30枚まで。上の「プラン」からアップグレードすると月500枚まで解析できます（¥3,000/月・税込）。お支払い・解約は {storeLabel} で管理されます。
         </p>
+      )}
+
+      {individual && managementBillingPlatforms.includes('apple') && billingPlatform === 'apple' && (
+        <>
+          <button className="ghost-button" disabled={busy} onClick={() => void manageSubscription()}>
+            サブスクリプションを管理
+          </button>
+          <p className="muted small">App Store のサブスクリプションは Apple アカウント側で管理されます。</p>
+        </>
+      )}
+
+      {individual && billingPlatform === 'apple' && (
+        <button className="ghost-button" disabled={busy} onClick={() => void restoreSubscription()}>
+          購入を復元
+        </button>
       )}
 
       {individual && (

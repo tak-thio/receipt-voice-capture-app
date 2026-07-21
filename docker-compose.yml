@@ -55,6 +55,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./api:/app
+      - ./mobile/keys/SubscriptionKey_Q7BT756M36.p8:/run/secrets/apple-iap.p8:ro
     ports:
       - "8000:8000"
     command: >

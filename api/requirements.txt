@@ -21,3 +21,5 @@ google-auth-oauthlib>=1.2
 google-auth-httplib2>=0.2
 # FCM プッシュ通知 (Phase D) — Firebase Admin SDK で送信
 firebase-admin>=6.5
+# Apple App Store Server API / Notifications V2
+app-store-server-library>=3.1.2,<4

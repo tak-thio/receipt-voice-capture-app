@@ -400,14 +400,85 @@ export interface VerifyPurchaseResult extends UsageInfo {
   active: boolean // 購読が有効(active/猶予期間)なら true。false なら pro 付与されない。
 }
 
-/** アプリ内課金(IAP / ⑤): Play の購入トークンをサーバで検証し、有効なら pro を付与する。
- * 端末が Play Billing で購入した直後に呼ぶ。戻り値は最新の plan/used/cap と有効フラグ。 */
+export type BillingPlatform = 'google' | 'apple'
+
+export interface BillingSubscription {
+  active: boolean
+  platform: BillingPlatform | null
+  activePlatforms: BillingPlatform[]
+  managementPlatforms: BillingPlatform[]
+  productId: string | null
+  currentPeriodEnd: string | null
+}
+
+export interface StorePurchasePayload {
+  platform: BillingPlatform
+  productId: string
+  purchaseToken?: string
+  transactionId?: string
+  originalTransactionId?: string
+  signedTransactionInfo?: string
+}
+
+export interface ApplePurchaseContext {
+  appAccountToken: string
+}
+
+/** StoreKit 購入を現在の firm に結び付けるサーバ発行 UUID。 */
+export function getApplePurchaseContext(
+  serverUrl: string, deviceToken: string,
+): Promise<ApplePurchaseContext> {
+  return expenseReq<ApplePurchaseContext>(
+    serverUrl, deviceToken, '/billing/apple/purchase-context',
+  )
+}
+
+/** 現在のストア購読状態。管理先(Google Play / App Store)の表示判定に使う。 */
+export function getBillingSubscription(
+  serverUrl: string, deviceToken: string,
+): Promise<BillingSubscription> {
+  return expenseReq<BillingSubscription>(serverUrl, deviceToken, '/billing/subscription')
+}
+
+/** ストア購入をサーバで検証し、有効なら pro を付与する。 */
+export async function verifyStorePurchase(
+  serverUrl: string, deviceToken: string, purchase: StorePurchasePayload,
+): Promise<VerifyPurchaseResult> {
+  if (purchase.platform === 'google') {
+    if (!purchase.purchaseToken) {
+      throw new Error('Google Play の購入トークンが必要です')
+    }
+    return expenseReq<VerifyPurchaseResult>(serverUrl, deviceToken, '/billing/google/verify', {
+      method: 'POST',
+      body: JSON.stringify({
+        purchase_token: purchase.purchaseToken,
+        product_id: purchase.productId,
+      }),
+    })
+  }
+
+  if (!purchase.signedTransactionInfo && !purchase.transactionId) {
+    throw new Error('App Store の取引情報が必要です')
+  }
+  return expenseReq<VerifyPurchaseResult>(serverUrl, deviceToken, '/billing/apple/verify', {
+    method: 'POST',
+    body: JSON.stringify({
+      signed_transaction_info: purchase.signedTransactionInfo,
+      transaction_id: purchase.transactionId,
+      original_transaction_id: purchase.originalTransactionId,
+      product_id: purchase.productId,
+    }),
+  })
+}
+
+/** 既存の Google Play 呼び出し元向け互換ラッパー。 */
 export function verifyPurchase(
   serverUrl: string, deviceToken: string, purchaseToken: string, productId?: string,
 ): Promise<VerifyPurchaseResult> {
-  return expenseReq<VerifyPurchaseResult>(serverUrl, deviceToken, '/billing/google/verify', {
-    method: 'POST',
-    body: JSON.stringify({ purchase_token: purchaseToken, product_id: productId }),
+  return verifyStorePurchase(serverUrl, deviceToken, {
+    platform: 'google',
+    purchaseToken,
+    productId: productId ?? 'pro_monthly',
   })
 }
 

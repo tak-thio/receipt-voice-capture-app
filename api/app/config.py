@@ -99,6 +99,7 @@ class Settings(BaseSettings):
     # Apple ルート証明書のパス(カンマ区切り)。ライブラリには DER bytes を渡す。
     apple_root_certificate_paths: str = ""
     apple_pro_product_id: str = "pro_monthly"
+    apple_reconcile_interval_minutes: int = 15  # Apple 購読の定期再照会の間隔(分)
 
     @property
     def runtime_database_url(self) -> str:

@@ -22,6 +22,7 @@ from starlette.concurrency import run_in_threadpool
 from . import dedup, fcm, journaling, plans, storage
 from .ai import factory
 from .ai.base import ExtractedReceipt
+from .apple_reconciliation import reconcile_apple_subscriptions
 from .config import get_settings
 from .ingest.poll import poll_accounts
 from .lanes import resolve_lane
@@ -603,3 +604,29 @@ async def run_cleanup() -> None:
         except Exception:  # noqa: BLE001 — ループは絶対に止めない
             log.exception("anonymous cleanup tick failed")
         await asyncio.sleep(24 * 3600)
+
+
+async def _apple_reconcile_tick() -> dict:
+    """Apple 購読を owner 接続(RLSバイパス)で再照会する。reconcile 内で購読ごとに App Store
+    検証してから purchase_token で特定するのでテナント混在しない。"""
+    async with _Session() as session:
+        async with session.begin():
+            return await reconcile_apple_subscriptions(
+                session, product_id=settings.apple_pro_product_id
+            )
+
+
+async def run_apple_reconcile() -> None:
+    """Apple 購読の定期再照会(Cron相当)。worker と同じプロセスで回る。ASSN 通知の取りこぼし/
+    順序前後で pending のまま残った通知と、失効の取りこぼしによる firm.plan のズレを吸収する。"""
+    log = logging.getLogger("worker")
+    interval = max(1, settings.apple_reconcile_interval_minutes) * 60
+    await asyncio.sleep(60)  # 起動直後の集中を避ける
+    while True:
+        try:
+            stats = await _apple_reconcile_tick()
+            if stats.get("updated") or stats.get("failed"):
+                log.info("apple reconcile: %s", stats)
+        except Exception:  # noqa: BLE001 — ループは絶対に止めない
+            log.exception("apple reconcile tick failed")
+        await asyncio.sleep(interval)
