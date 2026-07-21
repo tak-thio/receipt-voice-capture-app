@@ -205,6 +205,15 @@ async def queue(
     queue_count = await session.scalar(
         select(func.count(Receipt.id)).where(*conds, Receipt.journal_hold.is_(False))
     )
+    # 付箋つきの内訳(「社長に確認」等が残っている件数を各カウントに添えるため)。
+    queue_noted = await session.scalar(
+        select(func.count(Receipt.id)).where(
+            *conds, Receipt.journal_hold.is_(False), func.jsonb_array_length(Receipt.note_ids) > 0)
+    )
+    held_noted = await session.scalar(
+        select(func.count(Receipt.id)).where(
+            *conds, Receipt.journal_hold.is_(True), func.jsonb_array_length(Receipt.note_ids) > 0)
+    )
 
     ids = {r.created_by for r in rows if r.created_by}
     creators: dict = {}
@@ -303,7 +312,11 @@ async def queue(
             }
         )
 
-    return {"items": items, "total": total or 0, "held_count": held_count or 0, "queue_count": queue_count or 0}
+    return {
+        "items": items, "total": total or 0, "held_count": held_count or 0,
+        "queue_count": queue_count or 0,
+        "queue_noted": queue_noted or 0, "held_noted": held_noted or 0,
+    }
 
 
 @router.get("/ledger")

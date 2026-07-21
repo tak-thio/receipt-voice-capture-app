@@ -23,6 +23,8 @@ export function JournalView({ clientId, showCreator, lockDate }: { clientId: str
   const [total, setTotal] = useState(0)
   const [heldCount, setHeldCount] = useState(0)
   const [queueCount, setQueueCount] = useState(0) // 未仕分け件数(保留タブ表示中の相互案内用)
+  const [queueNoted, setQueueNoted] = useState(0) // 未仕分けのうち付箋つき
+  const [heldNoted, setHeldNoted] = useState(0) // 保留のうち付箋つき
   const [mode, setMode] = useState<Mode>('queue')
   const [activeIndex, setActiveIndex] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -41,6 +43,8 @@ export function JournalView({ clientId, showCreator, lockDate }: { clientId: str
     setTotal(res.total)
     setHeldCount(res.held_count)
     setQueueCount(res.queue_count ?? 0)
+    setQueueNoted(res.queue_noted ?? 0)
+    setHeldNoted(res.held_noted ?? 0)
   }
   useEffect(() => {
     setActiveIndex(0)
@@ -101,6 +105,9 @@ export function JournalView({ clientId, showCreator, lockDate }: { clientId: str
           <h2 className="text-xl font-bold tracking-tight text-slate-900">仕分け</h2>
           <span className="text-sm text-slate-500">
             {mode === 'queue' ? '未仕分け' : '保留'} 残り <span className="font-semibold text-slate-700">{total}</span> 件
+            {(mode === 'queue' ? queueNoted : heldNoted) > 0 && (
+              <span className="ml-1.5 text-amber-600">（付箋つき {mode === 'queue' ? queueNoted : heldNoted} 件）</span>
+            )}
           </span>
         </div>
         <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 text-sm">
@@ -128,9 +135,9 @@ export function JournalView({ clientId, showCreator, lockDate }: { clientId: str
             title={mode === 'queue' ? '未仕分けの領収書はありません 🎉' : '保留中の領収書はありません'}
             description={
               mode === 'queue' && heldCount > 0
-                ? `保留中のものが ${heldCount} 件あります`
+                ? `保留中のものが ${heldCount} 件あります${heldNoted > 0 ? `（うち付箋つき ${heldNoted} 件）` : ''}`
                 : mode === 'held' && queueCount > 0
-                  ? `未仕分けのものが ${queueCount} 件あります`
+                  ? `未仕分けのものが ${queueCount} 件あります${queueNoted > 0 ? `（うち付箋つき ${queueNoted} 件）` : ''}`
                   : undefined
             }
             action={

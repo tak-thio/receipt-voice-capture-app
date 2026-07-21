@@ -188,6 +188,8 @@ export interface JournalQueue {
   total: number
   held_count: number
   queue_count?: number // 未仕分け(保留でない)の件数。保留タブ表示中の相互案内に使う
+  queue_noted?: number // 未仕分けのうち付箋つきの件数
+  held_noted?: number // 保留のうち付箋つきの件数
 }
 
 // 監査ログ(訂正削除・承認・仕訳の履歴)の1件。電子帳簿保存法の訂正削除履歴。
