@@ -101,12 +101,13 @@ export function CardStatementsView({ clientId, initialBatch, onBatchOpened }: { 
   const detail = selectedBatch ? batches.find((b) => b.batchId === selectedBatch) ?? null : null
 
   async function onPick(e: ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files
+    // FileList は input と連動するライブオブジェクトなので、value クリア前に配列へ複製。
+    const files = Array.from(e.target.files ?? [])
     e.target.value = ''
-    if (!files || !files.length || !clientId) return
+    if (!files.length || !clientId) return
     setUploading(true)
     let ok = 0
-    for (const f of Array.from(files)) {
+    for (const f of files) {
       try {
         await api.importCardStatement(clientId, f)
         ok++

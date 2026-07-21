@@ -99,9 +99,11 @@ export function ReceiptsView({
     }
   }
   function onPick(e: ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files
+    // FileList は input と連動するライブオブジェクトなので、value をクリアする前に
+    // 配列へ複製する(先にクリアすると中身が空になり、選択しても何も起きない)。
+    const files = Array.from(e.target.files ?? [])
     e.target.value = '' // allow re-selecting the same files
-    if (files) void uploadFiles(files)
+    if (files.length) void uploadFiles(files)
   }
 
   // 連携メールを今すぐ取り込む(定期実行=Cron相当の処理を手動でキック)。
