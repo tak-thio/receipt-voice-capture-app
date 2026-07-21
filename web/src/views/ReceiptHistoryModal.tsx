@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, type AuditEntry } from '../api'
-import { formatDateTime } from '../format'
+import { formatDate, formatDateTime } from '../format'
 import { Alert, Badge, Modal, Spinner } from '../ui'
 
 const ACTION_LABEL: Record<string, { label: string; tone: 'neutral' | 'danger' | 'success' }> = {
@@ -24,7 +24,11 @@ const FIELD_LABEL: Record<string, string> = {
 function fmt(v: unknown): string {
   if (v === null || v === undefined || v === '') return '—'
   if (Array.isArray(v)) return v.length ? `${v.length}件` : '—'
-  return String(v)
+  const s = String(v)
+  // 日付/日時のISO文字列は「日付のみ・スラッシュ表記」で。履歴に載る日付フィールド
+  // (captured_at等)は日付として保存されており、時刻部分(00:00固定)に意味は無い。
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return formatDate(s)
+  return s
 }
 
 // 領収書の監査ログ(訂正削除・承認・仕訳の履歴)を表示。電子帳簿保存法の訂正削除履歴。
