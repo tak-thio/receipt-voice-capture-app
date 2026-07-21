@@ -305,10 +305,24 @@ function PartnerEditor({
       toast.error('取引先名は必須です。')
       return
     }
+    // T番号: 全角→半角・t→T・13桁だけならTを補完したうえで「T+13桁」を要求。
+    const tn = normalizeTNumber(tNumber)
+    setTNumber(tn)
+    if (tn && !T_NUMBER_RE.test(tn)) {
+      toast.error('T番号は「T＋13桁の数字」で入力してください（例: T1234567890123）')
+      return
+    }
+    // ドメイン: URL貼り付け(https://…/path)はホスト部に整形したうえで形式を確認。
+    const dom = normalizeDomain(domain)
+    setDomain(dom)
+    if (dom && !DOMAIN_RE.test(dom)) {
+      toast.error('ドメインの形式が正しくありません（例: example.co.jp）')
+      return
+    }
     setBusy(true)
     const ok = await toast.run(async () => {
-      if (editing) await api.patchPartner(modal.row.id, { name: name.trim(), code: code.trim(), t_number: tNumber.trim(), domain: domain.trim() || undefined })
-      else await api.createPartner({ firm_id: firmId, client_id: clientId, name: name.trim(), code: code.trim() || undefined, t_number: tNumber.trim() || undefined, domain: domain.trim() || undefined })
+      if (editing) await api.patchPartner(modal.row.id, { name: name.trim(), code: code.trim(), t_number: tn, domain: dom || undefined })
+      else await api.createPartner({ firm_id: firmId, client_id: clientId, name: name.trim(), code: code.trim() || undefined, t_number: tn || undefined, domain: dom || undefined })
     }, editing ? '取引先を更新しました' : '取引先を追加しました')
     setBusy(false)
     if (ok) await onSaved()
@@ -328,6 +342,24 @@ function PartnerEditor({
       </div>
     </Modal>
   )
+}
+
+/* ---------------------------------------------------- 取引先の入力整形 */
+
+// T番号: 全角数字/全角T→半角・小文字t→T・空白/ハイフン除去。13桁の数字だけなら T を補完。
+const T_NUMBER_RE = /^T\d{13}$/
+function normalizeTNumber(s: string): string {
+  const half = s.trim().replace(/[０-９Ｔｔ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+  const up = half.toUpperCase().replace(/[\s-]/g, '')
+  return /^\d{13}$/.test(up) ? `T${up}` : up
+}
+// ドメイン: URLを貼られてもホスト部だけに(スキーム/パス/www.を除去)。軽い形式チェック用。
+const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/
+function normalizeDomain(s: string): string {
+  return s.trim().toLowerCase()
+    .replace(/^[a-z]+:\/\//, '')
+    .replace(/\/.*$/, '')
+    .replace(/^www\./, '')
 }
 
 /* ------------------------------------------------------------------ 付箋 */

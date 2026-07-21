@@ -8,7 +8,9 @@ referenced template row.
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+import re
+
+from pydantic import BaseModel, field_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,6 +42,33 @@ class AccountTitlePatch(BaseModel):
     export_map: dict | None = None
 
 
+# 取引先入力の整形/検証(フロントと同等のガードをAPIにも。空は許可=任意項目)。
+_T_NUMBER_RE = re.compile(r"^T\d{13}$")
+_DOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
+
+
+def _normalize_t_number(cls, v: str | None) -> str | None:  # noqa: N805 — pydantic validator
+    if v is None or not v.strip():
+        return None
+    s = v.strip().upper().replace(" ", "").replace("-", "")
+    if re.fullmatch(r"\d{13}", s):
+        s = "T" + s  # 数字13桁だけなら T を補完
+    if not _T_NUMBER_RE.fullmatch(s):
+        raise ValueError("T番号は「T＋13桁の数字」で入力してください（例: T1234567890123）")
+    return s
+
+
+def _normalize_domain(cls, v: str | None) -> str | None:  # noqa: N805 — pydantic validator
+    if v is None or not v.strip():
+        return None
+    s = re.sub(r"^[a-z]+://", "", v.strip().lower())
+    s = re.sub(r"/.*$", "", s)
+    s = re.sub(r"^www\.", "", s)
+    if not _DOMAIN_RE.fullmatch(s):
+        raise ValueError("ドメインの形式が正しくありません（例: example.co.jp）")
+    return s
+
+
 class PartnerIn(BaseModel):
     firm_id: UUID
     client_id: UUID
@@ -48,12 +77,18 @@ class PartnerIn(BaseModel):
     t_number: str | None = None  # インボイス登録番号
     domain: str | None = None
 
+    _v_t = field_validator("t_number")(_normalize_t_number)
+    _v_d = field_validator("domain")(_normalize_domain)
+
 
 class PartnerPatch(BaseModel):
     name: str | None = None
     code: str | None = None
     t_number: str | None = None  # インボイス登録番号
     domain: str | None = None
+
+    _v_t = field_validator("t_number")(_normalize_t_number)
+    _v_d = field_validator("domain")(_normalize_domain)
 
 
 class SubAccountIn(BaseModel):
