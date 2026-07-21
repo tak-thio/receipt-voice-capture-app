@@ -100,7 +100,16 @@ async def create_firm(
     if exists:
         raise HTTPException(status.HTTP_409_CONFLICT, "owner email already registered")
 
-    firm = Firm(name=body.firm_name, plan=body.plan)
+    # プラットフォーム標準のAI設定(Gemini)を継承する(個人登録 _provision と同じ処理)。
+    # これが無いと、作成直後の事務所はAI解析が「unsupported provider: None」で全滅する
+    # (2026-07-21 本番で実発生: operator作成の事務所は ai_config が空のままだった)。
+    ai_config: dict = {}
+    if settings.platform_ai_firm_id:
+        ref = await session.get(Firm, UUID(settings.platform_ai_firm_id))
+        if ref:
+            ai_config = dict(ref.ai_config or {})
+
+    firm = Firm(name=body.firm_name, plan=body.plan, ai_config=ai_config)
     owner = User(
         email=body.owner_email,
         name=body.owner_name,
