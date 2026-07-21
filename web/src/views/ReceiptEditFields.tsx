@@ -81,6 +81,10 @@ export function ReceiptEditFields({
   const [amountInput, setAmountInput] = useState('')
   const [subtotalInput, setSubtotalInput] = useState('')
   const [taxTotalInput, setTaxTotalInput] = useState('')
+  // 自動計算の基準額 = 「人が最後に入力した金額」。ボタンはこの値の解釈(税込/税抜)を
+  // 切り替えるだけなので、外税10%↔内税8%を交互に押しても複利で増えない(何回でも同じ答え)。
+  // ボタンによる導出値は基準にしない(それを基準にすると押すたび増殖するバグになる)。
+  const [taxAnchor, setTaxAnchor] = useState<number | null>(null)
   // 消費税内訳(行リスト)。区分ラベルは固定しない(10%/8%/その他/非課税/対象外/将来の新税率)。
   const [taxLines, setTaxLines] = useState<TaxLine[]>([])
   const [taxModeInput, setTaxModeInput] = useState('') // 税区分
@@ -106,6 +110,7 @@ export function ReceiptEditFields({
     setTaxTotalInput(item.tax_jpy != null ? String(item.tax_jpy) : '')
     setAmountInput(item.amount_jpy != null ? String(item.amount_jpy) : '')
     setSubtotalInput(item.subtotal_jpy != null ? String(item.subtotal_jpy) : '')
+    setTaxAnchor(item.amount_jpy ?? item.subtotal_jpy ?? null) // 自動計算の基準=書面の値
     setCurrencyInput(item.currency ?? '')
     setForeignInput(item.foreign_amount != null ? String(item.foreign_amount) : '')
     setShowFx(false)
@@ -271,20 +276,19 @@ export function ReceiptEditFields({
   // 内税r%: 合計(税込)から税額を切り出す。外税r%: 税抜(空なら合計欄の値)を本体に税を上乗せ。
   // 端数は切り捨て(実務慣行)。印字と合わない場合は手修正する。既存の値は上書きされる。
   function autoTax(mode: 'inclusive' | 'exclusive', rate: number) {
-    // 計算結果が既存の入力と同一だと「押しても何も起きない」ように見えるため、
-    // 何をどう計算したかを必ずトーストで返す(変化が無ければその旨も)。
+    // 基準額 = 人が最後に入力した金額(taxAnchor)。ボタンは「その額を税込/税抜どちらと
+    // 解釈するか」を切り替えるだけ。導出値を次の計算の元にしないので、外税↔内税を
+    // 交互に押しても金額が複利で増えない(同じ基準から毎回計算し直す)。
+    const src = taxAnchor ?? numOrNull(amountInput) ?? numOrNull(subtotalInput)
+    if (src == null) return
     const before = `${numOrNull(amountInput)}/${numOrNull(subtotalInput)}/${numOrNull(taxTotalInput)}`
     let total: number, base: number, tax: number
     if (mode === 'inclusive') {
-      const a = numOrNull(amountInput)
-      if (a == null) return
-      total = a
+      total = src  // 基準額を「税込」と解釈して税を切り出す
       tax = Math.floor((total * rate) / (100 + rate))
       base = total - tax
     } else {
-      const s = numOrNull(subtotalInput) ?? numOrNull(amountInput)
-      if (s == null) return
-      base = s
+      base = src  // 基準額を「税抜」と解釈して税を上乗せ
       tax = Math.floor((base * rate) / 100)
       total = base + tax
     }
@@ -295,7 +299,7 @@ export function ReceiptEditFields({
     setTaxModeInput(mode)
     const same = before === `${total}/${base}/${tax}`
     toast.success(
-      `${mode === 'inclusive' ? '内税' : '外税'}${rate}%で計算: 合計 ¥${total.toLocaleString()}・税抜 ¥${base.toLocaleString()}・消費税 ¥${tax.toLocaleString()}${same ? '（既にこの値でした）' : ''}`,
+      `${mode === 'inclusive' ? '内税' : '外税'}${rate}%で計算（基準 ¥${src.toLocaleString()}）: 合計 ¥${total.toLocaleString()}・税抜 ¥${base.toLocaleString()}・消費税 ¥${tax.toLocaleString()}${same ? '（既にこの値でした）' : ''}`,
     )
   }
 
@@ -577,7 +581,10 @@ export function ReceiptEditFields({
                 クレジット明細と照合済み: {formatDate(item.card_line_suggestion.date)}・{item.card_line_suggestion.vendor ?? '—'}
                 （実際の引落額 ¥{(item.card_line_suggestion.amount_jpy ?? 0).toLocaleString()}）
               </span>
-              <Button size="sm" onClick={() => setAmountInput(String(item.card_line_suggestion?.amount_jpy ?? ''))}>
+              <Button size="sm" onClick={() => {
+                setAmountInput(String(item.card_line_suggestion?.amount_jpy ?? ''))
+                setTaxAnchor(item.card_line_suggestion?.amount_jpy ?? null) // 採用額=人の確定値なので基準に
+              }}>
                 合計金額に採用
               </Button>
             </div>
@@ -585,11 +592,15 @@ export function ReceiptEditFields({
           <div className="grid grid-cols-3 gap-2">
             <label className="space-y-1">
               <span className="text-xs text-slate-500">合計金額(税込)</span>
-              <Input inputMode="numeric" value={amountInput} onChange={(e) => setAmountInput(e.target.value)} className={cn('text-right tabular-nums', errCls('amount'))} />
+              <Input inputMode="numeric" value={amountInput}
+                onChange={(e) => { setAmountInput(e.target.value); setTaxAnchor(numOrNull(e.target.value)) }}
+                className={cn('text-right tabular-nums', errCls('amount'))} />
             </label>
             <label className="space-y-1">
               <span className="text-xs text-slate-500">税抜金額</span>
-              <Input inputMode="numeric" value={subtotalInput} onChange={(e) => setSubtotalInput(e.target.value)} className={cn('text-right tabular-nums', errCls('subtotal'))} />
+              <Input inputMode="numeric" value={subtotalInput}
+                onChange={(e) => { setSubtotalInput(e.target.value); setTaxAnchor(numOrNull(e.target.value)) }}
+                className={cn('text-right tabular-nums', errCls('subtotal'))} />
             </label>
             <label className="space-y-1">
               <span className="text-xs text-slate-500">消費税合計</span>
@@ -620,14 +631,14 @@ export function ReceiptEditFields({
               <button
                 key={label}
                 onClick={() => autoTax(m, r)}
-                disabled={m === 'inclusive' ? !amountInput.trim() : !(subtotalInput.trim() || amountInput.trim())}
+                disabled={taxAnchor == null && !amountInput.trim() && !subtotalInput.trim()}
                 className="rounded-md border border-brand-200 px-2 py-0.5 text-xs font-medium text-brand-700 hover:bg-brand-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300 disabled:hover:bg-transparent"
-                title={m === 'inclusive' ? '合計金額(税込)から税額を切り出して埋めます' : '税抜金額(空なら合計欄の値)を本体として税を上乗せします'}
+                title={m === 'inclusive' ? '入力した金額を「税込」と解釈して税額を切り出します' : '入力した金額を「税抜」と解釈して税を上乗せします'}
               >
                 {label}
               </button>
             ))}
-            <span className="text-[11px] text-slate-300">端数切捨て・入力済みの値は上書き</span>
+            <span className="text-[11px] text-slate-300">端数切捨て・最後に入力した金額を基準</span>
           </div>
           {/* 消費税の内訳: 請求書通りに保存(計算しない)。複数税率の混在は行を足す。
               区分は自由入力＋サジェスト — 新税率(例: 食料品1%)が来てもここに足すだけ。 */}
