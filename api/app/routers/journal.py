@@ -201,6 +201,10 @@ async def queue(
     held_count = await session.scalar(
         select(func.count(Receipt.id)).where(*conds, Receipt.journal_hold.is_(True))
     )
+    # 未仕分け(保留でない)の件数。保留タブ表示中でも「未仕分けが残っているか」を出すため常に返す。
+    queue_count = await session.scalar(
+        select(func.count(Receipt.id)).where(*conds, Receipt.journal_hold.is_(False))
+    )
 
     ids = {r.created_by for r in rows if r.created_by}
     creators: dict = {}
@@ -299,7 +303,7 @@ async def queue(
             }
         )
 
-    return {"items": items, "total": total or 0, "held_count": held_count or 0}
+    return {"items": items, "total": total or 0, "held_count": held_count or 0, "queue_count": queue_count or 0}
 
 
 @router.get("/ledger")

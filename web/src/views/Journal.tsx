@@ -22,6 +22,7 @@ export function JournalView({ clientId, showCreator, lockDate }: { clientId: str
   const [items, setItems] = useState<QueueItem[]>([])
   const [total, setTotal] = useState(0)
   const [heldCount, setHeldCount] = useState(0)
+  const [queueCount, setQueueCount] = useState(0) // 未仕分け件数(保留タブ表示中の相互案内用)
   const [mode, setMode] = useState<Mode>('queue')
   const [activeIndex, setActiveIndex] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -39,6 +40,7 @@ export function JournalView({ clientId, showCreator, lockDate }: { clientId: str
     setItems(res.items)
     setTotal(res.total)
     setHeldCount(res.held_count)
+    setQueueCount(res.queue_count ?? 0)
   }
   useEffect(() => {
     setActiveIndex(0)
@@ -120,9 +122,24 @@ export function JournalView({ clientId, showCreator, lockDate }: { clientId: str
 
       {!top ? (
         <Card>
+          {/* 空でも「もう一方のタブに残りがあるか」を明示する(見落とし防止・user提案)。 */}
           <EmptyState
-            icon={<Icon.Check />}
+            icon={mode === 'queue' && heldCount > 0 ? <Icon.Sort /> : <Icon.Check />}
             title={mode === 'queue' ? '未仕分けの領収書はありません 🎉' : '保留中の領収書はありません'}
+            description={
+              mode === 'queue' && heldCount > 0
+                ? `保留中のものが ${heldCount} 件あります`
+                : mode === 'held' && queueCount > 0
+                  ? `未仕分けのものが ${queueCount} 件あります`
+                  : undefined
+            }
+            action={
+              mode === 'queue' && heldCount > 0 ? (
+                <Button variant="secondary" onClick={() => switchMode('held')}>保留を見る（{heldCount}件）</Button>
+              ) : mode === 'held' && queueCount > 0 ? (
+                <Button variant="secondary" onClick={() => switchMode('queue')}>未仕分けへ（{queueCount}件）</Button>
+              ) : undefined
+            }
           />
         </Card>
       ) : (
