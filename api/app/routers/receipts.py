@@ -584,12 +584,14 @@ async def unmerge_receipts(
     session: AsyncSession = Depends(get_session),
 ):
     """統合伝票を「ばらす」: 束ねた元(merged_into=voucher)を復元して受信箱に戻し、統合伝票は削除。
-    元は一切変更していないので確実に元通り。未仕訳(統合伝票が未確定)のときだけ。"""
+    元は一切変更していないので確実に元通り。仕訳済み(確定済み)もばらせる(user要望 2026-07-22) —
+    その場合は仕訳を取り消した上でばらし、復元した各元にも監査ログを残す(フロントは強い警告)。"""
     voucher = await session.get(Receipt, body.voucher_id)
     if voucher is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "統合伝票が見つかりません")
-    if voucher.journalized_at is not None or voucher.approval_status != ApprovalStatus.pending.value:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "確定済み/処理済みの統合伝票はばらせません")
+    if voucher.approval_status != ApprovalStatus.pending.value:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "処理済み(否認/削除等)の統合伝票はばらせません")
+    was_journalized = voucher.journalized_at is not None
     children = list(await session.scalars(select(Receipt).where(Receipt.merged_into == voucher.id)))
     if not children:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "この領収書はマージされていません")
@@ -597,15 +599,27 @@ async def unmerge_receipts(
         # ばらすとき: 統合伝票の付箋を復元する各元にも引き継ぐ(まとめ後に付けた付箋も戻す。既存は保持)。
         c.note_ids = _merge_note_ids(c.note_ids, voucher.note_ids)
         c.merged_into = None  # 元を復元(受信箱に戻る)
+    if was_journalized:
+        # 仕訳済みをばらす場合は仕訳も取消(deleted+journalized の行を残すと元帳に亡霊が出る)。
+        voucher.journalized_at = None
     voucher.approval_status = ApprovalStatus.deleted.value  # 統合伝票は削除(消えたように)
     await audit.log_audit(
         session, firm_id=voucher.firm_id, client_id=voucher.client_id, actor_user_id=principal.user.id,
         action="unmerged", target_type="receipt", target_id=voucher.id,
-        summary=f"統合伝票をばらして{len(children)}件を復元",
+        summary=(f"仕訳済みの統合伝票を取り消してばらし、{len(children)}件を復元" if was_journalized
+                 else f"統合伝票をばらして{len(children)}件を復元"),
     )
+    if was_journalized:
+        # 統合伝票は消えるため、復元される各元の変更履歴にも痕跡を残す(電帳法の訂正削除履歴)。
+        for c in children:
+            await audit.log_audit(
+                session, firm_id=voucher.firm_id, client_id=voucher.client_id, actor_user_id=principal.user.id,
+                action="unmerged", target_type="receipt", target_id=c.id,
+                summary="仕訳済みの統合伝票をばらして受信箱へ復元",
+            )
     await session.flush()
     await dedup.recompute_dedup(session, voucher.client_id)
-    return {"unmerged": len(children)}
+    return {"unmerged": len(children), "was_journalized": was_journalized}
 
 
 @router.delete("/{receipt_id}")

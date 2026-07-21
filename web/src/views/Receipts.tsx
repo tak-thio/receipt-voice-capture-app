@@ -185,9 +185,14 @@ export function ReceiptsView({
     setMerging(list)
   }
   // 統合伝票を「ばらす」: 束ねた元の領収書に戻す(統合伝票は削除)。
+  // 仕訳済み(確定済み)もばらせるが、仕訳の取消を伴うため強い警告を出す(操作は変更履歴に記録)。
   async function handleUnmerge(r: ReceiptRow) {
-    if (!window.confirm('この統合伝票をばらして、元の領収書に戻しますか?')) return
-    if (await toast.run(() => api.unmergeReceipts(r.id), 'ばらしました（元の領収書に戻しました）')) void load()
+    const msg = r.journalized_at
+      ? '⚠ この統合伝票は仕訳済み（確定済み）です。\n\nばらすと仕訳が取り消されて元帳から消え、元の領収書が受信箱（未仕訳）に戻ります。この操作は変更履歴に記録されます。\n\n本当にばらしますか？'
+      : 'この統合伝票をばらして、元の領収書に戻しますか?'
+    if (!window.confirm(msg)) return
+    const done = r.journalized_at ? '仕訳を取り消してばらしました' : 'ばらしました（元の領収書に戻しました）'
+    if (await toast.run(() => api.unmergeReceipts(r.id), done)) void load()
   }
   // クレジット明細の取込バッチ(塊)を一括削除(重複アップの片方を1クリックで消す)。
   async function handleDeleteBatch(r: ReceiptRow) {

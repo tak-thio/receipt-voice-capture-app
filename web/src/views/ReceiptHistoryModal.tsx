@@ -8,6 +8,8 @@ const ACTION_LABEL: Record<string, { label: string; tone: 'neutral' | 'danger' |
   deleted: { label: '削除', tone: 'danger' },
   journalized: { label: '仕訳確定', tone: 'success' },
   unjournalized: { label: '仕訳取消', tone: 'danger' },
+  merged: { label: '統合', tone: 'neutral' },
+  unmerged: { label: 'ばらし', tone: 'danger' },
   approved: { label: '承認', tone: 'success' },
   rejected: { label: '否認', tone: 'danger' },
   created: { label: '作成', tone: 'neutral' },
