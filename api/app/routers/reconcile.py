@@ -72,6 +72,10 @@ async def reconcile(
                 Receipt.client_id == client_id,
                 Receipt.lane == ReceiptLane.company.value,  # 立替は突き合わせに出さない
                 Receipt.doc_type != "card_statement",  # クレジット明細は専用画面で照合
+                # マージで束ねた元は出さない(受信箱・仕訳と同じ)。dedup再計算も束ねた元を
+                # 走査しないため、古い match_id/duplicate が残っていても表示してはいけない
+                # (これが無いと、マージ後も幽霊グループが表示され「重複ではない」も効かない)。
+                Receipt.merged_into.is_(None),
                 Receipt.match_id.is_not(None),
                 Receipt.approval_status.in_(["pending", "duplicate"]),
             )
